@@ -39,12 +39,12 @@ test('a map writes its terrain and its heights', () => {
  * Every cell is the same terrain: these tests are about height and walkability,
  * and a terrain type has no say in either.
  */
-const mapOf = (height, extra = {}) => ({
+const mapOf = (height: string[], extra: Record<string, unknown> = {}) => ({
   id: 'w',
   name: 'W',
   terrainKeys: { gr: 'grass' },
   height,
-  terrain: height.map((row) => [...row].map(() => 'gr').join('')),
+  terrain: height.map((row: string) => [...row].map(() => 'gr').join('')),
   ...extra,
 });
 

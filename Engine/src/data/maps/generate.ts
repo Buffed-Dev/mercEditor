@@ -330,11 +330,19 @@ export function generateMap(map: GameMap | null | undefined, options: AssembleOp
 /** How a run is put together: how many pieces, and from which seed. */
 export type AssembleOptions = { count?: number; seed?: number };
 
+/**
+ * A map that was assembled rather than written.
+ *
+ * Both fields are optional on a map file, because a hand-written map has
+ * neither -- but an assembled one always has both, and its callers read them.
+ */
+export type AssembledMap = GameMap & { rows: string[]; generated: GeneratedInfo };
+
 export function assemble(
   id: string,
   all: readonly ChunkPart[],
   { count, seed = (Math.random() * 2 ** 32) >>> 0 }: AssembleOptions = {},
-): GameMap {
+): AssembledMap {
   if (!all.length) throw new Error(`Cluster "${id}" has no parts`);
 
   const random = rngFrom(seed);
@@ -429,7 +437,7 @@ function compose(
   placed: readonly Placement[],
   start: ChunkPart,
   seed: number,
-): GameMap {
+): AssembledMap {
   // One tile of rock all the way round the parts. Without it a door that
   // nothing was fitted against, on a part at the outer edge, is a floor tile on
   // the map's own boundary — walkable up to a wall that is not there, held back

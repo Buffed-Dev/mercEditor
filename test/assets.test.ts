@@ -15,6 +15,8 @@ import {
   normalizeProp,
   standHeights,
 } from '../Engine/src/data/props.ts';
+import type { PropInput } from '../Engine/src/data/props.ts';
+import type { RuleKind } from '../Engine/editor/serializeData.ts';
 import { safeFileName } from '../Engine/editor/uploadAsset.ts';
 import { serializeRules } from '../Engine/editor/serializeData.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
@@ -52,7 +54,8 @@ test('every kind has a default for every field it declares', () => {
   for (const kind of ASSET_KIND_KEYS) {
     const made = defaultAsset('x', kind);
     for (const key of Object.keys(ASSET_FIELDS[kind])) {
-      assert.notEqual(made[key], undefined, `${kind}.${key} has a default`);
+      const fields = made as Record<string, unknown>;
+      assert.notEqual(fields[key], undefined, `${kind}.${key} has a default`);
     }
   }
 });
@@ -104,7 +107,8 @@ test('an object fills in what it left out, and keeps what it said', () => {
   // this goes wrong, and a prop that would not stop casting a shadow is how it
   // would show up.
   assert.equal(normalizeProp({ id: 'x', shadow: false }).shadow, false);
-  assert.deepEqual(Object.keys(normalizeProp({ id: 'x', stray: 1 })), Object.keys(defaultProp('x')));
+  const stray = { id: 'x', stray: 1 } as PropInput;
+  assert.deepEqual(Object.keys(normalizeProp(stray)), Object.keys(defaultProp('x')));
 });
 
 test('an object can be a sprite sheet instead of a model', () => {
@@ -139,10 +143,11 @@ test('both rules files parse back to what went in', async () => {
   ];
   const props = [normalizeProp({ id: 'boulder', mesh: 'rock', texture: 'bark', blocks: true })];
 
-  for (const [kind, list] of [
+  const cases: [RuleKind, object[]][] = [
     ['assets', assets],
     ['props', props],
-  ]) {
+  ];
+  for (const [kind, list] of cases) {
     const source = serializeRules(kind, list);
     const module = await import(`data:text/javascript,${encodeURIComponent(source)}`);
     const read = Object.values(module)[0];
@@ -185,8 +190,11 @@ test('an object list group is written on the objects, not kept in a list of its 
 });
 
 test('a flat-topped object raises the tile it stands on', () => {
-  const defs = { crate: { top: 1 }, barrel: { top: 0 } };
-  const lookup = (id) => defs[id] ?? null;
+  const defs = {
+    crate: { ...defaultProp('crate'), top: 1 },
+    barrel: { ...defaultProp('barrel'), top: 0 },
+  };
+  const lookup = (id: string) => defs[id as keyof typeof defs] ?? null;
 
   // Two crates on one tile: the top of the upper one, not the two added up.
   const tops = standHeights(

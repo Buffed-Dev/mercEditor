@@ -61,7 +61,7 @@ test('a modifier carries its own fields, and a typed one its type’s', () => {
   // Movement's fields come from the kind of movement it is.
   const spiral = defaultModifier('movement', 'spiral');
   assert.equal(spiral.type, 'spiral');
-  assert.deepEqual(modifierFields(spiral).sort(), ['rise', 'turn', 'widen']);
+  assert.deepEqual([...modifierFields(spiral)].sort(), ['rise', 'turn', 'widen']);
   assert.equal(defaultModifier('movement', 'sideways').type, MODIFIER_TYPES.movement.typeDefault);
 });
 

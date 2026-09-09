@@ -595,13 +595,25 @@ export type Vfx = {
  * had before an emitter and a particle were told apart, and `upconvert` below
  * is what reads them; `isLegacy` decides which of the two a record is.
  */
+/**
+ * One half of an effect, as a rules file writes it.
+ *
+ * `shape` and the modifiers are widened back out: the file is hand-edited, and
+ * a shape or a modifier kind the tables no longer have is exactly what
+ * `normalizeVfx` exists to decide about.
+ */
+type Loose<T> = Omit<Partial<T>, 'shape' | 'modifiers'> & {
+  shape?: string;
+  modifiers?: readonly ModifierInput[];
+};
+
 export type VfxInput = {
   id?: string;
   label?: string;
   kind?: string;
-  emitter?: (Partial<VfxEmitter> & { modifiers?: readonly ModifierInput[] }) | string;
-  particle?: Partial<VfxParticle> & { modifiers?: readonly ModifierInput[] };
-  sheet?: Partial<VfxSheet> & { modifiers?: readonly ModifierInput[] };
+  emitter?: Loose<VfxEmitter> | string;
+  particle?: Loose<VfxParticle>;
+  sheet?: Loose<VfxSheet>;
   spread?: number;
   radius?: number;
   height?: number;
@@ -956,15 +968,29 @@ const kept = (raw: readonly ModifierInput[] | undefined): VfxModifier[] =>
 export function normalizeVfx(def: VfxInput = {}): Vfx {
   if (isLegacy(def)) return upconvert(def);
   const given = typeof def.emitter === 'string' ? undefined : def.emitter;
-  const emitter = { ...defaultEmitter(), ...given };
-  if (!isEmitterShape(emitter.shape)) emitter.shape = 'cone';
-  emitter.modifiers = kept(given?.modifiers);
-  const particle = { ...defaultParticle(), ...def.particle };
-  if (!isParticleShape(particle.shape)) particle.shape = 'dot';
-  particle.modifiers = kept(def.particle?.modifiers);
-  const sheet = { ...defaultSheet(), ...def.sheet };
-  if (!isSheetShape(sheet.shape)) sheet.shape = 'plane';
-  sheet.modifiers = kept(def.sheet?.modifiers);
+  const emitterShape = given?.shape;
+  const emitter: VfxEmitter = {
+    ...defaultEmitter(),
+    ...given,
+    shape: isEmitterShape(emitterShape) ? emitterShape : 'cone',
+    modifiers: kept(given?.modifiers),
+  };
+
+  const particleShape = def.particle?.shape;
+  const particle: VfxParticle = {
+    ...defaultParticle(),
+    ...def.particle,
+    shape: isParticleShape(particleShape) ? particleShape : 'dot',
+    modifiers: kept(def.particle?.modifiers),
+  };
+
+  const sheetShape = def.sheet?.shape;
+  const sheet: VfxSheet = {
+    ...defaultSheet(),
+    ...def.sheet,
+    shape: isSheetShape(sheetShape) ? sheetShape : 'plane',
+    modifiers: kept(def.sheet?.modifiers),
+  };
 
   return {
     id: def.id ?? 'newEffect',

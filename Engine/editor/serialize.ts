@@ -18,7 +18,11 @@ import type { TerrainGrid } from '../src/data/terrain/grid.ts';
  * live grid, and writing a file is exactly the step that turns it back into
  * rows. Anything with only rows has nothing to serialize.
  */
-export type EditorMap = Omit<GameMap, 'terrain'> & { terrain: TerrainGrid };
+export type EditorMap = Omit<GameMap, 'terrain'> & {
+  terrain: TerrainGrid;
+  /** Which terrain each grid value stands for, in the order they were added. */
+  terrainIds?: readonly string[];
+};
 
 /**
  * One thing a map places, as this file reads it.

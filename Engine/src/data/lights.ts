@@ -100,7 +100,11 @@ export type Light = { type: LightType; gx: number; gy: number } & Partial<LightV
  * folder has one: the file is hand-edited, and `normalizeLight` is the single
  * place that decides what an unrecognised kind becomes.
  */
-export type LightInput = Partial<Omit<Light, 'type'>> & { type?: string };
+export type LightInput = Partial<Omit<Light, 'type'>> & {
+  type?: string;
+  /** Whatever else a map file wrote on it, `group` included. */
+  [key: string]: unknown;
+};
 
 export const isLightType = (value: unknown): value is LightType =>
   typeof value === 'string' && value in LIGHT_TYPES;
