@@ -1,5 +1,48 @@
-import { GLOBAL_COOLDOWN } from '../data/abilities.ts';
-import { hostile } from './actor.js';
+import { GLOBAL_COOLDOWN, type Ability } from '../data/abilities.ts';
+import type { AttrModifier, AttributeSet } from './attributes.ts';
+
+/** A wind-up in progress, and the slow it is holding on the caster. */
+export type Cast = {
+  ability: Ability;
+  aim: number;
+  remaining: number;
+  total: number;
+  handle: AttrModifier | null;
+};
+
+/**
+ * A cast's slow, on its way out.
+ *
+ * Kept after the cast ends so the caster eases back up to speed instead of
+ * snapping; see `updateCastSlow`.
+ */
+export type SlowRelease = { handle: AttrModifier; value: number; remaining: number };
+
+/** Where an actor is in a combo, and how long it has to carry on. */
+export type Chain = { id: string; index: number; remaining: number; gap: number };
+
+/** Whether an ability may fire, and if not, what stopped it. */
+export type Activation = { ok: boolean; reason: string };
+
+/**
+ * The parts of an actor a wind-up touches.
+ *
+ * Named separately from `Actor` because that is all these functions read or
+ * write: a cast needs somewhere to hang itself, the attributes it slows, and
+ * a facing to turn. An `Actor` satisfies it, and so does anything else that
+ * can be cast from -- which is what keeps this from being a promise the
+ * functions do not keep.
+ */
+export type Caster = {
+  attrs: AttributeSet;
+  cast: Cast | null;
+  slowRelease: SlowRelease | null;
+  facing: number;
+};
+
+/** The one field a combo reads and writes. See `Caster` for why. */
+export type Chainer = { chain?: Chain | null };
+import { hostile, type Actor } from './actor.ts';
 
 /**
  * The rules an ability is gated by, and the melee geometry.
@@ -26,7 +69,7 @@ const MIN_RATE = 0.05;
  * with a 1 second cooldown would come back in 1.1, having already waited out
  * the shared 0.1 in the first tenth of that.
  */
-export function cooldownSeconds(ability, actor) {
+export function cooldownSeconds(ability: Ability, actor: Actor | null | undefined): number {
   const base = Math.max(0, ability.cooldown ?? 0);
   const rate = ability.cooldownRate ? (actor?.attrs?.value(ability.cooldownRate) ?? 1) : 1;
   return base / Math.max(MIN_RATE, rate);
@@ -40,11 +83,11 @@ export function cooldownSeconds(ability, actor) {
  * cooldown of its own from firing every frame, and it is also what stops three
  * abilities all going off on the same frame because three buttons were held.
  */
-export function globalRemaining(actor) {
+export function globalRemaining(actor: Actor | null | undefined): number {
   return Math.max(0, actor?.globalCooldown ?? 0);
 }
 
-function cooldownRemaining(actor, abilityId) {
+function cooldownRemaining(actor: Actor | null | undefined, abilityId: string): number {
   return actor?.cooldowns?.get(abilityId) ?? 0;
 }
 
@@ -56,7 +99,7 @@ function cooldownRemaining(actor, abilityId) {
  * during the tenth of a second none of them can actually be used, which looks
  * exactly like a bug in the input handling.
  */
-export function cooldownFraction(ability, actor) {
+export function cooldownFraction(ability: Ability, actor: Actor | null | undefined): number {
   const total = cooldownSeconds(ability, actor);
   const own = total > 0 ? cooldownRemaining(actor, ability.id) / total : 0;
   const shared = GLOBAL_COOLDOWN > 0 ? globalRemaining(actor) / GLOBAL_COOLDOWN : 0;
@@ -67,7 +110,10 @@ export function cooldownFraction(ability, actor) {
  * May this actor fire this ability right now? Returns a reason rather than a
  * bare false, so the HUD and the tests can say *why* nothing happened.
  */
-export function canActivate(ability, actor) {
+export function canActivate(
+  ability: Ability | null | undefined,
+  actor: Actor | null | undefined,
+): Activation {
   if (!ability) return { ok: false, reason: 'unknown' };
   if (!actor?.alive) return { ok: false, reason: 'dead' };
   if (cooldownRemaining(actor, ability.id) > 0) return { ok: false, reason: 'cooldown' };
@@ -84,12 +130,12 @@ export function canActivate(ability, actor) {
 }
 
 /** Spend the cost. Only ever called once canActivate has said yes. */
-export function payCost(ability, actor) {
+export function payCost(ability: Ability, actor: Actor): number {
   if (!ability.costAttribute || !(ability.cost > 0)) return 0;
   return actor.attrs.applyDelta(ability.costAttribute, -ability.cost);
 }
 
-export function beginCooldown(ability, actor) {
+export function beginCooldown(ability: Ability, actor: Actor): void {
   const seconds = cooldownSeconds(ability, actor);
   if (seconds > 0) actor.cooldowns.set(ability.id, seconds);
   // Every ability pays the shared one, including the ones with no cooldown of
@@ -105,12 +151,12 @@ export function beginCooldown(ability, actor) {
  * and applies to monsters for free. A castSlow of 1 multiplies speed by zero,
  * which roots the caster without needing a "rooted" flag anywhere.
  */
-export function beginCast(ability, actor, aim) {
+export function beginCast(ability: Ability, actor: Caster, aim: number): Cast {
   // Whatever the last cast is still letting go of, this one replaces outright:
   // two slows on one actor would stack into a caster who can barely walk.
   clearSlowRelease(actor);
 
-  const cast = {
+  const cast: Cast = {
     ability,
     aim,
     remaining: ability.castTime,
@@ -141,7 +187,7 @@ export function beginCast(ability, actor, aim) {
 const SLOW_RELEASE = 0.2;
 
 /** Drop a slow still on its way out, at once and without ceremony. */
-function clearSlowRelease(actor) {
+function clearSlowRelease(actor: Caster): void {
   if (!actor.slowRelease) return;
   actor.attrs.removeModifier(actor.slowRelease.handle);
   actor.slowRelease = null;
@@ -152,7 +198,7 @@ function clearSlowRelease(actor) {
  * cost — and an interrupted cast eases off exactly like a finished one, since
  * the lurch is the same lurch either way.
  */
-export function endCast(actor) {
+export function endCast(actor: Caster): Cast | null {
   const cast = actor.cast;
   if (!cast) return null;
   if (cast.handle) {
@@ -172,7 +218,7 @@ export function endCast(actor) {
  * Called for every actor every frame, casting or not: the ramp outlives the
  * wind-up that started it, which is the whole point of it.
  */
-export function updateCastSlow(actor, dt) {
+export function updateCastSlow(actor: Caster, dt: number): void {
   const release = actor.slowRelease;
   if (!release) return;
 
@@ -192,7 +238,7 @@ export function updateCastSlow(actor, dt) {
  * re-aimed as it goes — so the shape on the ground follows the cursor right up
  * until it lands, and a 0 commits the direction at the moment of pressing.
  */
-export function turnActor(actor, heading, dt) {
+export function turnActor(actor: Caster, heading: number, dt: number): number {
   const cast = actor.cast;
   if (!cast) {
     actor.facing = heading;
@@ -210,14 +256,14 @@ export function turnActor(actor, heading, dt) {
 }
 
 /** 0 at the moment of pressing, 1 as the ability goes off — for a cast bar. */
-export function castProgress(actor) {
+export function castProgress(actor: Caster | null | undefined): number {
   const cast = actor?.cast;
   if (!cast || cast.total <= 0) return 0;
   return Math.min(1, Math.max(0, 1 - cast.remaining / cast.total));
 }
 
 /** Shortest signed angle from a to b, so a swing works across the ±PI wrap. */
-export function angleBetween(a, b) {
+export function angleBetween(a: number, b: number): number {
   const offset = b - a;
   return Math.atan2(Math.sin(offset), Math.cos(offset));
 }
@@ -230,9 +276,14 @@ export function angleBetween(a, b) {
  * what the hardcoded melee did and is what stops a fat brute being unhittable
  * at a range its own body already covers.
  */
-export function coneHits(caster, aim, ability, candidates) {
+export function coneHits(
+  caster: Actor,
+  aim: number,
+  ability: Ability,
+  candidates: readonly Actor[],
+): Actor[] {
   const halfArc = ((ability.arc ?? 360) * Math.PI) / 360;
-  const hits = [];
+  const hits: Actor[] = [];
 
   for (const target of candidates) {
     if (target === caster || !target.alive || !hostile(caster, target)) continue;
@@ -261,8 +312,9 @@ export function coneHits(caster, aim, ability, candidates) {
  * different combo starts that one from the beginning, which is what you want
  * from a bar where two chains are two separate weapons.
  */
-export function chainIndex(actor, combo) {
-  return actor?.chain?.id === combo.id ? actor.chain.index : 0;
+export function chainIndex(actor: Chainer | null | undefined, combo: Ability): number {
+  const chain = actor?.chain;
+  return chain?.id === combo.id ? chain.index : 0;
 }
 
 /**
@@ -271,7 +323,7 @@ export function chainIndex(actor, combo) {
  * @returns true when that step was the finisher, which is when the combo's own
  * cooldown starts.
  */
-export function advanceChain(actor, combo) {
+export function advanceChain(actor: Chainer, combo: Ability): boolean {
   const next = chainIndex(actor, combo) + 1;
   if (next >= combo.steps.length) {
     actor.chain = null;
@@ -296,13 +348,15 @@ export function advanceChain(actor, combo) {
  * combo's own pacing and belongs to the chain, not to whichever step happens
  * to be next.
  */
-export function chainReady(actor, combo) {
-  return !(actor?.chain?.id === combo.id && actor.chain.gap > 0);
+export function chainReady(actor: Chainer | null | undefined, combo: Ability): boolean {
+  const chain = actor?.chain;
+  return !(chain?.id === combo.id && chain.gap > 0);
 }
 
 /** 1 the moment a step lands, easing to 0 as the next becomes available. */
-export function chainGapFraction(actor, combo) {
-  const gap = actor?.chain?.id === combo.id ? actor.chain.gap : 0;
+export function chainGapFraction(actor: Chainer | null | undefined, combo: Ability): number {
+  const chain = actor?.chain;
+  const gap = chain?.id === combo.id ? chain.gap : 0;
   const total = combo.stepGap ?? 0;
   return gap > 0 && total > 0 ? Math.min(1, gap / total) : 0;
 }
@@ -315,7 +369,7 @@ export function chainGapFraction(actor, combo) {
  * finisher — the chain has to be something you keep going, not somewhere you
  * park.
  */
-export function updateChain(actor, dt) {
+export function updateChain(actor: Chainer, dt: number): void {
   const chain = actor.chain;
   if (!chain) return;
 

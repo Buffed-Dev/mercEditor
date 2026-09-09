@@ -109,7 +109,24 @@ export type Placed = { gx: number; gy: number };
  * move it, so a position plus 'and whatever else it had' is the whole contract
  * here, and it stays honest rather than inventing fields.
  */
-export type MapObject = Placed & { [key: string]: unknown };
+export type MapObject = Placed & {
+  /**
+   * The handful of fields the engine itself reads off a placed thing.
+   *
+   * Named rather than left to the index signature because reading `stack` or
+   * `face` as `unknown` would push a narrowing check into every caller for a
+   * field the format has always had. Everything else a map file wrote is still
+   * reachable, still as `unknown`.
+   */
+  id?: string;
+  kind?: string;
+  stack?: number;
+  lift?: number;
+  face?: string;
+  type?: string;
+  azimuth?: number;
+  [key: string]: unknown;
+};
 
 /** A wall, which stacks. */
 export type Wall = Placed & { stack?: number };
@@ -258,7 +275,13 @@ export function parseMap(rows: readonly string[]): ParsedMap {
  * portals target so you arrive beside the door you came out of rather than at
  * the map's start.
  */
-export function spawnPoint(map: GameMap, parsed: ParsedMap, name = 'default'): Placed {
+export function spawnPoint(
+  map: GameMap,
+  // Typed by the one field it reads. The World builds a stand-in carrying
+  // nothing but a spawn, which is all this has ever looked at.
+  parsed: { spawn: Placed },
+  name = 'default',
+): Placed {
   const named = map.spawns?.[name];
   if (named) return { gx: named.gx + 0.5, gy: named.gy + 0.5 };
   return { ...parsed.spawn };

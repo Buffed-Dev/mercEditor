@@ -1,7 +1,16 @@
-import { spawnPoint, wallStacks } from '../data/mapFormat.ts';
+import {
+  spawnPoint,
+  wallStacks,
+  type GameMap,
+  type MapObject,
+  type Placed,
+} from '../data/mapFormat.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { blockedTiles, standHeights } from '../data/props.ts';
+import { blockedTiles, standHeights, type Prop, type PropLookup } from '../data/props.ts';
 import { decodeTerrain } from '../data/terrain/codec.ts';
+
+/** What reading a map's terrain gives back. Named from the codec itself. */
+type Decoded = ReturnType<typeof decodeTerrain>;
 import { levelAt as gridLevelAt } from '../data/terrain/grid.ts';
 
 /**
@@ -27,6 +36,24 @@ const EPS = 1e-4;
 
 
 export class World {
+  map: GameMap;
+  terrain: Decoded['grid'];
+  terrainIds: Decoded['terrainIds'];
+  terrainProblems: Decoded['problems'];
+  cols: number;
+  rows: number;
+  /** The level of a tile, or null where the map has no ground at all. */
+  levelAt: (tx: number, ty: number) => number | null;
+  stepHeight: number;
+  spawn: Placed;
+  portals: readonly MapObject[];
+  /** How many wall blocks stand on a tile, by "gx,gy". */
+  walls: Map<string, number>;
+  /** Tiles a prop refuses to be walked through, by "gx,gy". */
+  blockers: Set<string>;
+  /** How high a prop lets something stand on it, by "gx,gy". */
+  platforms: Map<string, number>;
+
   /**
    * @param {object} map a map definition from data/maps/
    * @param {string} spawnName which of the map's arrival points to spawn at
@@ -34,7 +61,11 @@ export class World {
    *   and gets its own; the editor names the ones being edited, so a change to
    *   what an object *is* shows without saving first.
    */
-  constructor(map, spawnName = 'default', propDefs = null) {
+  constructor(
+    map: GameMap,
+    spawnName = 'default',
+    propDefs: readonly Prop[] | null = null,
+  ) {
     // The map's terrain rows, decoded once. The grid is the single source of
     // what is where: the renderer builds its triangles from the same object, so
     // what you walk on and what you see cannot drift apart.
@@ -46,7 +77,7 @@ export class World {
     this.cols = decoded.grid.cols;
     this.rows = decoded.grid.rows;
     /** How tall the column on a tile is, or null where there is no cell. */
-    this.levelAt = (tx, ty) => gridLevelAt(decoded.grid, tx, ty);
+    this.levelAt = (tx: number, ty: number) => gridLevelAt(decoded.grid, tx, ty);
     // How much of a rise counts as a step rather than a cliff.
     this.stepHeight = map.stepHeight ?? DEFAULT_STEP;
     this.spawn = spawnPoint(map, { spawn: { gx: this.cols / 2, gy: this.rows / 2 } }, spawnName);
@@ -57,14 +88,17 @@ export class World {
     // Objects that block the way. Kept apart from the walls rather than added
     // to them: a wall stack is also what gets *drawn* as a wall, and a boulder
     // you cannot walk through is not a wall with a boulder next to it.
-    const propOf = propDefs
-      ? (id) => propDefs.find((def) => def.id === id) ?? null
+    const propOf: PropLookup | undefined = propDefs
+      ? (id: string) => propDefs.find((def) => def.id === id) ?? null
       : undefined;
-    this.blockers = blockedTiles(map.props, ...(propOf ? [propOf] : []));
+    // Passed straight through rather than spread in conditionally: both of
+    // these take the lookup as an optional parameter, so handing them
+    // `undefined` already means "use the shipped definitions".
+    this.blockers = blockedTiles(map.props, propOf);
     // And the ones you stand on top of rather than walk around. Kept apart from
     // the terrain for the same reason: what you can see and what the ground is
     // are the same surface, and an object standing on it is neither.
-    this.platforms = standHeights(map.props, ...(propOf ? [propOf] : []));
+    this.platforms = standHeights(map.props, propOf);
 
     // Where the map says the player comes up, if it is not the ground. It goes
     // in with the objects rather than beside them because it is the same
@@ -87,7 +121,7 @@ export class World {
    * from — an object asking how high the ground under it is would otherwise be
    * told its own roof and stand on itself.
    */
-  standAt(gx, gy) {
+  standAt(gx: number, gy: number): number {
     const top = this.platforms.get(`${Math.floor(gx)},${Math.floor(gy)}`) ?? 0;
     return this.heightAt(gx, gy) + top / LEVEL_H;
   }
@@ -96,18 +130,18 @@ export class World {
    * The portal the given position is standing on, if any. Portals occupy a
    * single tile, so this is just a tile-index comparison.
    */
-  portalAt(gx, gy) {
+  portalAt(gx: number, gy: number): MapObject | null {
     const tx = Math.floor(gx);
     const ty = Math.floor(gy);
     return this.portals.find((p) => p.gx === tx && p.gy === ty) ?? null;
   }
 
-  inBounds(tx, ty) {
+  inBounds(tx: number, ty: number): boolean {
     return tx >= 0 && ty >= 0 && tx < this.cols && ty < this.rows;
   }
 
   /** How many wall blocks stand on a tile. Zero for open ground. */
-  wallStack(tx, ty) {
+  wallStack(tx: number, ty: number): number {
     return this.walls.get(`${tx},${ty}`) ?? 0;
   }
 
@@ -117,7 +151,7 @@ export class World {
    * One block or six, a wall is impassable — stacking changes how tall it looks
    * and nothing about whether you can walk through it.
    */
-  isWall(tx, ty) {
+  isWall(tx: number, ty: number): boolean {
     if (!this.inBounds(tx, ty)) return true;
     // A cell with no terrain is a hole, and a hole is not somewhere you may
     // walk. Out of bounds was always solid for this reason; now that a map can
@@ -127,7 +161,7 @@ export class World {
   }
 
   /** For geometry and lighting: out of bounds is empty space, not wall. */
-  isWallTile(tx, ty) {
+  isWallTile(tx: number, ty: number): boolean {
     return this.inBounds(tx, ty) && this.wallStack(tx, ty) > 0;
   }
 
@@ -142,14 +176,14 @@ export class World {
    * There used to be an exception for ramps. There is no longer: every rise is
    * a step, and `canStand` decides which of them can be climbed.
    */
-  heightAt(gx, gy) {
+  heightAt(gx: number, gy: number): number {
     const tx = Math.floor(gx);
     const ty = Math.floor(gy);
     if (!this.inBounds(tx, ty)) return 0;
     return this.levelAt(tx, ty) ?? 0;
   }
 
-  hitsWall(gx, gy, r = PLAYER_RADIUS) {
+  hitsWall(gx: number, gy: number, r = PLAYER_RADIUS): boolean {
     const x0 = Math.floor(gx - r);
     const x1 = Math.floor(gx + r);
     const y0 = Math.floor(gy - r);
@@ -171,7 +205,7 @@ export class World {
    * ledge and to walk onto one — but for a rise it is what let a body walk half
    * of itself into a cliff before anything objected.
    */
-  blockedRise(gx, gy, fromH, r = PLAYER_RADIUS) {
+  blockedRise(gx: number, gy: number, fromH: number, r = PLAYER_RADIUS): boolean {
     const x0 = Math.floor(gx - r);
     const x1 = Math.floor(gx + r);
     const y0 = Math.floor(gy - r);
@@ -200,7 +234,7 @@ export class World {
    * able to walk within a body's width of one, which includes never being able
    * to climb onto one.
    */
-  canStand(gx, gy, fromH) {
+  canStand(gx: number, gy: number, fromH: number): boolean {
     if (this.hitsWall(gx, gy)) return false;
     // Up is limited, down is not. Only climbing is the thing a step height is
     // about — and the alternative was found the hard way: a symmetric rule
@@ -217,7 +251,7 @@ export class World {
    *
    * @param {{gx:number, gy:number}} pos mutated in place
    */
-  move(pos, dgx, dgy) {
+  move(pos: Placed, dgx: number, dgy: number): Placed {
     const r = PLAYER_RADIUS;
     let { gx, gy } = pos;
 
@@ -268,9 +302,14 @@ export class World {
    * where it is standing is worse than any amount of clipping, and refusing
    * both axes would be exactly that.
    */
-  stander(gx, gy, fromH, axis) {
+  stander(
+    gx: number,
+    gy: number,
+    fromH: number,
+    axis: 'x' | 'y',
+  ): (at: number) => boolean {
     const stuck = this.blockedRise(gx, gy, fromH);
-    return (at) => {
+    return (at: number) => {
       const x = axis === 'x' ? at : gx;
       const y = axis === 'x' ? gy : at;
       if (!this.canStand(x, y, fromH)) return false;

@@ -12,18 +12,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { STACK_MAX } from '../Engine/src/data/items.ts';
-import { createInventory } from '../Engine/src/game/inventory.js';
-import { countOf, rollItem, stacks } from '../Engine/src/game/items.js';
+import { createInventory } from '../Engine/src/game/inventory.ts';
+import { countOf, rollItem, stacks } from '../Engine/src/game/items.ts';
+
+import type { ItemInput } from '../Engine/src/data/items.ts';
+import type { ItemInstance } from '../Engine/src/game/items.ts';
+import type { Inventory } from '../Engine/src/game/inventory.ts';
 
 const ORE = { id: 'ironOre', label: 'Iron ore', kind: 'material' };
 const WOOD = { id: 'oakWood', label: 'Oak wood', kind: 'material' };
 const SWORD = { id: 'shortSword', label: 'Short sword', kind: 'equipment', slot: 'mainHand' };
 
-const ore = (n) => rollItem(ORE, Math.random, n);
-const wood = (n) => rollItem(WOOD, Math.random, n);
-const sword = () => rollItem(SWORD);
+/** Rolls a definition that is definitely there, and hands back the item. */
+function roll(def: ItemInput, n = 1): ItemInstance {
+  const item = rollItem(def, Math.random, n);
+  assert.ok(item, `nothing rolled for ${def.id}`);
+  return item;
+}
 
-const cells = (bag) => bag.snapshot().bag.map((item) => (item ? countOf(item) : null));
+const ore = (n: number) => roll(ORE, n);
+const wood = (n: number) => roll(WOOD, n);
+const sword = () => roll(SWORD);
+
+const cells = (bag: Inventory) =>
+  bag.snapshot().bag.map((item) => (item ? countOf(item) : null));
 
 test('equipment does not stack and materials do', () => {
   assert.equal(stacks(ore(1), ore(1)), true);

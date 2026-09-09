@@ -78,7 +78,7 @@ export function setFogEnabled(on) {
  * belongs to the camera, which outlives every map.
  *
  * @param {import('@babylonjs/core/scene.js').Scene} scene
- * @param {import('../game/world.js').World} world the island being fogged
+ * @param {import('../game/world.ts').World} world the island being fogged
  * @param {import('@babylonjs/core/Maths/math.color.js').Color3} tint
  * @param {number} reach how many tiles in from the edge the fog gets, in tiles
  * @param {number} smooth how many of those are the fade rather than solid fog

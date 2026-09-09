@@ -14,11 +14,33 @@
  * nothing here beyond a different id in the same field.
  */
 
-import { currencyMap } from '../data/currencies.ts';
-import { itemMap } from '../data/items.ts';
-import { lootTableMap, normalizeLootRoll } from '../data/lootTables.ts';
-import { SETTLE_SECONDS } from './ground.js';
-import { countOf, rollItem, withCount } from './items.js';
+import { currencyMap, type CurrencyInput } from '../data/currencies.ts';
+import type { Currency } from '../data/items.ts';
+import type { CategoryInput } from '../data/categories.ts';
+import type { Placed } from '../data/mapFormat.ts';
+import { itemMap, type ItemInput } from '../data/items.ts';
+import { lootTableMap, normalizeLootRoll, type LootTableInput } from '../data/lootTables.ts';
+import { SETTLE_SECONDS, type Drop, type Ground } from './ground.ts';
+import type { Character } from './character.ts';
+import {
+  countOf,
+  isCoinPile,
+  rollItem,
+  type Coin,
+  type CoinPile,
+  type ItemInstance,
+  type Loot,
+} from './items.ts';
+
+/** What picking something up did. */
+export type Collected = {
+  ok: boolean;
+  reason: string;
+  item: ItemInstance | null;
+  coin: Coin | null;
+  /** What would not fit, when only part of a stack was taken. */
+  left?: ItemInstance | null;
+};
 
 /** How close you have to be for coin to be swept up off the floor. */
 export const COIN_REACH = 0.8;
@@ -35,7 +57,7 @@ export const COIN_REACH = 0.8;
  * a landing that is short by 4e-16 would hold the coin for one more frame every
  * so often for no reason anyone could ever find.
  */
-export function settled(drop, now) {
+export function settled(drop: Drop | null | undefined, now: number): boolean {
   if (!drop?.at) return true;
   return now - drop.at >= SETTLE_SECONDS - 1e-9;
 }
@@ -46,8 +68,14 @@ export function settled(drop, now) {
  * Returns the whole line — which currency as well as how much — because with
  * more than one kind of money "how much" is not an answer on its own.
  */
-export function coinOf(drop) {
-  const { currency, amount } = drop?.item ?? {};
+export function coinOf(
+  // Only the thing lying there is read, so a bare `{ item }` can be asked
+  // about as readily as a drop the ground handed out.
+  drop: { item?: Loot | null } | null | undefined,
+): Coin | null {
+  const item = drop?.item;
+  if (!item || !isCoinPile(item)) return null;
+  const { currency, amount } = item;
   if (!currency || !Number.isFinite(amount) || amount <= 0) return null;
   return { currency, amount };
 }
@@ -62,12 +90,19 @@ export function coinOf(drop) {
  *
  * @returns {{ok: boolean, reason: ''|'gone'|'full', item: object|null, gold: number}}
  */
-export function collect(id, { ground, character }) {
+export function collect(
+  id: string,
+  { ground, character }: { ground: Ground; character: Character },
+): Collected {
   const drop = ground.at(id);
   if (!drop) return { ok: false, reason: 'gone', item: null, coin: null };
 
-  const coin = coinOf(drop);
-  if (coin) {
+  // Money is settled here in full, rather than falling through when the pile
+  // turns out to be malformed. It used to reach the bag in that case, which
+  // put something with no definition and no stats into an inventory cell.
+  if (isCoinPile(drop.item)) {
+    const coin = coinOf(drop);
+    if (!coin) return { ok: false, reason: 'gone', item: null, coin: null };
     ground.take(id);
     character.earn(coin.currency, coin.amount);
     return { ok: true, reason: '', item: null, coin };
@@ -101,7 +136,14 @@ export function collect(id, { ground, character }) {
  *
  * @returns {number} how much was picked up, for whoever wants to say so.
  */
-export function sweepCoin(at, { ground, character, now = Infinity }) {
+export function sweepCoin(
+  at: Placed,
+  {
+    ground,
+    character,
+    now = Infinity,
+  }: { ground: Ground; character: Character; now?: number },
+): number {
   let taken = 0;
   for (const drop of ground.list()) {
     if (!coinOf(drop)) continue;
@@ -120,13 +162,28 @@ export function sweepCoin(at, { ground, character, now = Infinity }) {
  * is an argument for the same reason it is one when an item rolls: a seeded run
  * has to pay out the same twice.
  */
-export function rollLoot(tableId, { lootTables, currencies, items, categories, rng = Math.random }) {
-  const table = lootTableMap(tableId ? lootTables : []).get(tableId);
+export function rollLoot(
+  tableId: string | null | undefined,
+  {
+    lootTables,
+    currencies,
+    items,
+    categories,
+    rng = Math.random,
+  }: {
+    lootTables?: readonly LootTableInput[];
+    currencies?: readonly CurrencyInput[];
+    items?: readonly ItemInput[];
+    categories?: readonly CategoryInput[];
+    rng?: () => number;
+  },
+): Loot[] {
+  const table = lootTableMap(tableId ? lootTables : []).get(tableId ?? '');
   if (!table) return [];
 
   const names = currencyMap(currencies);
   const defs = itemMap(items, categories);
-  const dropped = [];
+  const dropped: Loot[] = [];
 
   for (const line of table.rolls) {
     const roll = normalizeLootRoll(line);
@@ -163,7 +220,11 @@ export function rollLoot(tableId, { lootTables, currencies, items, categories, r
  * Rounded and never negative: a monster worth nothing leaves nothing, which is
  * the caller's cue not to drop at all.
  */
-export function coinPile(currency, amount, currencies = undefined) {
+export function coinPile(
+  currency: string | null | undefined,
+  amount: number,
+  currencies?: readonly CurrencyInput[] | Map<string, Currency>,
+): CoinPile | null {
   const held = Math.max(0, Math.round(amount) || 0);
   if (!currency || !held) return null;
   const names = currencies instanceof Map ? currencies : currencyMap(currencies);

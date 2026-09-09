@@ -16,8 +16,8 @@ import { LEVEL_H } from '../src/data/dimensions.ts';
 import { colorOf, unlit } from '../src/render/materials.js';
 import { normalizeLight } from '../src/data/lights.ts';
 
-import { MONSTER_KINDS } from '../src/game/monsters.js';
-import { World } from '../src/game/world.js';
+import { MONSTER_KINDS } from '../src/game/monsters.ts';
+import { World } from '../src/game/world.ts';
 import { createDocument } from './document.js';
 
 /**

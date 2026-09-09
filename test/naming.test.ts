@@ -24,7 +24,7 @@ test('renaming an asset carries every record that draws itself out of it', () =>
     assets: [{ id: 'asset1', label: 'asset1', kind: 'mesh', file: 'rock.glb' }],
     props: [{ id: 'boulder', mesh: 'asset1' }],
   });
-  const index = doc.list('assets').findIndex((entry) => entry.id === 'asset1');
+  const index = doc.list('assets').findIndex((entry: { id: string }) => entry.id === 'asset1');
 
   assert.equal(doc.rename('assets', index, 'rock'), null);
   assert.equal(doc.list('props')[0].mesh, 'rock');
@@ -33,7 +33,9 @@ test('renaming an asset carries every record that draws itself out of it', () =>
   // making two records answer to one id.
   doc.add('assets');
   const second = doc.list('assets').length - 1;
-  assert.match(doc.rename('assets', second, 'rock'), /already taken/);
+  const clash = doc.rename('assets', second, 'rock');
+  assert.ok(clash, 'renaming onto an id another record holds was allowed');
+  assert.match(clash, /already taken/);
 });
 
 test('renaming a material carries the terrains wearing it', () => {
@@ -68,7 +70,8 @@ test('a painted map round-trips through the file it writes', () => {
   // now, so there is no widening left to get wrong — what this guards instead
   // is that what the editor writes is what it reads back.
   const doc = createDocument(blankMap('m', 4, 3));
-  const charOf = (id) => ({ grass: 'gr', road: 'r2' })[id] ?? '';
+  const charOf = (id: string) =>
+    ({ grass: 'gr', road: 'r2' }) [id as 'grass' | 'road'] ?? '';
 
   const stroke = doc.beginStroke('paint');
   stroke.set(0, 0, 0, doc.kindOf('grass'));
@@ -85,9 +88,16 @@ test('a painted map round-trips through the file it writes', () => {
   assert.match(source, /terrainKeys: \{ 'gr': 'grass', 'r2': 'road' \},/);
   assert.match(source, /terrain: \[\n {4}'gr\.\.\.\.\.\.',/);
 
+  /** The quoted rows of one `key: [...]` block of the serialized map. */
+  const rowsOf = (key: string): string[] => {
+    const block = source.match(new RegExp(`${key}: \\[([^\\]]*)\\]`));
+    assert.ok(block, `the serialized map has no ${key} block`);
+    return (block[1].match(/'([^']*)'/g) ?? []).map((r) => r.slice(1, -1));
+  };
+
   const read = decodeTerrain({
-    height: source.match(/height: \[([^\]]*)\]/)[1].match(/'([^']*)'/g).map((r) => r.slice(1, -1)),
-    terrain: source.match(/terrain: \[([^\]]*)\]/)[1].match(/'([^']*)'/g).map((r) => r.slice(1, -1)),
+    height: rowsOf('height'),
+    terrain: rowsOf('terrain'),
     terrainKeys: { gr: 'grass', r2: 'road' },
   });
   assert.deepEqual(read.problems, [], 'a file this code wrote reads back clean');

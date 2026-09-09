@@ -10,8 +10,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createCharacter } from '../Engine/src/game/character.js';
-import { SETTLE_SECONDS, createGround } from '../Engine/src/game/ground.js';
+import { createCharacter } from '../Engine/src/game/character.ts';
+import { SETTLE_SECONDS, createGround } from '../Engine/src/game/ground.ts';
+import type { Drop, Ground } from '../Engine/src/game/ground.ts';
+import type { Loot } from '../Engine/src/game/items.ts';
+import { anItem, asCoin, asItem } from './helpers/items.ts';
 import {
   COIN_REACH,
   coinOf,
@@ -20,7 +23,7 @@ import {
   rollLoot,
   settled,
   sweepCoin,
-} from '../Engine/src/game/loot.js';
+} from '../Engine/src/game/loot.ts';
 
 const ITEMS = [
   { id: 'ironOre', label: 'Iron ore', kind: 'material' },
@@ -47,11 +50,31 @@ const LOOT_TABLES = [
   { id: 'backwards', label: 'Backwards', rolls: [{ kind: 'currency', id: 'gold', min: 9, max: 3, chance: 1 }] },
 ];
 
-const sword = () => ({ uid: 'sword1', label: 'Short sword', slot: 'mainHand', stats: [] });
-const pile = (currency, amount) => coinPile(currency, amount, CURRENCIES);
+const sword = () => anItem({ uid: 'sword1', defId: 'sword', label: 'Short sword', slot: 'mainHand' });
+const pile = (currency: string, amount: number) => coinPile(currency, amount, CURRENCIES);
+
+/**
+ * Drops something and hands back the drop.
+ *
+ * `ground.drop` answers null when handed nothing, which no test here means to
+ * do; saying so once turns that into a named failure instead of a null read
+ * further down.
+ */
+function dropped(
+  ground: Ground,
+  loot: Loot | null,
+  tx: number,
+  ty: number,
+  from: { gx: number; gy: number } | null = null,
+  at = 0,
+): Drop {
+  const drop = ground.drop(loot, tx, ty, from, at);
+  assert.ok(drop, 'nothing was dropped');
+  return drop;
+}
 
 /** An rng that hands back exactly the numbers you give it, in order. */
-const scripted = (...values) => {
+const scripted = (...values: number[]) => {
   let i = 0;
   return () => values[i++ % values.length];
 };
@@ -69,7 +92,7 @@ test('a pile is coin and an item is not', () => {
   assert.deepEqual(pile('gold', 7.4), { label: '7 Gold', currency: 'gold', amount: 7 });
   // An unknown currency still makes a pile; it is named by its id rather than
   // vanishing, because losing a payout is worse than an ugly plate.
-  assert.equal(pile('mystery', 2).label, '2 mystery');
+  assert.equal(asCoin(pile('mystery', 2)).label, '2 mystery');
 
   assert.deepEqual(coinOf({ item: pile('shard', 3) }), { currency: 'shard', amount: 3 });
   assert.equal(coinOf({ item: sword() }), null);
@@ -78,7 +101,7 @@ test('a pile is coin and an item is not', () => {
 
 test('coin goes in the purse and never in the bag', () => {
   const { character, ground, deps } = floor();
-  const drop = ground.drop(pile('gold', 12), 3, 3);
+  const drop = dropped(ground, pile('gold', 12), 3, 3);
 
   const result = collect(drop.id, deps);
   assert.deepEqual([result.ok, result.coin, result.item], [true, { currency: 'gold', amount: 12 }, null]);
@@ -89,8 +112,8 @@ test('coin goes in the purse and never in the bag', () => {
 
 test('each currency lands in its own pocket', () => {
   const { character, ground, deps } = floor();
-  collect(ground.drop(pile('gold', 4), 1, 1).id, deps);
-  collect(ground.drop(pile('shard', 2), 2, 2).id, deps);
+  collect(dropped(ground, pile('gold', 4), 1, 1).id, deps);
+  collect(dropped(ground, pile('shard', 2), 2, 2).id, deps);
 
   assert.equal(character.amount('gold'), 4);
   assert.equal(character.amount('shard'), 2);
@@ -99,13 +122,13 @@ test('each currency lands in its own pocket', () => {
 test('a full bag refuses an item but never a coin', () => {
   const { character, ground, deps } = floor();
   for (let i = 0; i < character.inventory.size; i++) {
-    character.inventory.add({ uid: `filler${i}`, label: 'Rock', slot: 'head', stats: [] });
+    character.inventory.add(anItem({ uid: `filler${i}`, defId: 'rock', label: 'Rock', slot: 'head' }));
   }
-  const item = ground.drop(sword(), 1, 1);
-  const coin = ground.drop(pile('gold', 5), 2, 2);
+  const item = dropped(ground, sword(), 1, 1);
+  const coin = dropped(ground, pile('gold', 5), 2, 2);
 
   assert.equal(collect(item.id, deps).reason, 'full');
-  assert.equal(ground.at(item.id)?.item.label, 'Short sword', 'a refused item left the floor');
+  assert.equal(asItem(ground.at(item.id)?.item).label, 'Short sword', 'a refused item left the floor');
 
   assert.equal(collect(coin.id, deps).ok, true);
   assert.equal(character.amount('gold'), 5);
@@ -113,7 +136,7 @@ test('a full bag refuses an item but never a coin', () => {
 
 test('collecting the same pile twice pays once', () => {
   const { character, ground, deps } = floor();
-  const drop = ground.drop(pile('gold', 9), 0, 0);
+  const drop = dropped(ground, pile('gold', 9), 0, 0);
 
   assert.equal(collect(drop.id, deps).ok, true);
   assert.equal(collect(drop.id, deps).reason, 'gone');
@@ -122,10 +145,10 @@ test('collecting the same pile twice pays once', () => {
 
 test('walking over sweeps coin within reach, and leaves items and distant piles', () => {
   const { character, ground, deps } = floor();
-  const near = ground.drop(pile('gold', 4), 5, 5);
-  const alsoNear = ground.drop(pile('gold', 6), 5, 6);
-  const far = ground.drop(pile('gold', 100), 12, 12);
-  const item = ground.drop(sword(), 5, 4);
+  const near = dropped(ground, pile('gold', 4), 5, 5);
+  const alsoNear = dropped(ground, pile('gold', 6), 5, 6);
+  const far = dropped(ground, pile('gold', 100), 12, 12);
+  const item = dropped(ground, sword(), 5, 4);
 
   const taken = sweepCoin({ gx: near.gx, gy: near.gy }, deps);
 
@@ -140,7 +163,7 @@ test('walking over sweeps coin within reach, and leaves items and distant piles'
 
 test('a pile still in the air is not swept', () => {
   const { character, ground, deps } = floor();
-  const drop = ground.drop(pile('gold', 15), 5, 5, { gx: 5.5, gy: 5.5 }, 10);
+  const drop = dropped(ground, pile('gold', 15), 5, 5, { gx: 5.5, gy: 5.5 }, 10);
   const at = { gx: drop.gx, gy: drop.gy };
 
   assert.equal(settled(drop, 10), false);
@@ -154,7 +177,7 @@ test('a pile still in the air is not swept', () => {
 
 test('a pile that was never thrown is settled from the start', () => {
   const { ground, deps } = floor();
-  const drop = ground.drop(pile('gold', 3), 1, 1);
+  const drop = dropped(ground, pile('gold', 3), 1, 1);
   assert.equal(settled(drop, 0), true);
   assert.equal(sweepCoin({ gx: drop.gx, gy: drop.gy }, { ...deps, now: 0 }), 1);
 });
@@ -164,25 +187,25 @@ test('reach is under a tile, so sweeping is standing on it', () => {
 });
 
 test('a loot table rolls its range, inclusive at both ends', () => {
-  const roll = (r) =>
+  const roll = (r: number) =>
     rollLoot('always', { lootTables: LOOT_TABLES, currencies: CURRENCIES, items: ITEMS, rng: scripted(0, r) });
 
   // chance is tested with the first number, the amount with the second.
-  assert.equal(roll(0)[0].amount, 2, 'the bottom of the range never comes up');
-  assert.equal(roll(0.999)[0].amount, 5, 'the top of the range never comes up');
-  assert.equal(roll(0.5)[0].currency, 'gold');
+  assert.equal(asCoin(roll(0)[0]).amount, 2, 'the bottom of the range never comes up');
+  assert.equal(asCoin(roll(0.999)[0]).amount, 5, 'the top of the range never comes up');
+  assert.equal(asCoin(roll(0.5)[0]).currency, 'gold');
 });
 
 test('chance decides each roll on its own', () => {
-  const of = (rng) => rollLoot('mixed', { lootTables: LOOT_TABLES, currencies: CURRENCIES, items: ITEMS, rng });
+  const of = (rng: () => number) => rollLoot('mixed', { lootTables: LOOT_TABLES, currencies: CURRENCIES, items: ITEMS, rng });
 
   // gold: chance 1 always passes. shard: chance 0.5 — 0.4 passes, 0.6 does not.
   assert.deepEqual(
-    of(scripted(0, 0, 0.4, 0)).map((p) => p.currency),
+    of(scripted(0, 0, 0.4, 0)).map((p) => asCoin(p).currency),
     ['gold', 'shard'],
   );
   assert.deepEqual(
-    of(scripted(0, 0, 0.6, 0)).map((p) => p.currency),
+    of(scripted(0, 0, 0.6, 0)).map((p) => asCoin(p).currency),
     ['gold'],
   );
   assert.deepEqual(rollLoot('never', { lootTables: LOOT_TABLES, currencies: CURRENCIES, items: ITEMS }), []);
@@ -201,11 +224,11 @@ test('a range typed backwards still pays', () => {
     currencies: CURRENCIES,
     rng: scripted(0, 0),
   });
-  assert.equal(piles[0].amount, 3, 'the ends were not put the right way round');
+  assert.equal(asCoin(piles[0]).amount, 3, 'the ends were not put the right way round');
 });
 
 test('a vase is placed like a monster and pays out like one', async () => {
-  const { MONSTER_KINDS, spawnMonsters } = await import('../Engine/src/game/monsters.js');
+  const { MONSTER_KINDS, spawnMonsters } = await import('../Engine/src/game/monsters.ts');
   const { ARCHETYPES } = await import('../Engine/src/data/archetypes.ts');
   const { ATTRIBUTES } = await import('../Engine/src/data/attributes.ts');
 
@@ -215,8 +238,8 @@ test('a vase is placed like a monster and pays out like one', async () => {
   assert.ok(vase, 'no vase archetype');
   assert.ok(vase.loot, 'a vase that drops nothing is just scenery');
   // The two attributes that switch the monster behaviour off without a branch.
-  assert.equal(vase.attributes.moveSpeed, 0, 'a vase can wander off');
-  assert.equal(vase.attributes.sight, 0, 'a vase can see you coming');
+  assert.equal(vase.attributes?.moveSpeed, 0, 'a vase can wander off');
+  assert.equal(vase.attributes?.sight, 0, 'a vase can see you coming');
   assert.deepEqual(vase.abilities, [], 'a vase can fight back');
   // Same team as a monster, so the player can break it and monsters ignore it.
   assert.equal(vase.team, 'monster');
@@ -232,7 +255,7 @@ test('a vase is placed like a monster and pays out like one', async () => {
 });
 
 test('a stack only partly fits: take what you can, leave the rest', async () => {
-  const { rollItem, countOf } = await import('../Engine/src/game/items.js');
+  const { rollItem, countOf } = await import('../Engine/src/game/items.ts');
   const { STACK_MAX } = await import('../Engine/src/data/items.ts');
   const character = createCharacter({ currencies: CURRENCIES });
   const ground = createGround();
@@ -240,29 +263,29 @@ test('a stack only partly fits: take what you can, leave the rest', async () => 
 
   // One cell free, and it already holds ore two short of full.
   for (let i = 0; i < character.inventory.size - 1; i++) {
-    character.inventory.add({ uid: `filler${i}`, label: 'Rock', slot: 'head', stats: [] });
+    character.inventory.add(anItem({ uid: `filler${i}`, defId: 'rock', label: 'Rock', slot: 'head' }));
   }
   character.inventory.add(rollItem(ITEMS[0], Math.random, STACK_MAX - 2));
 
-  const drop = ground.drop(rollItem(ITEMS[0], Math.random, 9), 4, 4);
+  const drop = dropped(ground, rollItem(ITEMS[0], Math.random, 9), 4, 4);
   const result = collect(drop.id, deps);
 
   assert.equal(result.ok, true);
   assert.equal(countOf(result.left), 7, 'more than the two that fit were taken');
   assert.equal(character.inventory.countOf('ironOre'), STACK_MAX);
   // Same id and same tile, so the pile does not leap out of the ground again.
-  assert.equal(ground.at(drop.id)?.item.count, 7);
+  assert.equal(asItem(ground.at(drop.id)?.item).count, 7);
 });
 
 test('a pickup that moves nothing at all is a refusal', async () => {
-  const { rollItem } = await import('../Engine/src/game/items.js');
+  const { rollItem } = await import('../Engine/src/game/items.ts');
   const character = createCharacter({ currencies: CURRENCIES });
   const ground = createGround();
   for (let i = 0; i < character.inventory.size; i++) {
-    character.inventory.add({ uid: `filler${i}`, label: 'Rock', slot: 'head', stats: [] });
+    character.inventory.add(anItem({ uid: `filler${i}`, defId: 'rock', label: 'Rock', slot: 'head' }));
   }
-  const drop = ground.drop(rollItem(ITEMS[0], Math.random, 4), 1, 1);
+  const drop = dropped(ground, rollItem(ITEMS[0], Math.random, 4), 1, 1);
 
   assert.equal(collect(drop.id, { ground, character }).reason, 'full');
-  assert.equal(ground.at(drop.id)?.item.count, 4, 'a refused stack was raided anyway');
+  assert.equal(asItem(ground.at(drop.id)?.item).count, 4, 'a refused stack was raided anyway');
 });

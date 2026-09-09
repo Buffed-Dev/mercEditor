@@ -1,4 +1,22 @@
-import { createActor } from './actor.js';
+import { createActor, type Actor, type CreateActorOptions } from './actor.ts';
+import type { MapObject, Placed } from '../data/mapFormat.ts';
+
+/** How one kind of monster is built and drawn. */
+export type MonsterKind = { radius: number; color: number; scale: number; prop?: boolean };
+
+/** What building a monster needs beyond its place on the map. */
+export type MonsterDeps = Pick<CreateActorOptions, 'attributes' | 'archetypes'>;
+
+/** Fires one of an actor's abilities, and says whether it went off. */
+export type Activate = (actor: Actor, abilityId: string, aim: number) => { ok: boolean };
+
+/**
+ * All a monster asks of the world: that it be pushed, and stopped by walls.
+ *
+ * The return is ignored -- where it ended up is read back off the position it
+ * was handed -- so this says `unknown` rather than promising a `Placed`.
+ */
+export type Mover = { move: (pos: Placed, dgx: number, dgy: number) => unknown };
 
 /**
  * Monster behaviour, with no opinion about how a monster is drawn: each one
@@ -29,7 +47,12 @@ const KINDS = {
   grunt: { radius: 0.28, color: 0xb4553f, scale: 0.85 },
   brute: { radius: 0.38, color: 0x7a3f6d, scale: 1.25 },
   vase: { radius: 0.26, color: 0xa9754a, scale: 0.5, prop: true },
-};
+} as const satisfies Record<string, MonsterKind>;
+
+const isKind = (kind: string): kind is keyof typeof KINDS => kind in KINDS;
+
+/** The kind a definition names, or the ordinary one. */
+const kindOf = (kind: string): MonsterKind => (isKind(kind) ? KINDS[kind] : KINDS.grunt);
 
 const WANDER_RADIUS = 3.5; // how far from home a wandering monster will drift
 const REPATH_MIN = 1.2; // seconds between picking new wander headings
@@ -37,22 +60,34 @@ const REPATH_MAX = 3.0;
 const GIVE_UP = 1.6; // sight range is multiplied by this before losing the player
 const WANDER_PACE = 0.45; // fraction of move speed used while not chasing
 
-function randomHeading() {
+function randomHeading(): { x: number; y: number } {
   const a = Math.random() * Math.PI * 2;
   return { x: Math.cos(a), y: Math.sin(a) };
 }
 
 class Monster {
-  constructor({ gx, gy, kind = 'grunt' }, { attributes, archetypes } = {}) {
+  kind: string;
+  spec: MonsterKind;
+  actor: Actor;
+  /** Where it was spawned, and what it drifts back toward. */
+  home: Placed;
+  chasing: boolean;
+  heading: { x: number; y: number };
+  repathIn: number;
+
+  constructor(
+    { gx, gy, kind = 'grunt' }: { gx: number; gy: number; kind?: string },
+    { attributes, archetypes }: MonsterDeps = {},
+  ) {
     this.kind = kind;
-    this.spec = KINDS[kind] ?? KINDS.grunt;
+    this.spec = kindOf(kind);
     this.actor = createActor({
       archetype: kind,
       gx: gx + 0.5,
       gy: gy + 0.5,
       // Melee reach and projectile collision both measure to a body's edge,
       // so the actor needs to know how wide it is.
-      radius: (KINDS[kind] ?? KINDS.grunt).radius,
+      radius: kindOf(kind).radius,
       attributes,
       archetypes,
     });
@@ -63,15 +98,15 @@ class Monster {
   }
 
   /** Where the view draws it. Owned by the actor, exposed for convenience. */
-  get pos() {
+  get pos(): Placed {
     return this.actor.pos;
   }
 
-  get facing() {
+  get facing(): number {
     return this.actor.facing;
   }
 
-  get alive() {
+  get alive(): boolean {
     return this.actor.alive;
   }
 
@@ -81,7 +116,7 @@ class Monster {
    * @param {Function} activate `(actor, abilityId, aim)` from the level, or
    *   omitted when nothing should be able to attack.
    */
-  update(world, target, dt, activate) {
+  update(world: Mover, target: Placed, dt: number, activate?: Activate | null): void {
     // A dash owns the body while it lasts; steering during one would fight it.
     if (this.actor.dash) return;
 
@@ -96,8 +131,8 @@ class Monster {
     const range = this.chasing ? sight * GIVE_UP : sight;
     this.chasing = dist < range;
 
-    let dirX;
-    let dirY;
+    let dirX: number;
+    let dirY: number;
 
     if (this.chasing && dist > 1e-3) {
       dirX = dx / dist;
@@ -145,7 +180,7 @@ class Monster {
    * along a wall is still facing along it, and would otherwise swing at
    * nothing while standing on top of you.
    */
-  tryAttack(target, activate) {
+  tryAttack(target: Placed, activate: Activate): void {
     const { pos } = this.actor;
     const aim = Math.atan2(target.gx - pos.gx, target.gy - pos.gy);
     for (const id of this.actor.abilities) {
@@ -158,12 +193,25 @@ class Monster {
  * Build the monsters a map declares. Returns an empty list for maps with none,
  * so callers never need to special-case a peaceful map.
  */
-export function spawnMonsters(map, deps = {}) {
+export function spawnMonsters(
+  map: { monsters?: readonly MapObject[] },
+  deps: MonsterDeps = {},
+): Monster[] {
   return (map.monsters ?? []).map((def) => new Monster(def, deps));
 }
 
-export function updateMonsters(monsters, world, target, dt, activate) {
+export function updateMonsters(
+  monsters: readonly Monster[],
+  world: Mover,
+  target: Placed,
+  dt: number,
+  activate?: Activate | null,
+): void {
   for (const monster of monsters) monster.update(world, target, dt, activate);
 }
 
 export { KINDS as MONSTER_KINDS };
+
+// The class stays private as a value -- monsters are made by `spawnMonsters` --
+// but callers need to be able to name what they were handed.
+export type { Monster };

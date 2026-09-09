@@ -10,7 +10,7 @@ import { SLOT_BINDINGS } from './data/abilities.ts';
 import { createRenderer } from './render/engine.js';
 import { createLevel } from './render/level.js';
 import { CURRENCIES } from './data/currencies.ts';
-import { createCharacter } from './game/character.js';
+import { createCharacter } from './game/character.ts';
 import { LEVEL_H } from './data/dimensions.ts';
 import { DEFAULT_FRUSTUM, SCREEN_FORWARD, SCREEN_RIGHT } from './render/isoCamera.js';
 import { createHud } from './gui/hud.js';

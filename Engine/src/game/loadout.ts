@@ -27,8 +27,20 @@
  * found in a menu.
  */
 
-import { SLOT_BINDINGS } from '../data/abilities.ts';
-import { EQUIPMENT_SLOTS } from './inventory.js';
+import { SLOT_BINDINGS, type AbilityInput } from '../data/abilities.ts';
+import { EQUIPMENT_SLOTS, type Inventory } from './inventory.ts';
+import type { Character } from './character.ts';
+
+/** One ability as the bar shows it. */
+export type AbilityView = {
+  id: string;
+  label: string;
+  /** True for the fallback attack rather than anything being carried. */
+  unarmed: boolean;
+  /** The item granting it, if one is. */
+  from: string | null;
+  missing: boolean;
+};
 
 /** How many bindings there are. The list of bindings is the authority. */
 export const SLOT_COUNT = SLOT_BINDINGS.length;
@@ -47,7 +59,10 @@ export const WEAPON_SLOT = 0;
  * fists are data rather than a branch — and something with neither simply has
  * an empty first key until it picks something up.
  */
-export function mainHandAbility(unarmed = '', inventory = null) {
+export function mainHandAbility(
+  unarmed = '',
+  inventory: Inventory | null = null,
+): string | null {
   return inventory?.wearing('mainHand')?.grants || unarmed || null;
 }
 
@@ -58,8 +73,12 @@ export function mainHandAbility(unarmed = '', inventory = null) {
  * The hand leads because it is what the first key fires; after that it is what
  * you were born with, then whatever else you are wearing.
  */
-export function knownAbilities(innate = [], inventory = null, unarmed = '') {
-  const known = [];
+export function knownAbilities(
+  innate: readonly string[] = [],
+  inventory: Inventory | null = null,
+  unarmed = '',
+): string[] {
+  const known: string[] = [];
   // The main hand's attack first: it is the one bound to the first key, and
   // listing it anywhere else would say it was optional.
   const hand = mainHandAbility(unarmed, inventory);
@@ -83,7 +102,11 @@ export function knownAbilities(innate = [], inventory = null, unarmed = '') {
  *
  * @returns {boolean} whether anything moved.
  */
-export function syncSlots(character, known, hand = null) {
+export function syncSlots(
+  character: Character,
+  known: readonly string[],
+  hand: string | null = null,
+): boolean {
   let moved = false;
   const handSlot = character.handSlot ?? WEAPON_SLOT;
 
@@ -98,7 +121,8 @@ export function syncSlots(character, known, hand = null) {
 
   for (let i = 0; i < character.slots.length; i++) {
     if (i === handSlot) continue;
-    if (character.slots[i] && !known.includes(character.slots[i])) {
+    const inSlot = character.slots[i];
+    if (inSlot && !known.includes(inSlot)) {
       character.setSlot(i, null);
       moved = true;
     }
@@ -132,7 +156,11 @@ export function syncSlots(character, known, hand = null) {
  * binding that silently reverted the next time you changed weapons would be
  * worse than one you cannot make.
  */
-export function assignSlot(character, index, ability) {
+export function assignSlot(
+  character: Character,
+  index: number,
+  ability: string | null,
+): boolean {
   if (index < 0 || index >= character.slots.length) return false;
 
   const handSlot = character.handSlot ?? WEAPON_SLOT;
@@ -167,17 +195,31 @@ export function assignSlot(character, index, ability) {
  * writes text: what is known, what is bound where, and which of those a key
  * would actually fire.
  */
-export function loadoutView({ character, abilities, innate = [], inventory = null, unarmed = '' }) {
+export function loadoutView({
+  character,
+  abilities,
+  innate = [],
+  inventory = null,
+  unarmed = '',
+}: {
+  character: Character;
+  abilities?: readonly AbilityInput[];
+  innate?: readonly string[];
+  inventory?: Inventory | null;
+  unarmed?: string;
+}) {
   const known = knownAbilities(innate, inventory, unarmed);
   const hand = mainHandAbility(unarmed, inventory);
-  const byId = new Map((abilities ?? []).map((ability) => [ability.id, ability]));
-  const source = new Map();
+  const byId = new Map<string, AbilityInput>(
+    (abilities ?? []).map((ability) => [ability.id ?? '', ability]),
+  );
+  const source = new Map<string, string>();
   for (const slot of EQUIPMENT_SLOTS) {
     const worn = inventory?.wearing(slot.id);
     if (worn?.grants) source.set(worn.grants, worn.label);
   }
 
-  const describe = (id) => {
+  const describe = (id: string | null): AbilityView | null => {
     if (!id) return null;
     const ability = byId.get(id);
     return {

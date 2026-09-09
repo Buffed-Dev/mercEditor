@@ -188,7 +188,7 @@ function apply(light, generator, def, world) {
 /**
  * @param {import('@babylonjs/core/scene.js').Scene} scene
  * @param {object} map the map definition
- * @param {import('../game/world.js').World} world
+ * @param {import('../game/world.ts').World} world
  */
 export function createLights(scene, map, world) {
   return (map.lights ?? []).map((raw) => {

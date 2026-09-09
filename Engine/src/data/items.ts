@@ -44,7 +44,6 @@
 
 import {
   CATEGORIES,
-  CATEGORY_BEHAVIOURS,
   behaviourOf,
   isCategoryBehaviour,
   type CategoryBehaviour,

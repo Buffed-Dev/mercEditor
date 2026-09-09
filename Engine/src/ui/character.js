@@ -29,7 +29,7 @@
  * presses over half the screen would mean losing a fight to read your armour.
  */
 
-import { countOf } from '../game/items.js';
+import { countOf } from '../game/items.ts';
 import { formatStat } from './format.js';
 
 /**

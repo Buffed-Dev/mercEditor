@@ -16,8 +16,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { SLOT_BINDINGS } from '../Engine/src/data/abilities.ts';
-import { createCharacter } from '../Engine/src/game/character.js';
-import { rollItem } from '../Engine/src/game/items.js';
+import { createCharacter } from '../Engine/src/game/character.ts';
+import { rollItem } from '../Engine/src/game/items.ts';
 import {
   SLOT_COUNT,
   WEAPON_SLOT,
@@ -26,7 +26,7 @@ import {
   loadoutView,
   mainHandAbility,
   syncSlots,
-} from '../Engine/src/game/loadout.js';
+} from '../Engine/src/game/loadout.ts';
 
 const SWORD = { id: 'sword', label: 'Sword', slot: 'mainHand', grants: 'swing', stats: [] };
 const GUN = { id: 'gun', label: 'Gun', slot: 'mainHand', grants: 'shoot', stats: [] };
@@ -42,10 +42,16 @@ const ABILITIES = [
   { id: 'block', label: 'Block' },
 ];
 
+import type { ItemInput } from '../Engine/src/data/items.ts';
+
 /** A character, optionally holding things, with its bar already reconciled. */
-function hero({ worn = [], innate = ['slam', 'dash'], unarmed = 'punch' } = {}) {
+function hero({
+  worn = [],
+  innate = ['slam', 'dash'],
+  unarmed = 'punch',
+}: { worn?: readonly ItemInput[]; innate?: readonly string[]; unarmed?: string } = {}) {
   const character = createCharacter();
-  for (const def of worn) character.inventory.equip(def.slot, rollItem(def));
+  for (const def of worn) character.inventory.equip(def.slot ?? '', rollItem(def));
 
   const sync = () =>
     syncSlots(
@@ -187,39 +193,39 @@ test('the other four still swap and clear', () => {
 });
 
 test('syncing twice changes nothing the second time', () => {
-  const { character, sync } = hero({ worn: [SWORD] });
+  const { sync } = hero({ worn: [SWORD] });
   assert.equal(sync(), false);
 });
 
 test('what you know leads with the hand', () => {
   const bare = hero();
-  assert.deepEqual(bare.view().known.map((a) => a.id), ['punch', 'slam', 'dash']);
+  assert.deepEqual(bare.view().known.map((a) => a?.id), ['punch', 'slam', 'dash']);
 
   const armed = hero({ worn: [SWORD, SHIELD] });
-  assert.deepEqual(armed.view().known.map((a) => a.id), ['swing', 'slam', 'dash', 'block']);
+  assert.deepEqual(armed.view().known.map((a) => a?.id), ['swing', 'slam', 'dash', 'block']);
 });
 
 test('the view marks the hand key and says which of the two it is', () => {
   const bare = hero().view();
   assert.equal(bare.slots[0].hand, true);
-  assert.equal(bare.slots[0].ability.label, 'Punch');
-  assert.equal(bare.slots[0].ability.unarmed, true, 'bare hands were not named as such');
-  assert.equal(bare.hand.id, 'punch');
+  assert.equal(bare.slots[0].ability?.label, 'Punch');
+  assert.equal(bare.slots[0].ability?.unarmed, true, 'bare hands were not named as such');
+  assert.equal(bare.hand?.id, 'punch');
   assert.deepEqual(
     bare.slots.slice(1).map((slot) => slot.hand),
     [false, false, false, false],
   );
 
   const armed = hero({ worn: [SWORD] }).view();
-  assert.equal(armed.slots[0].ability.label, 'Swing');
-  assert.equal(armed.slots[0].ability.unarmed, false);
-  assert.equal(armed.slots[0].ability.from, 'Sword', 'the screen cannot say where it came from');
-  assert.equal(armed.hand.id, 'swing');
+  assert.equal(armed.slots[0].ability?.label, 'Swing');
+  assert.equal(armed.slots[0].ability?.unarmed, false);
+  assert.equal(armed.slots[0].ability?.from, 'Sword', 'the screen cannot say where it came from');
+  assert.equal(armed.hand?.id, 'swing');
 });
 
 test('an ability the rules no longer define is shown, not silently dropped', () => {
   const view = hero({ innate: ['slam', 'ghost'] }).view();
-  const ghost = view.known.find((ability) => ability.id === 'ghost');
-  assert.equal(ghost.missing, true);
-  assert.equal(ghost.label, 'ghost', 'it lost the only name it had left');
+  const ghost = view.known.find((ability) => ability?.id === 'ghost');
+  assert.equal(ghost?.missing, true);
+  assert.equal(ghost?.label, 'ghost', 'it lost the only name it had left');
 });

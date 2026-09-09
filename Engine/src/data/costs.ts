@@ -31,7 +31,7 @@ export type Cost = { kind: CostKind; id: string; amount: number };
  * list and the item list, so it knows only that the things in them have an id
  * and, usually, a name for it.
  */
-type Labelled = { id: string; label?: string };
+type Labelled = { id?: string; label?: string };
 
 /** Names a cost's thing. See `costLabeller`. */
 export type CostLabeller = (kind: CostKind, id: string) => string;
@@ -119,8 +119,8 @@ export function costLabeller({
   items = [],
 }: { currencies?: readonly Labelled[]; items?: readonly Labelled[] } = {}): CostLabeller {
   const names: Record<CostKind, Map<string, string>> = {
-    currency: new Map(currencies.map((def) => [def.id, def.label || def.id])),
-    item: new Map(items.map((def) => [def.id, def.label || def.id])),
+    currency: new Map(currencies.map((def) => [def.id ?? '', def.label || def.id || ''])),
+    item: new Map(items.map((def) => [def.id ?? '', def.label || def.id || ''])),
   };
   return (kind, id) => names[kind].get(id) ?? id;
 }

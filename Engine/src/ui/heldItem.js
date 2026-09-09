@@ -1,4 +1,4 @@
-import { countOf } from '../game/items.js';
+import { countOf } from '../game/items.ts';
 
 /**
  * The item riding on the cursor.

@@ -29,10 +29,25 @@
  */
 
 import { costLabeller, describeCosts, normalizeCosts } from '../data/costs.ts';
+import type { AttributeInput } from '../data/attributes.ts';
+import type { BaseLevelInput } from '../data/baseLevels.ts';
+import type { CategoryInput } from '../data/categories.ts';
+import type { CurrencyInput } from '../data/currencies.ts';
 import { nextBaseLevel } from '../data/baseLevels.ts';
-import { itemMap, stackLimit } from '../data/items.ts';
-import { recipeCosts, recipeMap } from '../data/recipes.ts';
-import { itemRange, rollItem } from './items.js';
+import { itemMap, stackLimit, type Item, type ItemInput } from '../data/items.ts';
+import { normalizeRecipe, recipeCosts, recipeMap, type RecipeInput } from '../data/recipes.ts';
+import { itemRange, rollItem, type ItemInstance } from './items.ts';
+import type { Character, Job } from './character.ts';
+
+/** The rules a crafting question is asked against. */
+export type CraftingRules = {
+  recipes: readonly RecipeInput[];
+  items: readonly ItemInput[];
+  categories?: readonly CategoryInput[];
+};
+
+/** Somewhere with a workbench, and how far it has been built up. */
+export type Place = { baseLevel: number };
 
 /** How long the bench takes over one item. */
 export const CRAFT_SECONDS = 1;
@@ -52,11 +67,25 @@ export const CRAFT_SECONDS = 1;
  *
  * @returns {{ok: boolean, reason: ''|'unknown'|'locked'|'poor'|'full'|'busy', job: object|null}}
  */
-export function beginCraft(recipeId, { recipes, items, categories, character, place }) {
+export function beginCraft(
+  recipeId: string,
+  {
+    recipes,
+    items,
+    categories,
+    character,
+    place,
+  }: CraftingRules & { character: Character; place?: Place | null },
+): { ok: boolean; reason: string; job: Job | null } {
   if (character.job) return { ok: false, reason: 'busy', job: null };
 
+  // Split from the check below rather than folded into it: a recipe nobody
+  // recognises and a recipe naming an item nobody recognises are the same
+  // answer, but only one of them leaves `recipe` safe to read afterwards.
   const recipe = recipeMap(recipes).get(recipeId);
-  const def = recipe ? itemMap(items, categories).get(recipe.item) : null;
+  if (!recipe) return { ok: false, reason: 'unknown', job: null };
+
+  const def = itemMap(items, categories).get(recipe.item);
   if (!def) return { ok: false, reason: 'unknown', job: null };
   if ((place?.baseLevel ?? 1) < recipe.minBase) return { ok: false, reason: 'locked', job: null };
   const costs = normalizeCosts(def.costs);
@@ -68,7 +97,7 @@ export function beginCraft(recipeId, { recipes, items, categories, character, pl
   }
 
   character.spend(costs);
-  const job = {
+  const job: Job = {
     recipeId: recipe.id,
     label: recipe.label,
     seconds: CRAFT_SECONDS,
@@ -89,7 +118,7 @@ export function beginCraft(recipeId, { recipes, items, categories, character, pl
  * is a sum of frame times, and a second that came up 9e-18 short would hold the
  * item back a whole frame now and then for no reason anyone could find.
  */
-export function advanceCraft(character, dt) {
+export function advanceCraft(character: Character, dt: number): boolean {
   const job = character.job;
   if (!job) return false;
   job.remaining -= dt;
@@ -110,7 +139,10 @@ export function advanceCraft(character, dt) {
  *
  * @returns {{item: object|null, stowed: boolean}}
  */
-export function finishCraft(character, { recipes, items, categories, rng = Math.random }) {
+export function finishCraft(
+  character: Character,
+  { recipes, items, categories, rng = Math.random }: CraftingRules & { rng?: () => number },
+): { item: ItemInstance | null; stowed: boolean } {
   const job = character.job;
   if (!job) return { item: null, stowed: false };
   character.setJob(null);
@@ -134,7 +166,15 @@ export function finishCraft(character, { recipes, items, categories, rng = Math.
  *
  * @returns {{ok: boolean, reason: ''|'maxed'|'poor', level: number}}
  */
-export function upgradeBase({ character, place, baseLevels }) {
+export function upgradeBase({
+  character,
+  place,
+  baseLevels,
+}: {
+  character: Character;
+  place: Place;
+  baseLevels?: readonly BaseLevelInput[];
+}): { ok: boolean; reason: string; level: number } {
   const rung = nextBaseLevel(place.baseLevel, baseLevels);
   // No row for the next level is what "fully built" means: the table's own top
   // is the cap, so there is no maximum written down somewhere else to drift.
@@ -151,7 +191,7 @@ export function upgradeBase({ character, place, baseLevels }) {
  * with a span where that has a number — "+4–6 Attack power". Written here
  * rather than in the panel so the panel stays something that only sets text.
  */
-function describeRange(def, labels) {
+function describeRange(def: Item, labels: Map<string, string>): string[] {
   return itemRange(def).map((stat) => {
     const name = labels.get(stat.attribute) ?? stat.attribute;
     const span = stat.min === stat.max ? `${stat.min}` : `${stat.min}–${stat.max}`;
@@ -175,11 +215,14 @@ function describeRange(def, labels) {
  * appeared and vanished as you spent the last of something would be worse than
  * one that says 0.
  */
-export function purseView(currencies, character) {
+export function purseView(
+  currencies: readonly CurrencyInput[] | null | undefined,
+  character: Character,
+) {
   return (currencies ?? []).map((def) => ({
     id: def.id,
     label: def.label ?? def.id,
-    amount: character.amount(def.id),
+    amount: character.amount(def.id ?? ''),
   }));
 }
 
@@ -192,9 +235,17 @@ export function craftingView({
   baseLevels,
   character,
   place,
+}: CraftingRules & {
+  attributes?: readonly AttributeInput[];
+  currencies?: readonly CurrencyInput[];
+  baseLevels?: readonly BaseLevelInput[];
+  character: Character;
+  place?: Place | null;
 }) {
   const defs = itemMap(items, categories);
-  const labels = new Map((attributes ?? []).map((attr) => [attr.id, attr.label ?? attr.id]));
+  const labels = new Map<string, string>(
+    (attributes ?? []).map((attr) => [attr.id ?? '', attr.label ?? attr.id ?? '']),
+  );
   // One labeller for every price on the panel: a cost can name a currency or an
   // item, and only something holding both lists can put a name to it.
   const nameCost = costLabeller({ currencies, items });
@@ -216,9 +267,12 @@ export function craftingView({
         }
       : null,
     upgradeCost: rung ? describeCosts(rung.costs, nameCost) : null,
-    canUpgrade: Boolean(rung) && character.affords(rung.costs),
+    canUpgrade: rung ? character.affords(rung.costs) : false,
     recipes: recipes.map((entry) => {
-      const recipe = recipeMap([entry]).get(entry.id);
+      // Normalized directly. Building a one-entry map and reading it back by
+      // id was the same call with a lookup wrapped round it, and it could
+      // miss on a draft recipe that has no id yet.
+      const recipe = normalizeRecipe(entry);
       const def = defs.get(recipe.item);
       const costs = recipeCosts(recipe, items);
       return {

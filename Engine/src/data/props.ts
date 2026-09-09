@@ -74,7 +74,7 @@ export type PropInput = Partial<Prop>;
  * Distinct from `Prop` because a map stores the position and may override the
  * lift, while everything else about the thing comes from the definition.
  */
-export type PlacedProp = { id: string; gx: number; gy: number; lift?: number };
+export type PlacedProp = { id?: string; gx: number; gy: number; lift?: number };
 
 /** Finds a definition by id. Passed in so the editor can ask about drafts. */
 export type PropLookup = (id: string) => Prop | null;
@@ -142,7 +142,7 @@ export function standHeights(
 ): Map<string, number> {
   const tops = new Map<string, number>();
   for (const entry of placed) {
-    const top = lookup(entry.id)?.top ?? 0;
+    const top = lookup(entry.id ?? '')?.top ?? 0;
     if (!top) continue;
     const key = `${Math.floor(entry.gx)},${Math.floor(entry.gy)}`;
     tops.set(key, Math.max(tops.get(key) ?? 0, (entry.lift ?? 0) + top));
@@ -156,7 +156,9 @@ export function blockedTiles(
 ): Set<string> {
   const blocked = new Set<string>();
   for (const entry of placed) {
-    if (lookup(entry.id)?.blocks) blocked.add(`${Math.floor(entry.gx)},${Math.floor(entry.gy)}`);
+    if (lookup(entry.id ?? '')?.blocks) {
+      blocked.add(`${Math.floor(entry.gx)},${Math.floor(entry.gy)}`);
+    }
   }
   return blocked;
 }

@@ -24,7 +24,23 @@
  * definitions.
  */
 
-import { countOf, stackOf, stacks, withCount } from './items.js';
+import {
+  countOf,
+  stackOf,
+  stacks,
+  withCount,
+  type Countable,
+  type ItemInstance,
+} from './items.ts';
+import type { ItemSlot } from '../data/items.ts';
+
+/**
+ * One place on the body something can be worn.
+ *
+ * `id` is the place and `kind` is what fits there, which are not the same:
+ * there are two ring slots and one kind of ring.
+ */
+export type EquipmentSlot = { id: string; kind: ItemSlot; label: string; column: number };
 
 /**
  * The doll, in the order it is drawn. Three columns wide, so `column` is what
@@ -52,7 +68,11 @@ export const EQUIPMENT_SLOTS = [
 const SLOT_KIND = new Map(EQUIPMENT_SLOTS.map((slot) => [slot.id, slot.kind]));
 
 /** Whether this item may be worn in this slot. */
-export function slotAccepts(slotId, item) {
+export function slotAccepts(
+  slotId: string,
+  // Only the slot is read, so anything carrying one can be asked about.
+  item: { slot?: string } | null | undefined,
+): boolean {
   if (!item || !SLOT_KIND.has(slotId)) return false;
   return !item.slot || item.slot === SLOT_KIND.get(slotId);
 }
@@ -62,10 +82,12 @@ export const BAG_ROWS = 5;
 
 export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
   const size = cols * rows;
-  const bag = new Array(size).fill(null);
-  const worn = new Map(EQUIPMENT_SLOTS.map((slot) => [slot.id, null]));
+  const bag: (ItemInstance | null)[] = new Array(size).fill(null);
+  const worn = new Map<string, ItemInstance | null>(
+    EQUIPMENT_SLOTS.map((slot) => [slot.id, null]),
+  );
 
-  const inRange = (index) => Number.isInteger(index) && index >= 0 && index < size;
+  const inRange = (index: number) => Number.isInteger(index) && index >= 0 && index < size;
 
   return {
     cols,
@@ -85,7 +107,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
     },
 
     /** How many of one definition are in the bag, across every cell. */
-    countOf(defId) {
+    countOf(defId: string): number {
       return bag.reduce((n, item) => n + (item?.defId === defId ? countOf(item) : 0), 0);
     },
 
@@ -93,7 +115,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * How many more of this could be put in: the room in stacks that already
      * hold it, plus a full stack for every empty cell.
      */
-    room(item) {
+    room(item: Countable | null | undefined): number {
       if (!item) return 0;
       const stack = stackOf(item);
       let space = 0;
@@ -112,11 +134,16 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * Returns how many it could not find — a caller that checked first should
      * always get 0.
      */
-    remove(defId, wanted) {
+    remove(defId: string, wanted: number): number {
       let left = Math.max(0, Math.round(wanted) || 0);
       const order = bag
         .map((item, index) => ({ item, index }))
-        .filter(({ item }) => item?.defId === defId)
+        // A guard rather than a plain predicate: the entries that survive are
+        // exactly the ones holding something, and the loop below needs to know
+        // that to hand them to `withCount`.
+        .filter((entry): entry is { item: ItemInstance; index: number } =>
+          entry.item?.defId === defId,
+        )
         .sort((a, b) => countOf(a.item) - countOf(b.item));
 
       for (const { item, index } of order) {
@@ -129,11 +156,11 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
       return left;
     },
 
-    at: (index) => (inRange(index) ? bag[index] : null),
-    wearing: (slotId) => worn.get(slotId) ?? null,
+    at: (index: number): ItemInstance | null => (inRange(index) ? bag[index] : null),
+    wearing: (slotId: string): ItemInstance | null => worn.get(slotId) ?? null,
 
     /** The first free bag cell, or -1 when there is none. */
-    firstFree() {
+    firstFree(): number {
       return bag.indexOf(null);
     },
 
@@ -148,18 +175,21 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * went in. The caller decides what a full bag means, since putting the
      * remainder on the floor is a level's job and not a bag's.
      */
-    add(item) {
+    add(item: ItemInstance | null | undefined): ItemInstance | null {
       if (!item) return null;
       let left = countOf(item);
       const stack = stackOf(item);
 
       if (stack > 1) {
         for (let i = 0; i < size && left > 0; i++) {
-          if (!stacks(bag[i], item)) continue;
-          const held = countOf(bag[i]);
+          // `stacks` already refuses an empty cell; the extra check is what
+          // tells the compiler the same thing.
+          const inCell = bag[i];
+          if (!inCell || !stacks(inCell, item)) continue;
+          const held = countOf(inCell);
           const moved = Math.min(stack - held, left);
           if (moved <= 0) continue;
-          bag[i] = withCount(bag[i], held + moved);
+          bag[i] = withCount(inCell, held + moved);
           left -= moved;
         }
       }
@@ -179,14 +209,17 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * hand: the item that was displaced, or the part of a stack that would not
      * fit on top of one already there.
      */
-    put(index, item) {
+    put(
+      index: number,
+      item: ItemInstance | null | undefined,
+    ): ItemInstance | null {
       if (!inRange(index)) return item ?? null;
       const held = bag[index];
 
       // Onto a stack of the same thing: top it up and keep the overflow, which
       // is what makes dropping 15 ore onto 12 leave 7 on the cursor rather than
       // swapping the two piles round.
-      if (item && stacks(held, item)) {
+      if (item && held && stacks(held, item)) {
         const stack = stackOf(item);
         const moved = Math.min(stack - countOf(held), countOf(item));
         bag[index] = withCount(held, countOf(held) + moved);
@@ -208,7 +241,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
       return held;
     },
 
-    takeAt(index) {
+    takeAt(index: number): ItemInstance | null {
       if (!inRange(index)) return null;
       const item = bag[index];
       bag[index] = null;
@@ -216,7 +249,8 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
     },
 
     /** Whether this item may be worn here, without wearing it. */
-    accepts: (slotId, item) => worn.has(slotId) && slotAccepts(slotId, item),
+    accepts: (slotId: string, item: ItemInstance | null | undefined): boolean =>
+      worn.has(slotId) && slotAccepts(slotId, item),
 
     /**
      * Where this item should go, or null if nothing takes it.
@@ -226,7 +260,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * doll's own order, so the choice is something the slot list decides rather
      * than a rule hidden in here.
      */
-    firstSlotFor(item) {
+    firstSlotFor(item: ItemInstance | null | undefined): string | null {
       if (!item) return null;
       const fits = EQUIPMENT_SLOTS.filter((slot) => slotAccepts(slot.id, item));
       const free = fits.find((slot) => !worn.get(slot.id));
@@ -238,7 +272,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
      * cannot be forced onto a finger. Returns whatever came off, which the
      * caller is responsible for — it goes back in the bag or it is gone.
      */
-    equip(slotId, item) {
+    equip(slotId: string, item: ItemInstance | null | undefined): ItemInstance | null {
       if (!worn.has(slotId) || !item) return null;
       if (!slotAccepts(slotId, item)) return null;
       const previous = worn.get(slotId);
@@ -246,7 +280,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
       return previous ?? null;
     },
 
-    unequip(slotId) {
+    unequip(slotId: string): ItemInstance | null {
       const item = worn.get(slotId) ?? null;
       if (item) worn.set(slotId, null);
       return item;
@@ -266,3 +300,6 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
     },
   };
 }
+
+/** A bag and a set of worn slots, and everything that can be done to them. */
+export type Inventory = ReturnType<typeof createInventory>;

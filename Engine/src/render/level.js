@@ -3,8 +3,8 @@ import { ATTRIBUTES } from '../data/attributes.ts';
 import { EFFECTS } from '../data/effects.ts';
 import { ABILITIES, abilityMap } from '../data/abilities.ts';
 import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
-import { World } from '../game/world.js';
-import { createActor, grantStartingEffects, tickActor } from '../game/actor.js';
+import { World } from '../game/world.ts';
+import { createActor, grantStartingEffects, tickActor } from '../game/actor.ts';
 import {
   advanceChain,
   beginCast,
@@ -21,19 +21,19 @@ import {
   turnActor,
   updateCastSlow,
   updateChain,
-} from '../game/abilities.js';
-import { beginDash, updateDash } from '../game/dash.js';
-import { createEffectRuntime } from '../game/effects.js';
-import { EQUIPMENT_SLOTS } from '../game/inventory.js';
-import { createGround, nearestFree } from '../game/ground.js';
-import { collect, rollLoot, sweepCoin } from '../game/loot.js';
+} from '../game/abilities.ts';
+import { beginDash, updateDash } from '../game/dash.ts';
+import { createEffectRuntime } from '../game/effects.ts';
+import { EQUIPMENT_SLOTS } from '../game/inventory.ts';
+import { createGround, nearestFree } from '../game/ground.ts';
+import { collect, rollLoot, sweepCoin } from '../game/loot.ts';
 import {
   assignSlot,
   knownAbilities,
   loadoutView,
   mainHandAbility,
   syncSlots,
-} from '../game/loadout.js';
+} from '../game/loadout.ts';
 import {
   equipFromBag,
   placeInBag,
@@ -43,7 +43,7 @@ import {
   takeFromSlot,
   unequipToBag,
   wear,
-} from '../game/equipment.js';
+} from '../game/equipment.ts';
 import { ITEMS, currenciesOf } from '../data/items.ts';
 import { BASE_LEVELS } from '../data/baseLevels.ts';
 import { CATEGORIES } from '../data/categories.ts';
@@ -56,9 +56,9 @@ import {
   finishCraft,
   purseView,
   upgradeBase,
-} from '../game/crafting.js';
-import { createProjectiles } from '../game/projectiles.js';
-import { spawnMonsters, updateMonsters } from '../game/monsters.js';
+} from '../game/crafting.ts';
+import { createProjectiles } from '../game/projectiles.ts';
+import { spawnMonsters, updateMonsters } from '../game/monsters.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { buildMapView } from './mapView.js';
@@ -203,7 +203,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
     );
   }
 
-  // The cursor's limbo lives on the character — see ../game/character.js. An
+  // The cursor's limbo lives on the character — see ../game/character.ts. An
   // item in limbo belongs to no container, so it cannot live in the interface
   // that draws it; and the level is torn down at every doorway, so it cannot
   // live here either. Read and written through these two, so nothing below

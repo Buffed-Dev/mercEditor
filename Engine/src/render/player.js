@@ -1,6 +1,6 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
-import { PLAYER_RADIUS } from '../game/world.js';
+import { PLAYER_RADIUS } from '../game/world.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { surface } from './materials.js';
 

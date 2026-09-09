@@ -1,7 +1,60 @@
-import { ATTRIBUTES } from '../data/attributes.ts';
-import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
-import { PLAYER_RADIUS } from './world.js';
-import { createAttributeSet } from './attributes.js';
+import { ATTRIBUTES, type AttributeInput } from '../data/attributes.ts';
+import {
+  ARCHETYPES,
+  archetypeMap,
+  type Archetype,
+  type ArchetypeInput,
+  type Team,
+} from '../data/archetypes.ts';
+import type { Placed } from '../data/mapFormat.ts';
+import { PLAYER_RADIUS } from './world.ts';
+import { createAttributeSet, type AttributeSet } from './attributes.ts';
+import type { Cast, Chain, SlowRelease } from './abilities.ts';
+import type { Dash } from './dash.ts';
+
+/**
+ * Anything that stands in the world, acts, and can be knocked over.
+ *
+ * The player and every monster are the same shape; what differs is the
+ * archetype they were built from. Everything after `alive` is the state of
+ * something in progress, and is null when nothing is.
+ */
+export type Actor = {
+  archetype: string;
+  team: Team;
+  /** Effect ids applied at spawn. */
+  grants: readonly string[];
+  /** Ability ids, in input-slot order. */
+  abilities: readonly string[];
+  attrs: AttributeSet;
+  pos: Placed;
+  /** Half the footprint, in tiles. */
+  radius: number;
+  facing: number;
+  alive: boolean;
+  /** Per-ability cooldowns still running, in seconds. */
+  cooldowns: Map<string, number>;
+  globalCooldown: number;
+  cast: Cast | null;
+  slowRelease: SlowRelease | null;
+  dash: Dash | null;
+  /**
+   * Absent rather than null on a fresh actor: nothing sets it until a combo
+   * is first used, and every reader reaches it through `?.`.
+   */
+  chain?: Chain | null;
+};
+
+/** What building an actor needs to know. */
+export type CreateActorOptions = {
+  archetype: string;
+  gx?: number;
+  gy?: number;
+  radius?: number;
+  attributes?: readonly AttributeInput[];
+  /** Either the raw list or a lookup already built from one. */
+  archetypes?: readonly ArchetypeInput[] | Map<string, Archetype>;
+};
 
 /**
  * An actor: anything with attributes and a position. The player and every
@@ -23,7 +76,7 @@ export function createActor({
   radius = PLAYER_RADIUS,
   attributes = ATTRIBUTES,
   archetypes = ARCHETYPES,
-}) {
+}: CreateActorOptions): Actor {
   const specs = archetypes instanceof Map ? archetypes : archetypeMap(archetypes);
   const spec = specs.get(archetype) ?? specs.values().next().value;
 
@@ -53,14 +106,20 @@ export function createActor({
 }
 
 /** Apply whatever the archetype hands out at spawn — regen, passives. */
-export function grantStartingEffects(actor, effects) {
+export function grantStartingEffects(
+  actor: Actor,
+  // Structural on purpose: this needs the effect system only to hand it ids,
+  // and naming the whole of it here would tie the actor to it.
+  effects: { apply: (id: string, actor: Actor) => unknown },
+): void {
   for (const id of actor.grants) effects.apply(id, actor);
 }
 
-export const hostile = (a, b) => Boolean(a && b && a.team !== b.team);
+export const hostile = (a: Actor | null | undefined, b: Actor | null | undefined): boolean =>
+  Boolean(a && b && a.team !== b.team);
 
 /** Advance an actor's own timers. Effects are ticked by the runtime. */
-export function tickActor(actor, dt) {
+export function tickActor(actor: Actor, dt: number): void {
   if (actor.globalCooldown > 0) actor.globalCooldown = Math.max(0, actor.globalCooldown - dt);
   if (!actor.cooldowns.size) return;
   for (const [id, remaining] of actor.cooldowns) {

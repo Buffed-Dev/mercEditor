@@ -1,5 +1,30 @@
-import { EFFECTS, effectMap } from '../data/effects.ts';
-import { runExecution } from './executions/index.js';
+import {
+  EFFECTS,
+  effectMap,
+  type Effect,
+  type EffectInput,
+  type MagnitudeInput,
+} from '../data/effects.ts';
+import type { Actor } from './actor.ts';
+import type { AttrModifier } from './attributes.ts';
+import { runExecution, type ExecutionResult } from './executions/index.ts';
+
+/**
+ * One effect currently sitting on one actor.
+ *
+ * `handles` are the modifiers it added and is responsible for taking back off
+ * again; an effect that ticks adds none, because it applies its work outright
+ * each time instead of holding it.
+ */
+export type EffectInstance = {
+  def: Effect;
+  target: Actor;
+  source: Actor;
+  /** Infinity for an effect that lasts until something removes it. */
+  remaining: number;
+  tickIn: number;
+  handles: AttrModifier[];
+};
 
 /**
  * The effect runtime: applies effects to actors, ticks the periodic ones, and
@@ -22,28 +47,34 @@ const EPSILON = 1e-9;
 // never happen anyway.
 const MAX_CATCHUP = 64;
 
-export function createEffectRuntime(defs = EFFECTS) {
+export function createEffectRuntime(defs: readonly EffectInput[] = EFFECTS) {
   const byId = effectMap(defs);
-  let instances = [];
+  let instances: EffectInstance[] = [];
 
   /**
    * A magnitude is a literal or a live reading of an attribute. Executions call
    * this on every tick, so an upgrade that raises healthRegen is picked up by
    * an already-running regen effect on its very next tick.
    */
-  function resolve(magnitude, target, source) {
+  function resolve(
+    magnitude: MagnitudeInput | undefined,
+    target: Actor,
+    source: Actor,
+  ): number {
     if (!magnitude) return 0;
     if (magnitude.type === 'attribute') {
       const from = magnitude.from === 'source' ? source : target;
-      const value = from?.attrs?.value(magnitude.attribute) ?? 0;
+      // An attribute nobody declared reads as zero, which is what naming a
+      // missing one has always done here.
+      const value = from?.attrs?.value(magnitude.attribute ?? '') ?? 0;
       return value * (magnitude.coefficient ?? 1);
     }
     return magnitude.value ?? 0;
   }
 
   /** A permanent application: instant effects and every periodic tick. */
-  function execute(def, target, source) {
-    const results = [];
+  function execute(def: Effect, target: Actor, source: Actor): ExecutionResult[] {
+    const results: ExecutionResult[] = [];
 
     if (def.execution) {
       const result = runExecution(def.execution, { target, source, resolve });
@@ -65,7 +96,7 @@ export function createEffectRuntime(defs = EFFECTS) {
     return results;
   }
 
-  function detach(instance) {
+  function detach(instance: EffectInstance): void {
     for (const handle of instance.handles) instance.target.attrs.removeModifier(handle);
     instance.handles.length = 0;
   }
@@ -82,7 +113,7 @@ export function createEffectRuntime(defs = EFFECTS) {
      * Returns the live instance, or null for an instant effect (which leaves
      * nothing behind to hold on to).
      */
-    apply(effectId, target, source = target) {
+    apply(effectId: string, target: Actor, source: Actor = target): EffectInstance | null {
       const def = byId.get(effectId);
       if (!def || !target?.attrs) return null;
 
@@ -103,7 +134,7 @@ export function createEffectRuntime(defs = EFFECTS) {
         }
       }
 
-      const instance = {
+      const instance: EffectInstance = {
         def,
         target,
         source,
@@ -129,7 +160,7 @@ export function createEffectRuntime(defs = EFFECTS) {
       return instance;
     },
 
-    remove(instance) {
+    remove(instance: EffectInstance): boolean {
       const index = instances.indexOf(instance);
       if (index < 0) return false;
       detach(instance);
@@ -138,8 +169,8 @@ export function createEffectRuntime(defs = EFFECTS) {
     },
 
     /** Everything one actor caused — the end of a roguelike run. */
-    removeBySource(source) {
-      const kept = [];
+    removeBySource(source: unknown): number {
+      const kept: EffectInstance[] = [];
       for (const instance of instances) {
         if (instance.source === source) detach(instance);
         else kept.push(instance);
@@ -150,8 +181,8 @@ export function createEffectRuntime(defs = EFFECTS) {
     },
 
     /** Everything riding on one actor. Call this when it dies. */
-    removeByTarget(target) {
-      const kept = [];
+    removeByTarget(target: Actor): number {
+      const kept: EffectInstance[] = [];
       for (const instance of instances) {
         if (instance.target === target) detach(instance);
         else kept.push(instance);
@@ -161,9 +192,9 @@ export function createEffectRuntime(defs = EFFECTS) {
       return removed;
     },
 
-    update(dt) {
+    update(dt: number): void {
       if (!instances.length) return;
-      const expired = [];
+      const expired: EffectInstance[] = [];
 
       for (const instance of instances) {
         const { def } = instance;
@@ -192,3 +223,6 @@ export function createEffectRuntime(defs = EFFECTS) {
     },
   };
 }
+
+/** Every effect currently running, and the means to start and stop them. */
+export type EffectRuntime = ReturnType<typeof createEffectRuntime>;

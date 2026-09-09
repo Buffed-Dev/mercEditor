@@ -6,11 +6,14 @@ import {
   endCast,
   turnActor,
   updateCastSlow,
-} from '../Engine/src/game/abilities.js';
-import { createAttributeSet } from '../Engine/src/game/attributes.js';
+} from '../Engine/src/game/abilities.ts';
+import { createAttributeSet } from '../Engine/src/game/attributes.ts';
+import type { Caster } from '../Engine/src/game/abilities.ts';
+import type { AttributeSet } from '../Engine/src/game/attributes.ts';
+import { anAbility } from './helpers/items.ts';
 
 /** Just enough actor for the cast slow: the attributes it multiplies. */
-function caster(moveSpeed = 4) {
+function caster(moveSpeed = 4): Caster {
   return {
     attrs: createAttributeSet(undefined, { moveSpeed }),
     cast: null,
@@ -19,8 +22,8 @@ function caster(moveSpeed = 4) {
   };
 }
 
-const HALF = { id: 'heave', castTime: 1, castSlow: 0.5 };
-const speed = (actor) => actor.attrs.value('moveSpeed');
+const HALF = anAbility({ id: 'heave', cast: 'timed', castTime: 1, castSlow: 0.5 });
+const speed = (actor: { attrs: AttributeSet }) => actor.attrs.value('moveSpeed');
 
 test('a cast slows the caster while it winds up', () => {
   const actor = caster();
@@ -58,7 +61,7 @@ test('a new cast replaces a slow still letting go, rather than stacking on it', 
 
 test('an ability with no slow leaves nothing behind to release', () => {
   const actor = caster();
-  beginCast({ id: 'poke', castTime: 1, castSlow: 0 }, actor, 0);
+  beginCast(anAbility({ id: 'poke', cast: 'timed', castTime: 1, castSlow: 0 }), actor, 0);
   endCast(actor);
   assert.equal(actor.slowRelease, null);
   assert.equal(speed(actor), 4);
@@ -69,7 +72,7 @@ test('an ability with no slow leaves nothing behind to release', () => {
 const NORTH = 0;
 const EAST = Math.PI / 2;
 /** A quarter turn a second: 90 degrees of steering per second of wind-up. */
-const SLOW_TURN = { id: 'heave', castTime: 1, castSlow: 0, castTurn: 90 };
+const SLOW_TURN = anAbility({ id: 'heave', cast: 'timed', castTime: 1, castSlow: 0, castTurn: 90 });
 
 test('turning is free when nothing is winding up', () => {
   const actor = caster();
@@ -84,20 +87,20 @@ test('a wind-up caps the turn and is steered by what gets through', () => {
   // Half a second of a quarter-turn-a-second cap is an eighth of a turn.
   turnActor(actor, EAST, 0.5);
   assert.ok(Math.abs(actor.facing - Math.PI / 4) < 1e-9);
-  assert.equal(actor.cast.aim, actor.facing);
+  assert.equal(actor.cast?.aim, actor.facing);
 
   // And the rest of the way on the next half second, no further.
   turnActor(actor, EAST, 0.5);
   assert.ok(Math.abs(actor.facing - EAST) < 1e-9);
-  assert.equal(actor.cast.aim, EAST);
+  assert.equal(actor.cast?.aim, EAST);
 });
 
 test('a cap of zero commits the direction at the moment of pressing', () => {
   const actor = caster();
-  beginCast({ ...SLOW_TURN, castTurn: 0 }, actor, NORTH);
+  beginCast(anAbility({ ...SLOW_TURN, castTurn: 0 }), actor, NORTH);
   turnActor(actor, EAST, 1);
   assert.equal(actor.facing, NORTH);
-  assert.equal(actor.cast.aim, NORTH);
+  assert.equal(actor.cast?.aim, NORTH);
 });
 
 test('the turn takes the short way round the wrap', () => {

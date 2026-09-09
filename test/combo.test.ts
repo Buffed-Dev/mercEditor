@@ -6,7 +6,7 @@ import {
   chainIndex,
   chainReady,
   updateChain,
-} from '../Engine/src/game/abilities.js';
+} from '../Engine/src/game/abilities.ts';
 import { normalizeAbility } from '../Engine/src/data/abilities.ts';
 
 const combo = normalizeAbility({

@@ -1,4 +1,23 @@
-import { hostile } from './actor.js';
+import { hostile, type Actor } from './actor.ts';
+import type { Ability } from '../data/abilities.ts';
+import type { World } from './world.ts';
+
+/** One shot in flight. */
+export type Shot = {
+  id: number;
+  ability: Ability;
+  source: Actor;
+  gx: number;
+  gy: number;
+  dirX: number;
+  dirY: number;
+  size: number;
+  speed: number;
+  /** How far it has come, counted from the caster rather than the muzzle. */
+  travelled: number;
+  range: number;
+  dead: boolean;
+};
 
 /**
  * Travelling shots.
@@ -21,21 +40,31 @@ const MUZZLE = 0.3;
 let nextId = 1;
 
 export function createProjectiles() {
-  let live = [];
+  let live: Shot[] = [];
 
   return {
     get list() {
       return live;
     },
 
-    spawn({ ability, source, dirX, dirY }) {
+    spawn({
+      ability,
+      source,
+      dirX,
+      dirY,
+    }: {
+      ability: Ability;
+      source: Actor;
+      dirX: number;
+      dirY: number;
+    }): Shot | null {
       const length = Math.hypot(dirX, dirY);
       if (!(length > 0)) return null;
 
       const nx = dirX / length;
       const ny = dirY / length;
 
-      const shot = {
+      const shot: Shot = {
         id: nextId++,
         ability,
         source,
@@ -62,7 +91,12 @@ export function createProjectiles() {
      * @param {(shot, target) => void} onHit called once per shot, on whatever
      *   it struck — the level turns that into effects.
      */
-    update(dt, world, actors, onHit) {
+    update(
+      dt: number,
+      world: World,
+      actors: readonly Actor[],
+      onHit: (shot: Shot, target: Actor) => void,
+    ): void {
       if (!live.length) return;
 
       for (const shot of live) {
@@ -107,8 +141,11 @@ export function createProjectiles() {
       live = live.filter((shot) => !shot.dead);
     },
 
-    clear() {
+    clear(): void {
       live = [];
     },
   };
 }
+
+/** Every shot currently in the air. */
+export type Projectiles = ReturnType<typeof createProjectiles>;

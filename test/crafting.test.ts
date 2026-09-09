@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createCharacter } from '../Engine/src/game/character.js';
+import { createCharacter } from '../Engine/src/game/character.ts';
 import {
   CRAFT_SECONDS,
   advanceCraft,
@@ -24,10 +24,10 @@ import {
   finishCraft,
   purseView,
   upgradeBase,
-} from '../Engine/src/game/crafting.js';
+} from '../Engine/src/game/crafting.ts';
 import { nextBaseLevel } from '../Engine/src/data/baseLevels.ts';
-import { itemRange } from '../Engine/src/game/items.js';
-import { EQUIPMENT_SLOTS } from '../Engine/src/game/inventory.js';
+import { itemRange } from '../Engine/src/game/items.ts';
+import { EQUIPMENT_SLOTS } from '../Engine/src/game/inventory.ts';
 
 const CURRENCIES = [
   { id: 'gold', label: 'Gold', start: 0 },
@@ -90,13 +90,16 @@ const BASE_LEVELS = [
   },
 ];
 
+import type { Character } from '../Engine/src/game/character.ts';
+import { anItem } from './helpers/items.ts';
+
 /** Everything the character holds, wherever it is holding it. */
-function census(character) {
+function census(character: Character) {
   const worn = EQUIPMENT_SLOTS.filter((slot) => character.inventory.wearing(slot.id)).length;
   return character.inventory.count + worn + (character.hand ? 1 : 0);
 }
 
-const coins = (character) => [character.amount('gold'), character.amount('shard')];
+const coins = (character: Character) => [character.amount('gold'), character.amount('shard')];
 
 function bench({ gold = 0, shard = 0, baseLevel = 1 } = {}) {
   const character = createCharacter({ currencies: CURRENCIES });
@@ -156,7 +159,7 @@ test('too little of ONE currency refuses the whole price', () => {
 test('a full bag refuses BEFORE spending', () => {
   const { character, ctx } = bench({ gold: 999 });
   for (let i = 0; i < character.inventory.size; i++) {
-    character.inventory.add({ uid: `filler${i}`, label: 'Rock', slot: 'head', stats: [] });
+    character.inventory.add(anItem({ uid: `filler${i}`, defId: 'rock', label: 'Rock', slot: 'head' }));
   }
   const before = [coins(character), census(character)];
   assert.equal(beginCraft('cheap', ctx).reason, 'full');
@@ -185,12 +188,14 @@ test('the coin goes at the start and the item arrives at the end', () => {
   const { item, stowed } = finishCraft(character, ctx);
   assert.equal(stowed, true);
   assert.equal(census(character), count + 1);
+  assert.ok(item, 'nothing came off the bench');
   assert.equal(item.defId, 'shortSword');
   assert.equal(character.job, null, 'the bench is still busy after finishing');
 
   const ranges = new Map(itemRange(ITEMS[0]).map((stat) => [stat.attribute, stat]));
   for (const stat of item.stats) {
     const range = ranges.get(stat.attribute);
+    assert.ok(range, `${stat.attribute} is not a stat this item rolls`);
     assert.ok(stat.value >= range.min && stat.value <= range.max, `${stat.attribute} out of range`);
   }
 });
@@ -217,7 +222,7 @@ test('a bag filled while it was working does not lose the item', () => {
   const { character, ctx } = bench({ gold: 100 });
   assert.equal(beginCraft('cheap', ctx).ok, true);
   for (let i = 0; i < character.inventory.size; i++) {
-    character.inventory.add({ uid: `filler${i}`, label: 'Rock', slot: 'head', stats: [] });
+    character.inventory.add(anItem({ uid: `filler${i}`, defId: 'rock', label: 'Rock', slot: 'head' }));
   }
 
   advanceCraft(character, CRAFT_SECONDS);
@@ -246,7 +251,7 @@ test('the upgrade table is the ladder, and its top is the cap', () => {
   const { character, place } = bench({ gold: 100 });
   const buy = () => upgradeBase({ character, place, baseLevels: BASE_LEVELS });
 
-  assert.equal(nextBaseLevel(1, BASE_LEVELS).level, 2);
+  assert.equal(nextBaseLevel(1, BASE_LEVELS)?.level, 2);
   assert.equal(nextBaseLevel(3, BASE_LEVELS), null);
 
   assert.equal(buy().ok, true);
@@ -294,18 +299,20 @@ test('the view reports what is being made, and how far along', () => {
   const look = () => craftingView({ ...ctx, attributes: [] });
 
   beginCraft('cheap', ctx);
-  assert.equal(look().job.recipeId, 'cheap');
-  assert.equal(look().job.progress, 0);
+  assert.equal(look().job?.recipeId, 'cheap');
+  assert.equal(look().job?.progress, 0);
   assert.deepEqual(
     look().recipes.map((r) => r.making),
     [true, false, false, false],
   );
 
   advanceCraft(character, CRAFT_SECONDS / 2);
-  assert.ok(Math.abs(look().job.progress - 0.5) < 1e-9);
+  const halfway = look().job;
+  assert.ok(halfway, 'the bench forgot what it was making');
+  assert.ok(Math.abs(halfway.progress - 0.5) < 1e-9);
 
   advanceCraft(character, CRAFT_SECONDS);
-  assert.equal(look().job.progress, 1, 'progress ran past the end');
+  assert.equal(look().job?.progress, 1, 'progress ran past the end');
 
   finishCraft(character, ctx);
   assert.equal(look().job, null);
@@ -320,7 +327,7 @@ test('the purse read-out lists every currency, zeroes included', () => {
 });
 
 test('a price can be paid out of the bag as well as the purse', async () => {
-  const { rollItem } = await import('../Engine/src/game/items.js');
+  const { rollItem } = await import('../Engine/src/game/items.ts');
   const ore = MATERIAL_ITEMS[0];
 
   const { character, ctx } = bench({ gold: 100 });
@@ -351,6 +358,6 @@ test('the view prices a material by name', async () => {
   assert.equal(view.recipes[0].cost, '10 Gold + 3 Iron ore');
   assert.equal(view.recipes[0].affordable, false, 'affordable with no ore in the bag');
 
-  character.inventory.add((await import('../Engine/src/game/items.js')).rollItem(MATERIAL_ITEMS[0], Math.random, 3));
+  character.inventory.add((await import('../Engine/src/game/items.ts')).rollItem(MATERIAL_ITEMS[0], Math.random, 3));
   assert.equal(craftingView(forged).recipes[0].affordable, true);
 });

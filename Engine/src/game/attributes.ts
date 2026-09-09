@@ -1,4 +1,43 @@
-import { ATTRIBUTES, normalizeAttribute } from '../data/attributes.ts';
+import {
+  ATTRIBUTES,
+  normalizeAttribute,
+  type Attribute,
+  type AttributeInput,
+  type AttributeKind,
+} from '../data/attributes.ts';
+import type { ModifierOp } from '../data/effects.ts';
+
+/**
+ * One live change to one attribute.
+ *
+ * `source` is whatever put it there -- an item, a cast, an effect -- and is
+ * only ever compared by identity, so it is deliberately left `unknown` rather
+ * than made into a union that every new caller would have to be added to.
+ */
+export type AttrModifier = {
+  attribute: string;
+  op: ModifierOp;
+  value: number;
+  source: unknown;
+};
+
+/** What one attribute is worth right now, and what it can be worth. */
+export type AttributeSnapshot = Record<
+  string,
+  { value: number; current: number; kind: AttributeKind }
+>;
+
+/** An attribute and everything currently acting on it. */
+type Slot = {
+  def: Attribute;
+  base: number;
+  mods: AttrModifier[];
+  cached: number;
+  dirty: boolean;
+  /** Resources only: what is left. Filled in the first time it is computed. */
+  pool: number | null;
+  lastMax: number | null;
+};
 
 /**
  * One actor's attributes.
@@ -26,10 +65,13 @@ import { ATTRIBUTES, normalizeAttribute } from '../data/attributes.ts';
  * values are read every frame by several systems.
  */
 
-const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
 
-export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
-  const slots = new Map();
+export function createAttributeSet(
+  defs: readonly AttributeInput[] = ATTRIBUTES,
+  overrides: Record<string, number> = {},
+) {
+  const slots = new Map<string, Slot>();
 
   for (const raw of defs) {
     const def = normalizeAttribute(raw);
@@ -45,10 +87,10 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
     });
   }
 
-  function recompute(slot) {
+  function recompute(slot: Slot): void {
     let added = 0;
     let scale = 1;
-    let override = null;
+    let override: number | null = null;
 
     for (const mod of slot.mods) {
       if (mod.op === 'multiply') scale *= 1 + mod.value;
@@ -66,38 +108,44 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
       slot.pool = slot.cached; // a fresh actor starts full
     } else {
       // Whatever the maximum gained or lost, the pool gained or lost too.
-      slot.pool = clamp(slot.pool + (slot.cached - slot.lastMax), 0, slot.cached);
+      // pool and lastMax are only ever written together, so the fallback is
+      // unreachable; `slot.cached` is what it should mean anyway -- no change
+      // in the maximum, so no change to what is left.
+      slot.pool = clamp(slot.pool + (slot.cached - (slot.lastMax ?? slot.cached)), 0, slot.cached);
     }
     slot.lastMax = slot.cached;
   }
 
-  function slotOf(id) {
+  function slotOf(id: string): Slot | null {
     return slots.get(id) ?? null;
   }
 
   /** A stat's value, or a resource's maximum. */
-  function value(id) {
+  function value(id: string): number {
     const slot = slotOf(id);
     if (!slot) return 0;
     if (slot.dirty) recompute(slot);
     return slot.cached;
   }
 
-  function isResource(slot) {
+  function isResource(slot: Slot): boolean {
     return slot.def.kind === 'resource';
   }
 
   /** A resource's current level. For a stat this is just its value. */
-  function current(id) {
+  function current(id: string): number {
     const slot = slotOf(id);
     if (!slot) return 0;
     // Read the maximum first: that is what reconciles the pool against any
     // modifier added since the last read.
     const max = value(id);
-    return isResource(slot) ? slot.pool : max;
+    // `value` above recomputes a dirty slot, and recomputing a resource is
+    // what fills its pool, so by here a resource always has one. The `?? max`
+    // says so without asserting it.
+    return isResource(slot) ? (slot.pool ?? max) : max;
   }
 
-  function setCurrent(id, next) {
+  function setCurrent(id: string, next: number): number {
     const slot = slotOf(id);
     if (!slot || !isResource(slot)) return 0;
     const max = value(id);
@@ -111,28 +159,28 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
       return [...slots.keys()];
     },
 
-    has: (id) => slots.has(id),
-    definition: (id) => slotOf(id)?.def ?? null,
+    has: (id: string) => slots.has(id),
+    definition: (id: string): Attribute | null => slotOf(id)?.def ?? null,
     value,
     current,
     setCurrent,
 
     /** Permanently change what a stat is built from. Used by instant effects. */
-    setBase(id, next) {
+    setBase(id: string, next: number): void {
       const slot = slotOf(id);
       if (!slot) return;
       slot.base = next;
       slot.dirty = true;
     },
 
-    base: (id) => slotOf(id)?.base ?? 0,
+    base: (id: string) => slotOf(id)?.base ?? 0,
 
     /**
      * Move a value permanently — a damage tick, a potion. Returns the amount
      * that was *actually* applied, which is smaller than asked for when the
      * change clips against a bound, so a caller can report a real number.
      */
-    applyDelta(id, amount) {
+    applyDelta(id: string, amount: number): number {
       const slot = slotOf(id);
       if (!slot || !Number.isFinite(amount)) return 0;
 
@@ -152,7 +200,17 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
      * the caller; `source` is whatever owns it, so it can all be dropped at
      * once when a run ends.
      */
-    addModifier({ attribute, op = 'add', value: amount, source = null }) {
+    addModifier({
+      attribute,
+      op = 'add',
+      value: amount,
+      source = null,
+    }: {
+      attribute: string;
+      op?: ModifierOp;
+      value: number;
+      source?: unknown;
+    }): AttrModifier | null {
       const slot = slotOf(attribute);
       if (!slot) return null;
       const mod = { attribute, op, value: amount, source };
@@ -166,16 +224,18 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
      * Removing and re-adding would say the same thing, but this is what lets a
      * modifier be animated frame by frame without churning the list.
      */
-    setModifier(mod, amount) {
-      const slot = mod ? slotOf(mod.attribute) : null;
+    setModifier(mod: AttrModifier | null | undefined, amount: number): boolean {
+      if (!mod) return false;
+      const slot = slotOf(mod.attribute);
       if (!slot || !slot.mods.includes(mod)) return false;
       mod.value = amount;
       slot.dirty = true;
       return true;
     },
 
-    removeModifier(mod) {
-      const slot = mod ? slotOf(mod.attribute) : null;
+    removeModifier(mod: AttrModifier | null | undefined): boolean {
+      if (!mod) return false;
+      const slot = slotOf(mod.attribute);
       if (!slot) return false;
       const index = slot.mods.indexOf(mod);
       if (index < 0) return false;
@@ -185,7 +245,7 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
     },
 
     /** Drop everything one source contributed. The end of a roguelike run. */
-    removeBySource(source) {
+    removeBySource(source: unknown): number {
       let removed = 0;
       for (const slot of slots.values()) {
         const kept = slot.mods.filter((mod) => mod.source !== source);
@@ -199,8 +259,8 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
     },
 
     /** Flat read-out for the HUD and the editor. */
-    snapshot() {
-      const out = {};
+    snapshot(): AttributeSnapshot {
+      const out: AttributeSnapshot = {};
       for (const [id, slot] of slots) {
         out[id] = { value: value(id), current: current(id), kind: slot.def.kind };
       }
@@ -208,3 +268,12 @@ export function createAttributeSet(defs = ATTRIBUTES, overrides = {}) {
     },
   };
 }
+
+/**
+ * Everything an actor's attributes can be asked or told.
+ *
+ * Taken from the function rather than written out beside it: the set is one
+ * closure over its slots, and a hand-kept interface would be a second place
+ * to remember every time one of its methods changed.
+ */
+export type AttributeSet = ReturnType<typeof createAttributeSet>;

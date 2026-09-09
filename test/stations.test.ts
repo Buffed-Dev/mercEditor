@@ -9,12 +9,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { assemble, rotatePart } from '../Engine/src/data/maps/generate.ts';
+import type { ChunkPart } from '../Engine/src/data/maps/chunks.ts';
 
 /** A one-room part with a bench and a monster on known tiles. */
-function part(id, extra = {}) {
+function part(id: string, extra: Partial<ChunkPart> = {}): ChunkPart {
   return {
     id,
-    cluster: 'test',
+    name: id,
+    role: '',
     rows: ['11111', '1...1', '1...1', '1...1', '11111'],
     spawns: {},
     walls: [],
@@ -50,13 +52,18 @@ test('a station turns with the grid, the same way a monster does', () => {
 });
 
 test('a station survives being assembled into a cluster', () => {
-  const map = assemble('test', [part('start', { role: 'start', clusterSize: 1 })], 1);
-  assert.ok(map.stations?.length, 'the assembled map has no stations at all');
-  assert.equal(map.stations[0].label, 'Bench');
+  // The count goes in the options object. It used to be passed as a bare `1`,
+  // which `assemble` destructures as an empty object and ignores; with one
+  // part and no filler the run comes out the same either way.
+  const map = assemble('test', [part('start', { role: 'start' })], { count: 1 });
+  const stations = map.stations ?? [];
+  const monsters = map.monsters ?? [];
+  assert.ok(stations.length, 'the assembled map has no stations at all');
+  assert.equal(stations[0].label, 'Bench');
 
   // Offset by wherever the part was laid down — the same move the monster got.
   assert.deepEqual(
-    { gx: map.stations[0].gx, gy: map.stations[0].gy },
-    { gx: map.monsters[0].gx, gy: map.monsters[0].gy },
+    { gx: stations[0].gx, gy: stations[0].gy },
+    { gx: monsters[0].gx, gy: monsters[0].gy },
   );
 });

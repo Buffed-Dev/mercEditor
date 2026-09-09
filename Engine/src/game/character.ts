@@ -12,15 +12,33 @@
  * different design decision from a purse that happens to be a global.
  *
  * Storage and arithmetic only. Wearing an item applies its modifiers to an
- * actor's attributes, and the actor belongs to the level — see ../game/equipment.js.
+ * actor's attributes, and the actor belongs to the level — see ../game/equipment.ts.
  */
 
 import { SLOT_BINDINGS } from '../data/abilities.ts';
-import { CURRENCIES } from '../data/currencies.ts';
+import type { CostInput } from '../data/costs.ts';
+import { CURRENCIES, type CurrencyInput } from '../data/currencies.ts';
 import { normalizeCosts } from '../data/costs.ts';
-import { createInventory } from './inventory.js';
+import { createInventory } from './inventory.ts';
+import type { ItemInstance } from './items.ts';
 
-export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
+/**
+ * What the character is part way through making.
+ *
+ * Held here rather than in crafting because the character is what is busy;
+ * crafting is what starts and finishes it. See ./crafting.ts.
+ */
+export type Job = { recipeId: string; label: string; seconds: number; remaining: number };
+
+export function createCharacter({
+  cols,
+  rows,
+  currencies = CURRENCIES,
+}: {
+  cols?: number;
+  rows?: number;
+  currencies?: readonly CurrencyInput[];
+} = {}) {
   const inventory = createInventory({ cols, rows });
 
   /**
@@ -30,7 +48,7 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
    * the piece of interface that draws it — nor in the level, which is torn down
    * on every doorway. Here it simply comes along.
    */
-  let hand = null;
+  let hand: ItemInstance | null = null;
 
   /**
    * The purse: how much of each currency, keyed by id.
@@ -40,7 +58,9 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
    * add one. Seeded from each currency's `start`, which is the only moment the
    * definitions are read: a purse is a number, not a lookup.
    */
-  const purse = new Map(currencies.map((def) => [def.id, Math.max(0, Math.round(def.start) || 0)]));
+  const purse = new Map<string, number>(
+    currencies.map((def) => [def.id ?? '', Math.max(0, Math.round(def.start ?? 0) || 0)]),
+  );
 
   /**
    * Which ability is on which key.
@@ -51,7 +71,8 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
    * see ./loadout.js — and these two are reconciled after anything that changes
    * what is worn.
    */
-  const slots = SLOT_BINDINGS.map(() => null);
+  // One entry per input binding, each holding an ability id or nothing.
+  const slots: (string | null)[] = SLOT_BINDINGS.map(() => null);
 
   /**
    * Which key the main hand's attack sits on.
@@ -72,7 +93,16 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
    * you have already paid for must not go with them. One at a time, because a
    * queue is a different feature and nobody has asked for one.
    */
-  let job = null;
+  let job: Job | null = null;
+
+  /**
+   * Hoisted out of the object below so `spend` can ask it without going back
+   * through `this` -- which would make the returned type depend on itself.
+   */
+  const affords = (costs: readonly CostInput[]): boolean =>
+    normalizeCosts(costs).every(({ kind, id, amount }) =>
+      kind === 'item' ? inventory.countOf(id) >= amount : (purse.get(id) ?? 0) >= amount,
+    );
 
   return {
     inventory,
@@ -80,7 +110,7 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
     get hand() {
       return hand;
     },
-    setHand(item) {
+    setHand(item: ItemInstance | null | undefined): ItemInstance | null {
       hand = item ?? null;
       return hand;
     },
@@ -95,21 +125,21 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
       return handSlot;
     },
 
-    setHandSlot(index) {
+    setHandSlot(index: number): boolean {
       if (!Number.isInteger(index) || index < 0 || index >= slots.length) return false;
       handSlot = index;
       return true;
     },
 
     /** Put one ability on one key, or null to empty it. */
-    setSlot(index, ability) {
+    setSlot(index: number, ability: string | null): boolean {
       if (!Number.isInteger(index) || index < 0 || index >= slots.length) return false;
       slots[index] = ability || null;
       return true;
     },
 
     /** How much of one currency; 0 for one this character has never seen. */
-    amount: (currency) => purse.get(currency) ?? 0,
+    amount: (currency: string): number => purse.get(currency) ?? 0,
 
     /** The whole purse, copied, for anything that has to show it. */
     purse: () => new Map(purse),
@@ -117,13 +147,13 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
     get job() {
       return job;
     },
-    setJob(next) {
+    setJob(next: Job | null): Job | null {
       job = next ?? null;
       return job;
     },
 
     /** Coin in. Negative amounts are not a withdrawal; they are a mistake. */
-    earn(currency, amount) {
+    earn(currency: string, amount: number): number {
       if (!currency) return 0;
       const held = (purse.get(currency) ?? 0) + Math.max(0, Math.round(amount) || 0);
       purse.set(currency, held);
@@ -137,11 +167,7 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
      * a count in the bag. One question rather than two, because the answer that
      * matters is "can this be bought", and half of it is no answer at all.
      */
-    affords(costs) {
-      return normalizeCosts(costs).every(({ kind, id, amount }) =>
-        kind === 'item' ? inventory.countOf(id) >= amount : (purse.get(id) ?? 0) >= amount,
-      );
-    },
+    affords,
 
     /**
      * Pay a price, all of it or none of it.
@@ -152,9 +178,9 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
      * would ever be able to explain. It spans two containers now, which only
      * makes that easier to do by accident.
      */
-    spend(costs) {
+    spend(costs: readonly CostInput[]): boolean {
       const lines = normalizeCosts(costs);
-      if (!this.affords(lines)) return false;
+      if (!affords(lines)) return false;
       for (const { kind, id, amount } of lines) {
         if (kind === 'item') inventory.remove(id, amount);
         else purse.set(id, (purse.get(id) ?? 0) - amount);
@@ -163,3 +189,6 @@ export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {
     },
   };
 }
+
+/** A bag, a purse, an ability bar and whatever is being made. */
+export type Character = ReturnType<typeof createCharacter>;

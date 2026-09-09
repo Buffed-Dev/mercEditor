@@ -13,13 +13,20 @@
  */
 
 /** Longest slice, in tiles. Comfortably under a wall's width. */
+import type { Ability } from '../data/abilities.ts';
+import type { Actor } from './actor.ts';
+import type { World } from './world.ts';
+
+/** A movement ability in flight: which way, how much further, how fast. */
+export type Dash = { dirX: number; dirY: number; remaining: number; speed: number };
+
 const MAX_SLICE = 0.2;
 
 /** Below this a dash has effectively arrived; avoids a zero-length last step. */
 const EPSILON = 1e-6;
 
-export function beginDash(ability, actor, aim) {
-  const dash = {
+export function beginDash(ability: Ability, actor: Actor, aim: number): Dash | null {
+  const dash: Dash = {
     dirX: Math.sin(aim),
     dirY: Math.cos(aim),
     remaining: Math.max(0, ability.range ?? 0),
@@ -34,7 +41,7 @@ export function beginDash(ability, actor, aim) {
  *
  * @returns {boolean} true while it is still going.
  */
-export function updateDash(actor, world, dt) {
+export function updateDash(actor: Actor, world: World, dt: number): boolean {
   const dash = actor.dash;
   if (!dash) return false;
 

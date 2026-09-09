@@ -45,7 +45,7 @@ const FACE_DIRS = {
 
 /**
  * @param {Scene} scene the one scene
- * @param {import('../game/world.js').World} world
+ * @param {import('../game/world.ts').World} world
  * @param {object} [content] the rules the map is drawn against — its effects,
  *   objects, assets, materials and blocks, plus which game folder to fetch
  *   files from.

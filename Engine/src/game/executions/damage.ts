@@ -14,10 +14,12 @@
  * reaches zero. Flat subtraction does both of those things wrong.
  */
 
-export const damage = {
+import type { ExecutionContext, ExecutionResult, ExecutionSpec } from './index.ts';
+
+export const damage: ExecutionSpec = {
   label: 'Damage',
 
-  run({ target, source, params, resolve }) {
+  run({ target, source, params, resolve }: ExecutionContext): ExecutionResult {
     const amount = resolve(params.magnitude, target, source);
     if (!(amount > 0)) return { dealt: 0, killed: false };
 

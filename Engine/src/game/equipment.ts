@@ -27,7 +27,24 @@
  */
 
 /** Layer everything an item gives. */
-export function wear(attrs, item) {
+import type { AttributeSet } from './attributes.ts';
+import type { Inventory } from './inventory.ts';
+import type { ItemInstance } from './items.ts';
+
+/** What moving an item into a worn slot did. */
+export type EquipResult = {
+  ok: boolean;
+  reason: string;
+  slot: string | null;
+  item: ItemInstance | null;
+  /** Whatever was already in the slot and had to come off. */
+  displaced: ItemInstance | null;
+};
+
+export function wear(
+  attrs: AttributeSet | null | undefined,
+  item: ItemInstance | null | undefined,
+): number {
   if (!attrs || !item) return 0;
   let applied = 0;
   for (const stat of item.stats ?? []) {
@@ -39,7 +56,10 @@ export function wear(attrs, item) {
 }
 
 /** Take it all back off. */
-export function strip(attrs, item) {
+export function strip(
+  attrs: AttributeSet | null | undefined,
+  item: ItemInstance | null | undefined,
+): number {
   if (!attrs || !item) return 0;
   return attrs.removeBySource(item);
 }
@@ -54,7 +74,11 @@ export function strip(attrs, item) {
  * @returns {{ok: boolean, reason: string, slot: string|null, item: object|null,
  *   displaced: object|null}}
  */
-export function equipFromBag(attrs, inventory, index) {
+export function equipFromBag(
+  attrs: AttributeSet,
+  inventory: Inventory,
+  index: number,
+): EquipResult {
   const item = inventory.at(index);
   if (!item) return { ok: false, reason: 'empty', slot: null, item: null, displaced: null };
 
@@ -78,12 +102,16 @@ export function equipFromBag(attrs, inventory, index) {
 // ever move one item, and never leave it in two places at once.
 
 /** Lift something out of a bag cell. Nothing is worn, so nothing is stripped. */
-export function takeFromBag(inventory, index) {
+export function takeFromBag(inventory: Inventory, index: number): ItemInstance | null {
   return inventory.takeAt(index);
 }
 
 /** Lift something off the body, which does take its modifiers with it. */
-export function takeFromSlot(attrs, inventory, slotId) {
+export function takeFromSlot(
+  attrs: AttributeSet,
+  inventory: Inventory,
+  slotId: string,
+): ItemInstance | null {
   const item = inventory.unequip(slotId);
   if (item) strip(attrs, item);
   return item;
@@ -99,7 +127,11 @@ export function takeFromSlot(attrs, inventory, slotId) {
  *
  * @returns the displaced item, now the caller's to hold
  */
-export function placeInBag(inventory, index, item) {
+export function placeInBag(
+  inventory: Inventory,
+  index: number,
+  item: ItemInstance | null | undefined,
+): ItemInstance | null {
   if (!item) return null;
   return inventory.put(index, item) ?? null;
 }
@@ -112,7 +144,12 @@ export function placeInBag(inventory, index, item) {
  *
  * @returns {{ok: boolean, reason: string, displaced: object|null}}
  */
-export function placeInSlot(attrs, inventory, slotId, item) {
+export function placeInSlot(
+  attrs: AttributeSet,
+  inventory: Inventory,
+  slotId: string,
+  item: ItemInstance | null | undefined,
+): { ok: boolean; reason: string; displaced: ItemInstance | null } {
   if (!item) return { ok: false, reason: 'empty', displaced: null };
   if (!inventory.accepts(slotId, item)) return { ok: false, reason: 'nofit', displaced: null };
 
@@ -130,7 +167,11 @@ export function placeInSlot(attrs, inventory, slotId, item) {
  *
  * @returns {{ok: boolean, reason: string, item: object|null}}
  */
-export function unequipToBag(attrs, inventory, slotId) {
+export function unequipToBag(
+  attrs: AttributeSet,
+  inventory: Inventory,
+  slotId: string,
+): { ok: boolean; reason: string; item: ItemInstance | null } {
   const item = inventory.wearing(slotId);
   if (!item) return { ok: false, reason: 'empty', item: null };
   if (inventory.firstFree() < 0) return { ok: false, reason: 'full', item: null };

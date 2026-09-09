@@ -49,7 +49,7 @@ const mapOf = (height, extra = {}) => ({
 });
 
 test('the ground is flat across a tile and steps to the next', async () => {
-  const { World } = await import('../Engine/src/game/world.js');
+  const { World } = await import('../Engine/src/game/world.ts');
   //  0 0 2
   //  0 0 2
   const world = new World(mapOf(['002', '002']));
@@ -66,7 +66,7 @@ test('the ground is flat across a tile and steps to the next', async () => {
 });
 
 test('how much you can climb is the map\u2019s own answer', async () => {
-  const { World } = await import('../Engine/src/game/world.js');
+  const { World } = await import('../Engine/src/game/world.ts');
   const low = new World(mapOf(['01']));
 
   // One level is a step by default: you can walk up it.
@@ -87,7 +87,7 @@ test('how much you can climb is the map\u2019s own answer', async () => {
 });
 
 test('standing beside a ledge is allowed, and climbing onto one works', async () => {
-  const { World } = await import('../Engine/src/game/world.js');
+  const { World } = await import('../Engine/src/game/world.ts');
   const world = new World(mapOf(['01']));
 
   // The old surface had a footprint check that refused any position whose
@@ -99,7 +99,7 @@ test('standing beside a ledge is allowed, and climbing onto one works', async ()
 });
 
 test('walking into a step too tall to climb stops, and stays stopped', async () => {
-  const { World, PLAYER_RADIUS } = await import('../Engine/src/game/world.js');
+  const { World, PLAYER_RADIUS } = await import('../Engine/src/game/world.ts');
   //  0 3   — a three-level wall at tile 1, with one block of step allowed
   const world = new World(mapOf(['03']));
   const pos = { gx: 0.5, gy: 0.5 };
@@ -123,7 +123,7 @@ test('walking into a step too tall to climb stops, and stays stopped', async () 
 });
 
 test('a step within the step height is still walked straight up', async () => {
-  const { World } = await import('../Engine/src/game/world.js');
+  const { World } = await import('../Engine/src/game/world.ts');
   const world = new World(mapOf(['01']));
   const pos = { gx: 0.5, gy: 0.5 };
 
@@ -135,7 +135,7 @@ test('a step within the step height is still walked straight up', async () => {
 });
 
 test('a body already inside a cliff can still walk out of it', async () => {
-  const { World } = await import('../Engine/src/game/world.js');
+  const { World } = await import('../Engine/src/game/world.ts');
   const world = new World(mapOf(['03']));
   // Standing with its footprint over the tall tile — spawned there, or the
   // ground came up underneath it. Refusing every move on the footprint rule

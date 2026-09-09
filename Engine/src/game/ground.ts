@@ -31,10 +31,31 @@
  * be the same number — coin that vanished mid-flight would be a payout you
  * never saw.
  */
+import type { Placed } from '../data/mapFormat.ts';
+import type { Loot } from './items.ts';
+
+/**
+ * One item lying on the floor.
+ *
+ * `from` is where it was thrown from, kept so the renderer can arc it to where
+ * it landed; `at` is when it was dropped, which is what `SETTLE_SECONDS`
+ * measures against.
+ */
+export type Drop = {
+  id: string;
+  item: Loot;
+  tx: number;
+  ty: number;
+  gx: number;
+  gy: number;
+  from: Placed | null;
+  at: number;
+};
+
 export const SETTLE_SECONDS = 0.45;
 
 /** Tiles in rings around a centre, nearest first. */
-function* spiral(tx, ty, radius) {
+function* spiral(tx: number, ty: number, radius: number): Generator<[number, number]> {
   yield [tx, ty];
   for (let r = 1; r <= radius; r++) {
     for (let dx = -r; dx <= r; dx++) {
@@ -54,7 +75,12 @@ function* spiral(tx, ty, radius) {
  * knows about walls and bounds, and this knows about what is already lying
  * around, and neither needs to import the other.
  */
-export function nearestFree(tx, ty, isFree, radius = 6) {
+export function nearestFree(
+  tx: number,
+  ty: number,
+  isFree: (tx: number, ty: number) => boolean,
+  radius = 6,
+): { tx: number; ty: number } | null {
   for (const [x, y] of spiral(tx, ty, radius)) {
     if (isFree(x, y)) return { tx: x, ty: y };
   }
@@ -63,10 +89,10 @@ export function nearestFree(tx, ty, isFree, radius = 6) {
 
 export function createGround() {
   /** @type {{id: string, item: object, tx: number, ty: number, gx: number, gy: number}[]} */
-  const drops = [];
+  const drops: Drop[] = [];
   let serial = 0;
 
-  const indexOf = (id) => drops.findIndex((drop) => drop.id === id);
+  const indexOf = (id: string) => drops.findIndex((drop) => drop.id === id);
 
   return {
     get count() {
@@ -76,14 +102,14 @@ export function createGround() {
     /** A copy, so a caller iterating it can pick things up as it goes. */
     list: () => drops.slice(),
 
-    at: (id) => drops.find((drop) => drop.id === id) ?? null,
+    at: (id: string): Drop | null => drops.find((drop) => drop.id === id) ?? null,
 
     /** What is lying on a tile, or null. */
-    atTile(tx, ty) {
+    atTile(tx: number, ty: number): Drop | null {
       return drops.find((drop) => drop.tx === tx && drop.ty === ty) ?? null;
     },
 
-    occupied(tx, ty) {
+    occupied(tx: number, ty: number): boolean {
       return drops.some((drop) => drop.tx === tx && drop.ty === ty);
     },
 
@@ -99,9 +125,15 @@ export function createGround() {
      * position rather than a reference to whoever threw it, because that thing
      * has usually moved — or died — by the time the toss lands.
      */
-    drop(item, tx, ty, from = null, at = 0) {
+    drop(
+      item: Loot | null | undefined,
+      tx: number,
+      ty: number,
+      from: Placed | null = null,
+      at = 0,
+    ): Drop | null {
       if (!item) return null;
-      const entry = {
+      const entry: Drop = {
         id: `drop${++serial}`,
         item,
         tx,
@@ -122,7 +154,7 @@ export function createGround() {
      * back would give it a new id and start its toss over, so the pile would
      * appear to leap out of the ground again every time you filled up.
      */
-    keep(id, item) {
+    keep(id: string, item: Loot): Drop | null {
       const entry = drops.find((drop) => drop.id === id);
       if (!entry) return null;
       entry.item = item;
@@ -130,15 +162,18 @@ export function createGround() {
     },
 
     /** Lift one off the floor. Returns the item, or null if it is already gone. */
-    take(id) {
+    take(id: string): Loot | null {
       const index = indexOf(id);
       if (index < 0) return null;
       const [entry] = drops.splice(index, 1);
       return entry.item;
     },
 
-    clear() {
+    clear(): void {
       drops.length = 0;
     },
   };
 }
+
+/** Everything lying on the floor of the current map. */
+export type Ground = ReturnType<typeof createGround>;

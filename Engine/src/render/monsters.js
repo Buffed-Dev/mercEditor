@@ -3,7 +3,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import { MONSTER_KINDS } from '../game/monsters.js';
+import { MONSTER_KINDS } from '../game/monsters.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.js';
 import { colorOf, surface, unlit } from './materials.js';

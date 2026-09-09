@@ -1,6 +1,6 @@
 import { PBRCustomMaterial } from '@babylonjs/materials/custom/pbrCustomMaterial.js';
 import { colorOf } from './materials.js';
-import { angleBetween } from '../game/abilities.js';
+import { angleBetween } from '../game/abilities.ts';
 
 /**
  * Shapes painted onto the ground by the ground itself.
