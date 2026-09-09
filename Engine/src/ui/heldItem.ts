@@ -1,4 +1,4 @@
-import { countOf } from '../game/items.ts';
+import { countOf, type ItemInstance } from '../game/items.ts';
 
 /**
  * The item riding on the cursor.
@@ -12,13 +12,13 @@ import { countOf } from '../game/items.ts';
  * is the whole state there is.
  */
 
-export function createHeldItemView(root) {
+export function createHeldItemView(root: HTMLElement) {
   const plate = document.createElement('div');
   plate.className = 'held-item';
   plate.hidden = true;
   root.append(plate);
 
-  let showing = null;
+  let showing: ItemInstance | null = null;
 
   return {
     get item() {
@@ -26,7 +26,7 @@ export function createHeldItemView(root) {
     },
 
     /** Carry this item, or nothing. */
-    show(item) {
+    show(item: ItemInstance | null | undefined): void {
       showing = item ?? null;
       plate.hidden = !showing;
       const depth = countOf(showing);
@@ -39,8 +39,11 @@ export function createHeldItemView(root) {
      * dragged thing sits under the hand rather than beneath it — centred on the
      * pointer, the plate would hide the cell being aimed at.
      */
-    moveTo(x, y) {
+    moveTo(x: number, y: number): void {
       plate.style.transform = `translate(${Math.round(x) + 12}px, ${Math.round(y) + 10}px)`;
     },
   };
 }
+
+/** The plate that follows the cursor while something is being carried. */
+export type HeldItemView = ReturnType<typeof createHeldItemView>;

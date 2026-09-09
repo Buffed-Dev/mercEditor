@@ -2,6 +2,36 @@ import { Control } from '@babylonjs/gui/2D/controls/control.js';
 import { Rectangle } from '@babylonjs/gui/2D/controls/rectangle.js';
 import { StackPanel } from '@babylonjs/gui/2D/controls/stackPanel.js';
 import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock.js';
+import type { AdvancedDynamicTexture } from '@babylonjs/gui/2D/advancedDynamicTexture.js';
+import type { SlotBinding } from '../data/abilities.ts';
+
+/** A bar: the well it sits in, and the part that is filled. */
+type Bar = { track: Rectangle; fill: Rectangle };
+
+/** The controls making up one key of the ability bar. */
+type SlotView = { slot: Rectangle; cool: Rectangle; name: TextBlock; step: TextBlock };
+
+/** One key of the bar, as the game reports it. */
+export type HudSlot = {
+  id?: string;
+  label?: string;
+  /** How much of the cooldown is left, 0 to 1. */
+  fraction?: number;
+  /** Where a combo has got to, when this key is one. */
+  step?: { label: string; index: number; count: number } | null;
+};
+
+/** What the HUD draws each frame. */
+export type HudState = {
+  playing: boolean;
+  vitals: {
+    health: number;
+    maxHealth: number;
+    slots: readonly (HudSlot | null | undefined)[];
+    cast?: { label: string; progress: number } | null;
+  };
+  status?: string;
+};
 
 /**
  * The read-outs over the game: health, the ability bar, the cast bar and the
@@ -41,7 +71,7 @@ const VITALS_BOTTOM = 26;
 const ABILITIES_BOTTOM = 74;
 const CAST_BOTTOM = 132;
 
-function text(content, { size = 12, color = INK } = {}) {
+function text(content: string, { size = 12, color = INK } = {}): TextBlock {
   const block = new TextBlock('', content);
   block.fontFamily = FONT;
   block.fontSize = size;
@@ -51,7 +81,7 @@ function text(content, { size = 12, color = INK } = {}) {
 }
 
 /** A recessed track with a fill that grows from its left edge. */
-function bar(width, height, fillColor) {
+function bar(width: number, height: number, fillColor: string): Bar {
   const track = new Rectangle('track');
   track.widthInPixels = width;
   track.heightInPixels = height;
@@ -75,8 +105,11 @@ function bar(width, height, fillColor) {
  * @param {import('@babylonjs/gui/2D/advancedDynamicTexture.js').AdvancedDynamicTexture} ui
  * @param {Document} root where the fault banner lives
  */
-export function createHud(ui, root = document) {
+export function createHud(ui: AdvancedDynamicTexture, root: Document = document) {
+  // Looked up once, and loudly: this is where a frame error is reported, so a
+  // page without it would swallow exactly the thing worth seeing.
   const fault = root.getElementById('fault');
+  if (!fault) throw new Error('the page has no #fault element to report into');
 
   // ---------------------------------------------------------- status line
   const line = text('', { size: 14, color: DIM });
@@ -117,7 +150,7 @@ export function createHud(ui, root = document) {
   ui.addControl(abilityBar);
 
   /** One entry per slot, rebuilt only when the level changes. */
-  let slotViews = [];
+  let slotViews: SlotView[] = [];
 
   // ------------------------------------------------------------- cast bar
   const castPanel = new StackPanel('cast');
@@ -149,7 +182,10 @@ export function createHud(ui, root = document) {
      * @param {{label: string}[]} slots
      * @param {{label?: string}[]} bindings which key or button fires each slot
      */
-    setAbilities(slots, bindings = []) {
+    setAbilities(
+      slots: readonly (HudSlot | null | undefined)[],
+      bindings: readonly SlotBinding[] = [],
+    ): void {
       for (const view of slotViews) view.slot.dispose();
 
       slotViews = slots.map((ability, index) => {
@@ -192,7 +228,7 @@ export function createHud(ui, root = document) {
         step.leftInPixels = -5;
         slot.addControl(step);
 
-        const name = text(ability.label || '—', { size: 11, color: empty ? '#3b4457' : INK });
+        const name = text(ability?.label || '—', { size: 11, color: empty ? '#3b4457' : INK });
         name.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         name.topInPixels = -6;
         name.widthInPixels = SLOT_WIDTH - 8;
@@ -206,13 +242,13 @@ export function createHud(ui, root = document) {
     },
 
     /** A line of text in the corner for a few seconds. */
-    notice(message, seconds = 2.5) {
+    notice(message: string, seconds = 2.5): void {
       noticeText = message;
       noticeUntil = performance.now() + seconds * 1000;
     },
 
     /** Put the status line to something the caller composed — the editors do. */
-    setLine(content) {
+    setLine(content: string): void {
       line.text = content;
     },
 
@@ -220,7 +256,7 @@ export function createHud(ui, root = document) {
      * Everything that belongs to a running game, gone. For the editors, which
      * cover the screen and have no health to report.
      */
-    hideBars() {
+    hideBars(): void {
       vitals.isVisible = false;
       abilityBar.isVisible = false;
       castPanel.isVisible = false;
@@ -234,7 +270,7 @@ export function createHud(ui, root = document) {
      * @param {object} view.vitals health, cast and slot state from the level
      * @param {string} view.status the right-hand half of the status line
      */
-    update({ playing, vitals: state, status = '' }) {
+    update({ playing, vitals: state, status = '' }: HudState): void {
       const { health: hp, maxHealth, slots, cast } = state;
 
       const now = performance.now();
@@ -289,9 +325,13 @@ export function createHud(ui, root = document) {
      * the renderer to appear is no banner at all.
      */
     fault: (() => {
-      const seen = new Map();
-      return (error) => {
-        const message = String(error?.message ?? error);
+      const seen = new Map<string, number>();
+      return (error: unknown): void => {
+        // A thrown value is only an Error by convention, so its message is
+        // asked for rather than assumed.
+        const message = String(
+          (error instanceof Error ? error.message : undefined) ?? error,
+        );
         const count = (seen.get(message) ?? 0) + 1;
         seen.set(message, count);
 
@@ -303,3 +343,6 @@ export function createHud(ui, root = document) {
     })(),
   };
 }
+
+/** The heads-up display: vitals, the ability bar, and what went wrong. */
+export type Hud = ReturnType<typeof createHud>;

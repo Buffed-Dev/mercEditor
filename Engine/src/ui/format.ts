@@ -6,7 +6,7 @@
  * haste lands. Rounding to two places is enough to hide that without hiding a
  * fraction the player was actually given.
  */
-export function formatStat(value) {
+export function formatStat(value: number): string {
   if (!Number.isFinite(value)) return '—';
   return String(Math.round(value * 100) / 100);
 }

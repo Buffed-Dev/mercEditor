@@ -1,4 +1,32 @@
-import { createButtons } from './buttons.js';
+import { createButtons } from './buttons.ts';
+
+/**
+ * Where a press landed.
+ *
+ * `world` is the map itself, `control` a deliberate on-screen control, and
+ * `interface` anything else the HUD is covering the map with. Only a press on
+ * the world drives the game.
+ */
+export type PressWhere = 'world' | 'control' | 'interface';
+
+/** Where the pointer is, and whether it has ever been anywhere. */
+export type Pointer = { x: number; y: number; seen: boolean };
+
+/** A press, once it is known what it landed on. */
+export type Press = { button: number; where: PressWhere; x: number; y: number };
+
+/** A release, which only needs to know what it let go of. */
+export type Release = { button: number; where: PressWhere };
+
+/** What the game wants to hear about. */
+export type InputHandlers = {
+  /** The selector matching the map's own canvas. */
+  world: string;
+  onKeyDown?: (event: KeyboardEvent) => void;
+  onPress?: (press: Press) => void;
+  onRelease?: (release: Release) => void;
+  onMove?: (pointer: Pointer) => void;
+};
 
 /**
  * Every DOM listener the game has, in one place.
@@ -22,9 +50,13 @@ import { createButtons } from './buttons.js';
  * but hits the sheet around it is a miss — not an instruction to throw the
  * carried item on the floor. Only the world means the floor.
  */
-function pressedOn(target, worldSelector) {
-  if (target?.closest?.('.ui-click')) return 'control';
-  return target?.closest?.(worldSelector) ? 'world' : 'interface';
+function pressedOn(target: EventTarget | null, worldSelector: string): PressWhere {
+  // A press can land on the window itself, which is not an element and has
+  // nothing to ask about ancestors -- the optional call this replaces read as
+  // 'interface' in that case, and so does this.
+  const element = target instanceof Element ? target : null;
+  if (element?.closest('.ui-click')) return 'control';
+  return element?.closest(worldSelector) ? 'world' : 'interface';
 }
 
 /**
@@ -38,9 +70,15 @@ function pressedOn(target, worldSelector) {
  * @param {(press: {button: number, where: string}) => void} [options.onRelease]
  * @param {(at: {x: number, y: number}) => void} [options.onMove]
  */
-export function createInput({ world, onKeyDown, onPress, onRelease, onMove } = {}) {
+export function createInput({
+  world,
+  onKeyDown,
+  onPress,
+  onRelease,
+  onMove,
+}: InputHandlers) {
   /** Which key codes are held. Read every frame by whatever cares. */
-  const keys = new Set();
+  const keys = new Set<string>();
 
   // Which mouse buttons are held. Abilities re-attempt every frame while held
   // rather than firing once on press, so holding a button attacks continuously
@@ -48,10 +86,23 @@ export function createInput({ world, onKeyDown, onPress, onRelease, onMove } = {
   const buttons = createButtons();
 
   /** Where the pointer last was, in client pixels. */
-  const pointer = { x: 0, y: 0, seen: false };
+  const pointer: Pointer = { x: 0, y: 0, seen: false };
 
-  const listeners = [];
-  const listen = (target, type, handler, options) => {
+  const listeners: (() => void)[] = [];
+
+  /**
+   * Add a listener and remember how to take it off again.
+   *
+   * Generic over the event name so each handler below is handed the event it
+   * actually gets -- a KeyboardEvent for a key, a PointerEvent for a press --
+   * rather than the base Event and a cast at every use.
+   */
+  const listen = <K extends keyof WindowEventMap>(
+    target: Window,
+    type: K,
+    handler: (event: WindowEventMap[K]) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void => {
     target.addEventListener(type, handler, options);
     listeners.push(() => target.removeEventListener(type, handler, options));
   };
@@ -74,7 +125,7 @@ export function createInput({ world, onKeyDown, onPress, onRelease, onMove } = {
 
   // Every pointer event carries the same button bitmask, and the second button
   // of a two-button gesture only ever arrives on one of them.
-  for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'pointermove']) {
+  for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'pointermove'] as const) {
     listen(window, type, (event) => buttons.track(event));
   }
 
@@ -118,12 +169,15 @@ export function createInput({ world, onKeyDown, onPress, onRelease, onMove } = {
     pointer,
 
     /** Is a key held? */
-    held: (code) => keys.has(code),
+    held: (code: string): boolean => keys.has(code),
 
-    dispose() {
+    dispose(): void {
       for (const off of listeners) off();
       listeners.length = 0;
       keys.clear();
     },
   };
 }
+
+/** Everything the game reads about the keyboard, the mouse and the pointer. */
+export type Input = ReturnType<typeof createInput>;

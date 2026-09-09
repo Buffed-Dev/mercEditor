@@ -30,7 +30,27 @@
  */
 
 import { countOf } from '../game/items.ts';
-import { formatStat } from './format.js';
+import { formatStat } from './format.ts';
+import { part, setText } from './dom.ts';
+import type { ItemInstance } from '../game/items.ts';
+import type { InventorySnapshot } from '../game/inventory.ts';
+import type { Cell } from './itemCursor.ts';
+
+/** One attribute, as the panel shows it. */
+export type StatView = {
+  id: string;
+  label: string;
+  kind: string;
+  value: number;
+  current: number;
+};
+
+/** Everything this panel draws. Built by the level; see render/level.ts. */
+export type CharacterView = {
+  label: string;
+  stats: readonly StatView[];
+  inventory?: InventorySnapshot | null;
+};
 
 /**
  * @param {object} [handlers]
@@ -39,16 +59,25 @@ import { formatStat } from './format.js';
  * @param {(where: {kind: 'bag'|'slot', id: number|string}) => void}
  *   [handlers.onCellUp] the pointer came up over a cell
  */
-export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
+export function createCharacterPanel(
+  root: HTMLElement,
+  {
+    onCellDown,
+    onCellUp,
+  }: {
+    onCellDown?: (where: Cell, button: number) => void;
+    onCellUp?: (where: Cell) => void;
+  } = {},
+) {
   let open = false;
   let signature = '';
   /** id -> the element the value is written into. */
-  let statValues = new Map();
+  let statValues = new Map<string, Element>();
   let bagSize = -1;
   /** slot id -> the element the worn item's name is written into. */
-  let equipmentNames = new Map();
+  let equipmentNames = new Map<string, Element>();
   /** slot id -> the whole cell, which is the thing you click to take it off. */
-  let equipmentCells = new Map();
+  let equipmentCells = new Map<string, HTMLElement>();
 
   root.innerHTML =
     '<div class="ch-panel">' +
@@ -64,14 +93,14 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
     '<div class="ch-help">Drag or click to pick up &middot; right-click to equip</div>' +
     '</div>';
 
-  const panel = root.querySelector('.ch-panel');
-  const archetype = root.querySelector('.ch-archetype');
-  const stats = root.querySelector('.ch-stats');
-  const doll = root.querySelector('.ch-doll');
-  const bag = root.querySelector('.ch-bag');
+  const panel = part(root, '.ch-panel');
+  const archetype = part(root, '.ch-archetype');
+  const stats = part(root, '.ch-stats');
+  const doll = part(root, '.ch-doll');
+  const bag = part(root, '.ch-bag');
 
   /** Rebuild the stat rows for a new set of attributes. */
-  function buildStats(list) {
+  function buildStats(list: readonly StatView[]): void {
     // Labels are author-typed data, so they are written as text and never
     // interpolated into markup.
     stats.innerHTML = list
@@ -79,14 +108,14 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
       .join('');
 
     const rows = [...stats.querySelectorAll('.ch-stat')];
-    statValues = new Map();
+    statValues = new Map<string, Element>();
     list.forEach((stat, i) => {
-      rows[i].querySelector('.ch-k').textContent = stat.label;
-      statValues.set(stat.id, rows[i].querySelector('.ch-v'));
+      setText(part(rows[i], '.ch-k'), stat.label);
+      statValues.set(stat.id, part(rows[i], '.ch-v'));
     });
   }
 
-  function buildEquipment(list) {
+  function buildEquipment(list: InventorySnapshot['equipment']): void {
     doll.innerHTML = list
       .map(
         (slot) =>
@@ -95,25 +124,25 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
       )
       .join('');
 
-    const cells = [...doll.querySelectorAll('.ch-slot')];
-    equipmentNames = new Map();
-    equipmentCells = new Map();
+    const cells = [...doll.querySelectorAll<HTMLElement>('.ch-slot')];
+    equipmentNames = new Map<string, Element>();
+    equipmentCells = new Map<string, HTMLElement>();
     list.forEach((slot, i) => {
-      cells[i].querySelector('.ch-slot-label').textContent = slot.label;
-      equipmentNames.set(slot.id, cells[i].querySelector('.ch-item'));
+      setText(part(cells[i], '.ch-slot-label'), slot.label);
+      equipmentNames.set(slot.id, part(cells[i], '.ch-item'));
       equipmentCells.set(slot.id, cells[i]);
       wireCell(cells[i], { kind: 'slot', id: slot.id });
     });
   }
 
-  function buildBag(inventory) {
+  function buildBag(inventory: InventorySnapshot): void {
     bag.style.gridTemplateColumns = `repeat(${inventory.cols}, 1fr)`;
     bag.innerHTML = inventory.bag
       .map(() => '<button type="button" class="ch-cell ui-click"></button>')
       .join('');
     bagSize = inventory.bag.length;
 
-    const cells = [...bag.querySelectorAll('.ch-cell')];
+    const cells = [...bag.querySelectorAll<HTMLElement>('.ch-cell')];
     cells.forEach((cell, index) => wireCell(cell, { kind: 'bag', id: index }));
   }
 
@@ -124,12 +153,12 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
    * different cells — that is a drag, and it is the same gesture as a click
    * right up until the pointer moves.
    */
-  function wireCell(cell, where) {
+  function wireCell(cell: HTMLElement, where: Cell): void {
     cell.onpointerdown = (e) => onCellDown?.(where, e?.button ?? 0);
     cell.onpointerup = () => onCellUp?.(where);
     // The browser menu must not open over a game that is still running; the
     // right button has a job in here.
-    cell.oncontextmenu = (e) => e?.preventDefault?.();
+    cell.oncontextmenu = (e) => e.preventDefault();
   }
 
   /**
@@ -139,7 +168,7 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
    * are written against the attribute labels the view already carries rather
    * than against ids — "+6 Attack power", not "+6 attackPower".
    */
-  function describe(item, labels) {
+  function describe(item: ItemInstance | null | undefined, labels: Map<string, string>): string {
     if (!item) return '';
     const lines = (item.stats ?? []).map((stat) => {
       const name = labels.get(stat.attribute) ?? stat.attribute;
@@ -151,7 +180,7 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
   }
 
   /** Set a tooltip only when it changed: this runs every frame the sheet is up. */
-  function setTitle(cell, text) {
+  function setTitle(cell: HTMLElement | null | undefined, text: string): void {
     if (cell && cell.title !== text) cell.title = text;
   }
 
@@ -160,7 +189,7 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
    * an empty cell is not a target unless something is being carried, which is
    * what the panel's own `holding` class decides.
    */
-  function setFilled(cell, filled) {
+  function setFilled(cell: Element | null | undefined, filled: boolean): void {
     if (!cell || cell.classList.contains('filled') === filled) return;
     cell.classList.toggle('filled', filled);
   }
@@ -170,28 +199,30 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
       return open;
     },
 
-    setOpen(next) {
+    setOpen(next: boolean): boolean {
       open = Boolean(next);
       root.classList.toggle('hidden', !open);
       return open;
     },
 
-    toggle() {
-      return this.setOpen(!open);
+    toggle(): boolean {
+      open = !open;
+      root.classList.toggle('hidden', !open);
+      return open;
     },
 
     /**
      * Something is on the cursor. Every cell becomes a target while it is —
      * an empty one is exactly where you might want to put the thing down.
      */
-    setHolding(holding) {
+    setHolding(holding: unknown): void {
       panel?.classList.toggle('holding', Boolean(holding));
     },
 
     /**
      * @param {{label: string, stats: object[], inventory: object}} view
      */
-    update(view) {
+    update(view: CharacterView | null | undefined): void {
       if (!view) return;
 
       // What was built is keyed on the shape, not the values — so a health tick
@@ -202,7 +233,7 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
         buildStats(view.stats);
       }
 
-      if (archetype.textContent !== view.label) archetype.textContent = view.label;
+      setText(archetype, view.label);
 
       for (const stat of view.stats) {
         const cell = statValues.get(stat.id);
@@ -211,7 +242,7 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
           stat.kind === 'resource'
             ? `${formatStat(stat.current)} / ${formatStat(stat.value)}`
             : formatStat(stat.value);
-        if (cell.textContent !== text) cell.textContent = text;
+        setText(cell, text);
       }
 
       const inventory = view.inventory;
@@ -225,15 +256,14 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
       for (const slot of inventory.equipment) {
         const cell = equipmentNames.get(slot.id);
         if (!cell) continue;
-        const text = slot.item?.label ?? '';
-        if (cell.textContent !== text) cell.textContent = text;
+        setText(cell, slot.item?.label ?? '');
         const worn = equipmentCells.get(slot.id);
         setFilled(worn, Boolean(slot.item));
         setTitle(worn, slot.item ? describe(slot.item, labels) : '');
       }
 
       if (bagSize !== inventory.bag.length) buildBag(inventory);
-      const cells = bag.children;
+      const cells = bag.querySelectorAll<HTMLElement>('.ch-cell');
       for (let i = 0; i < inventory.bag.length; i++) {
         // A stack says how deep it is; one of something says nothing, because
         // "Short sword ×1" is noise on every cell that holds equipment.
@@ -241,10 +271,13 @@ export function createCharacterPanel(root, { onCellDown, onCellUp } = {}) {
         const depth = countOf(held);
         const text = held ? `${held.label}${depth > 1 ? ` ×${depth}` : ''}` : '';
         if (!cells[i]) continue;
-        if (cells[i].textContent !== text) cells[i].textContent = text;
+        setText(cells[i], text);
         setFilled(cells[i], Boolean(inventory.bag[i]));
         setTitle(cells[i], describe(inventory.bag[i], labels));
       }
     },
   };
 }
+
+/** The character sheet: attributes, the doll and the bag. */
+export type CharacterPanel = ReturnType<typeof createCharacterPanel>;

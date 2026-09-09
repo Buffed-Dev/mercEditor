@@ -1,6 +1,12 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Rectangle } from '@babylonjs/gui/2D/controls/rectangle.js';
 import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock.js';
+import type { AdvancedDynamicTexture } from '@babylonjs/gui/2D/advancedDynamicTexture.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Plate as Anchor } from '../render/groundItems.ts';
+
+/** One name plate: its box, and the text inside it. */
+type PlateControls = { box: Rectangle; caption: TextBlock };
 
 /**
  * The name plates floating over dropped items — and the thing you click to
@@ -31,9 +37,13 @@ const PADDING = 16;
  * @param {import('@babylonjs/gui/2D/advancedDynamicTexture.js').AdvancedDynamicTexture} ui
  * @param {import('@babylonjs/core/scene.js').Scene} scene
  */
-export function createGroundLabels(ui, scene, { onPick } = {}) {
+export function createGroundLabels(
+  ui: AdvancedDynamicTexture,
+  scene: Scene,
+  { onPick }: { onPick?: (id: string) => void } = {},
+) {
   /** drop id -> its control. */
-  const plates = new Map();
+  const plates = new Map<string, PlateControls>();
   /**
    * Which plates the pointer is currently over.
    *
@@ -47,11 +57,11 @@ export function createGroundLabels(ui, scene, { onPick } = {}) {
    * Adding and removing the same plate twice is harmless; counting it twice is
    * a cursor that never lets go.
    */
-  const hovered = new Set();
+  const hovered = new Set<Rectangle>();
   /** Reused so projecting a plate allocates nothing. */
   const at = new Vector3();
 
-  function plateFor(id, label) {
+  function plateFor(id: string, label: string): PlateControls {
     let plate = plates.get(id);
     if (plate) return plate;
 
@@ -110,8 +120,8 @@ export function createGroundLabels(ui, scene, { onPick } = {}) {
     /**
      * @param {{id: string, label: string, x: number, y: number, z: number}[]} anchors
      */
-    update(anchors) {
-      const live = new Set();
+    update(anchors: readonly Anchor[]): void {
+      const live = new Set<string>();
 
       for (const anchor of anchors) {
         live.add(anchor.id);
@@ -138,7 +148,7 @@ export function createGroundLabels(ui, scene, { onPick } = {}) {
     },
 
     /** Drop every plate — the level changed, or the game stopped. */
-    clear() {
+    clear(): void {
       for (const plate of plates.values()) plate.box.dispose();
       plates.clear();
       hovered.clear();
@@ -149,9 +159,12 @@ export function createGroundLabels(ui, scene, { onPick } = {}) {
      * hidden under the pointer is never told the pointer left, so the hover has
      * to be given up here.
      */
-    setVisible(on) {
+    setVisible(on: boolean): void {
       for (const plate of plates.values()) plate.box.isVisible = on;
       if (!on) hovered.clear();
     },
   };
 }
+
+/** The name plates hanging over what is on the floor. */
+export type GroundLabels = ReturnType<typeof createGroundLabels>;

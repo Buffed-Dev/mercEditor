@@ -53,14 +53,14 @@ export function createButtons() {
      * be wired to down, move, up and cancel alike without any of them meaning
      * something different.
      */
-    track(event) {
+    track(event: { buttons?: number } | null | undefined): void {
       mask = event?.buttons ?? 0;
       // Letting go ends the suppression, whichever event reports it.
       ignored &= mask;
     },
 
     /** Nothing is held — for losing focus, where no further events arrive. */
-    clear() {
+    clear(): void {
       mask = 0;
       ignored = 0;
     },
@@ -70,21 +70,24 @@ export function createButtons() {
      * has already answered — clicking an item off the floor is not also an
      * order to attack the floor.
      */
-    suppress(button) {
+    suppress(button: number): void {
       const bit = BUTTON_BIT[button];
       if (bit !== undefined) ignored |= bit;
     },
 
     /** Is this `MouseEvent.button` currently down, and meant for the game? */
-    isDown(button) {
+    isDown(button: number): boolean {
       const bit = BUTTON_BIT[button];
       return bit !== undefined && (mask & bit) !== 0 && (ignored & bit) === 0;
     },
 
     /** Down, but spoken for by the interface. */
-    isSuppressed(button) {
+    isSuppressed(button: number): boolean {
       const bit = BUTTON_BIT[button];
       return bit !== undefined && (ignored & bit) !== 0;
     },
   };
 }
+
+/** Which mouse buttons are down, and which of those are being ignored. */
+export type Buttons = ReturnType<typeof createButtons>;

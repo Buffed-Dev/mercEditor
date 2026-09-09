@@ -13,14 +13,14 @@ import { CURRENCIES } from './data/currencies.ts';
 import { createCharacter } from './game/character.ts';
 import { LEVEL_H } from './data/dimensions.ts';
 import { DEFAULT_FRUSTUM, SCREEN_FORWARD, SCREEN_RIGHT } from './render/isoCamera.ts';
-import { createHud } from './gui/hud.js';
-import { createGroundLabels } from './gui/groundLabels.js';
-import { createCharacterPanel } from './ui/character.js';
-import { createCraftingPanel } from './ui/crafting.js';
-import { createAbilitiesPanel } from './ui/abilities.js';
-import { createHeldItemView } from './ui/heldItem.js';
-import { createItemCursor } from './ui/itemCursor.js';
-import { createInput } from './ui/input.js';
+import { createHud } from './gui/hud.ts';
+import { createGroundLabels } from './gui/groundLabels.ts';
+import { createCharacterPanel } from './ui/character.ts';
+import { createCraftingPanel } from './ui/crafting.ts';
+import { createAbilitiesPanel } from './ui/abilities.ts';
+import { createHeldItemView } from './ui/heldItem.ts';
+import { createItemCursor } from './ui/itemCursor.ts';
+import { createInput } from './ui/input.ts';
 
 /**
  * The application: the renderer, the current level, and the wiring between

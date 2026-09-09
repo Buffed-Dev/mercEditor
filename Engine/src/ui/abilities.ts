@@ -29,7 +29,13 @@
  * @param {(index: number, ability: string|null) => void} [handlers.onAssign]
  *   an ability was dropped on a key, or a key was cleared
  */
-export function createAbilitiesPanel(root, { onAssign } = {}) {
+import { part, setText } from './dom.ts';
+import type { AbilityView, LoadoutView } from '../game/loadout.ts';
+
+export function createAbilitiesPanel(
+  root: HTMLElement,
+  { onAssign }: { onAssign?: (index: number, ability: string | null) => void } = {},
+) {
   let open = false;
   let signature = '';
 
@@ -42,19 +48,18 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
     '<div class="ab-known"></div>' +
     '</div>';
 
-  const keys = root.querySelector('.ab-keys');
-  const known = root.querySelector('.ab-known');
+  const keys = part(root, '.ab-keys');
+  const known = part(root, '.ab-known');
 
   /** The id being dragged. Kept here as well as on the event, because a drop
    *  target has to know what is coming before the drop to style itself. */
-  let carrying = null;
-
-  const setText = (element, text) => {
-    if (element && element.textContent !== text) element.textContent = text;
-  };
+  let carrying: string | null = null;
 
   /** One draggable ability chip. */
-  function chip(ability, { fromSlot = null, draggable = true } = {}) {
+  function chip(
+    ability: AbilityView | null,
+    { fromSlot = null, draggable = true }: { fromSlot?: number | null; draggable?: boolean } = {},
+  ): HTMLElement {
     const element = document.createElement('div');
     element.className = `ab-chip ui-click${ability?.missing ? ' missing' : ''}`;
     element.draggable = Boolean(ability) && draggable;
@@ -67,11 +72,12 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
 
     element.ondragstart = (event) => {
       carrying = ability.id;
+      if (!event.dataTransfer) return;
       event.dataTransfer.setData('text/plain', ability.id);
       event.dataTransfer.effectAllowed = 'move';
       // Where it came from, so dropping it back on the list unbinds that key
       // rather than doing nothing.
-      element.dataset.fromSlot = fromSlot ?? '';
+        element.dataset.fromSlot = String(fromSlot ?? '');
     };
     element.ondragend = () => {
       carrying = null;
@@ -80,7 +86,7 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
     return element;
   }
 
-  function build(view) {
+  function build(view: LoadoutView): void {
     keys.innerHTML = '';
     const handId = view.hand?.id ?? null;
 
@@ -104,14 +110,14 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
         box.ondragover = (event) => {
           if (!carrying) return;
           event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
           box.classList.add('over');
         };
         box.ondragleave = () => box.classList.remove('over');
         box.ondrop = (event) => {
           event.preventDefault();
           box.classList.remove('over');
-          const ability = event.dataTransfer.getData('text/plain') || carrying;
+          const ability = event.dataTransfer?.getData('text/plain') || carrying;
           if (ability) onAssign?.(slot.index, ability);
         };
       }
@@ -130,7 +136,7 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
     // bound wherever it is bound, and the copy on its key is the one that
     // moves. Dragging this one would have no key to leave behind.
     for (const ability of view.known) {
-      const held = ability.id === handId;
+      const held = ability?.id === handId;
       const element = chip(ability, { draggable: !held });
       if (held) element.classList.add('held');
       known.append(element);
@@ -143,8 +149,14 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
     };
     known.ondrop = (event) => {
       event.preventDefault();
-      const from = Number(event.target.closest('.ab-chip')?.dataset.fromSlot ?? NaN);
-      const source = document.querySelector('.ab-key .ab-chip[data-from-slot]');
+      // The drop may land on the panel's own background rather than on a chip,
+      // which is not an element with ancestors to ask about.
+      const target = event.target instanceof Element ? event.target : null;
+      const dropped = target?.closest('.ab-chip');
+      const from = Number(
+        (dropped instanceof HTMLElement ? dropped.dataset.fromSlot : undefined) ?? NaN,
+      );
+      const source = document.querySelector<HTMLElement>('.ab-key .ab-chip[data-from-slot]');
       const index = Number.isInteger(from) ? from : Number(source?.dataset.fromSlot);
       // The attack cannot be unbound — there is nowhere for it to go — so a
       // drag of it that ends on the list is simply dropped.
@@ -157,13 +169,14 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
       return open;
     },
 
-    setOpen(next) {
+    setOpen(next: boolean): void {
       open = Boolean(next);
       root.classList.toggle('hidden', !open);
     },
 
-    toggle() {
-      this.setOpen(!open);
+    toggle(): void {
+      open = !open;
+      root.classList.toggle('hidden', !open);
     },
 
     /**
@@ -173,12 +186,12 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
      * progress must not have its chips replaced underneath it, and nothing else
      * here moves between frames.
      */
-    update(view) {
+    update(view: LoadoutView | null | undefined): void {
       if (!view) return;
       const next =
         view.slots.map((slot) => slot.ability?.id ?? '').join(',') +
         '|' +
-        view.known.map((ability) => ability.id).join(',') +
+        view.known.map((ability) => ability?.id ?? '').join(',') +
         '|' +
         (view.hand?.id ?? '');
       if (next === signature) return;
@@ -187,3 +200,6 @@ export function createAbilitiesPanel(root, { onAssign } = {}) {
     },
   };
 }
+
+/** The ability bar, and the drag-and-drop that rearranges it. */
+export type AbilitiesPanel = ReturnType<typeof createAbilitiesPanel>;

@@ -303,3 +303,6 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
 
 /** A bag and a set of worn slots, and everything that can be done to them. */
 export type Inventory = ReturnType<typeof createInventory>;
+
+/** A bag and its worn slots, flattened for something that only reads them. */
+export type InventorySnapshot = ReturnType<Inventory['snapshot']>;

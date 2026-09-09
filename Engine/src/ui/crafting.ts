@@ -22,12 +22,27 @@
  * means a second press cannot be mistaken for a cancel.
  */
 
-export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
+import { part, setText } from './dom.ts';
+import type { CraftingView } from '../game/crafting.ts';
+
+/** The elements of one recipe row that get written to. */
+type Row = {
+  row: HTMLButtonElement;
+  fill: HTMLElement;
+  name: HTMLElement;
+  cost: HTMLElement;
+  lines: HTMLElement;
+};
+
+export function createCraftingPanel(
+  root: HTMLElement,
+  { onCraft, onUpgrade }: { onCraft?: (id: string) => void; onUpgrade?: () => void } = {},
+) {
   let open = false;
   let signature = '';
 
   /** recipe id -> the pieces of its row that carry a value. */
-  let rows = new Map();
+  let rows = new Map<string, Row>();
 
   root.innerHTML =
     '<div class="cf-panel">' +
@@ -41,21 +56,17 @@ export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
     '<p class="cf-help">Click to make one. It goes in your bag.</p>' +
     '</div>';
 
-  const panel = root.querySelector('.cf-panel');
-  const purse = root.querySelector('.cf-purse');
-  const levelText = root.querySelector('.cf-level');
-  const upgrade = root.querySelector('.cf-upgrade');
-  const list = root.querySelector('.cf-list');
+  const panel = part(root, '.cf-panel');
+  const purse = part(root, '.cf-purse');
+  const levelText = part(root, '.cf-level');
+  const upgrade = part<HTMLButtonElement>(root, '.cf-upgrade');
+  const list = part(root, '.cf-list');
 
   upgrade.addEventListener('click', () => onUpgrade?.());
 
-  const setText = (element, text) => {
-    if (element && element.textContent !== text) element.textContent = text;
-  };
-
   /** Rebuild the rows. Only when the set of recipes is not the one on screen. */
-  function build(view) {
-    rows = new Map();
+  function build(view: CraftingView): void {
+    rows = new Map<string, Row>();
     list.innerHTML = '';
 
     for (const recipe of view.recipes) {
@@ -69,10 +80,10 @@ export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
       list.append(row);
       rows.set(recipe.id, {
         row,
-        fill: row.querySelector('.cf-fill'),
-        name: row.querySelector('.cf-name'),
-        cost: row.querySelector('.cf-cost'),
-        lines: row.querySelector('.cf-lines'),
+        fill: part(row, '.cf-fill'),
+        name: part(row, '.cf-name'),
+        cost: part(row, '.cf-cost'),
+        lines: part(row, '.cf-lines'),
       });
     }
   }
@@ -82,17 +93,18 @@ export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
       return open;
     },
 
-    setOpen(next) {
+    setOpen(next: boolean): void {
       open = Boolean(next);
       root.classList.toggle('hidden', !open);
     },
 
-    toggle() {
-      this.setOpen(!open);
+    toggle(): void {
+      open = !open;
+      root.classList.toggle('hidden', !open);
     },
 
     /** Called every frame the panel is up. */
-    update(view) {
+    update(view: CraftingView | null | undefined): void {
       if (!view) return;
 
       const next = view.recipes.map((recipe) => recipe.id).join(',');
@@ -124,7 +136,8 @@ export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
         // The bar is the row's own background filling from the left, rather
         // than a separate widget: the thing being made is the thing that shows
         // it, so there is nowhere to look but at the row you pressed.
-        const width = recipe.making ? `${Math.round(view.job.progress * 100)}%` : '0%';
+        const width =
+          recipe.making && view.job ? `${Math.round(view.job.progress * 100)}%` : '0%';
         if (parts.fill.style.width !== width) parts.fill.style.width = width;
 
         // Locked and broken rows cannot be pressed at all, nor can any of them
@@ -143,3 +156,6 @@ export function createCraftingPanel(root, { onCraft, onUpgrade } = {}) {
     },
   };
 }
+
+/** The bench panel, and the rows it keeps in step with the game. */
+export type CraftingPanel = ReturnType<typeof createCraftingPanel>;

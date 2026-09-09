@@ -289,3 +289,6 @@ export function craftingView({
     }),
   };
 }
+
+/** The bench, its purse and its recipes, as the panel draws them. */
+export type CraftingView = ReturnType<typeof craftingView>;

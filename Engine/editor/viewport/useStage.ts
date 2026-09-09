@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRenderer } from '../../src/render/engine.ts';
-import { createInput } from '../../src/ui/input.js';
+import { createInput } from '../../src/ui/input.ts';
 import { createEditor } from '../editor.js';
 import { say } from '../state/status';
 

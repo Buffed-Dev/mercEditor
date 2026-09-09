@@ -29,10 +29,42 @@
  */
 
 /** Mouse buttons, by what they mean here rather than by number. */
+import type { ItemInstance } from '../game/items.ts';
+
+/**
+ * A place an item can be: a bag cell by index, or a worn slot by name.
+ *
+ * A union rather than one shape with a loose id, so that asking `kind` is also
+ * what settles which sort of id it carries.
+ */
+export type Cell = { kind: 'bag'; id: number } | { kind: 'slot'; id: string };
+
+/** What moving an item reports back. */
+type Move = { ok: boolean; reason: string; item?: { label?: string } | null };
+
+/**
+ * The part of the level's inventory this cursor drives.
+ *
+ * Structural rather than imported from render/level, which owns it: what the
+ * cursor needs is the seven moves below and something to ask what is in hand.
+ */
+export type Hands = {
+  readonly hand: ItemInstance | null;
+  takeFromBag: (index: number) => ItemInstance | null;
+  takeFromSlot: (slotId: string) => ItemInstance | null;
+  placeInBag: (index: number) => Move;
+  placeInSlot: (slotId: string) => Move;
+  dropHand: () => unknown;
+  returnHand: (origin: Cell | null) => Move;
+  equipFromBag: (index: number) => Move;
+  unequipToBag: (slotId: string) => Move;
+};
+
 const CARRY = 0;
 const SHORTCUT = 2;
 
-const sameCell = (a, b) => Boolean(a) && Boolean(b) && a.kind === b.kind && a.id === b.id;
+const sameCell = (a: Cell | null, b: Cell | null) =>
+  Boolean(a) && Boolean(b) && a?.kind === b?.kind && a?.id === b?.id;
 
 /**
  * @param {object} hands the level's item operations
@@ -40,13 +72,16 @@ const sameCell = (a, b) => Boolean(a) && Boolean(b) && a.kind === b.kind && a.id
  * @param {(text: string) => void} [options.say] where a refusal is reported
  * @param {() => void} [options.onChange] called whenever what is carried changes
  */
-export function createItemCursor(hands, { say, onChange } = {}) {
+export function createItemCursor(
+  hands: () => Hands | null,
+  { say, onChange }: { say?: (message: string) => void; onChange?: () => void } = {},
+) {
   /**
    * Where the press that lifted the carried item started, while that press is
    * still down. Null the rest of the time — including while carrying something
    * picked up by an earlier, finished click.
    */
-  let grabbedAt = null;
+  let grabbedAt: Cell | null = null;
 
   /**
    * Where the carried item was picked up from, for as long as it is carried.
@@ -55,16 +90,15 @@ export function createItemCursor(hands, { say, onChange } = {}) {
    * survives a click, because putting the item back needs to know where it came
    * from however long ago that was.
    */
-  let carriedFrom = null;
+  let carriedFrom: Cell | null = null;
 
   const carrying = () => Boolean(hands()?.hand);
 
-  function changed() {
+  function changed(): void {
     onChange?.();
   }
 
-  function putDown(where) {
-    const level = hands();
+  function putDown(where: Cell, level: Hands): Move {
     const result =
       where.kind === 'bag' ? level.placeInBag(where.id) : level.placeInSlot(where.id);
     // The only refusal is a slot that will not take it. Quietly dropping it in
@@ -84,7 +118,7 @@ export function createItemCursor(hands, { say, onChange } = {}) {
    * free cell if not, and the floor only when there is genuinely nowhere. The
    * item is never lost, and never silently thrown away for want of a slot.
    */
-  function returnToOrigin() {
+  function returnToOrigin(): boolean {
     const level = hands();
     if (!level?.hand) return false;
     const result = level.returnHand(carriedFrom);
@@ -95,11 +129,10 @@ export function createItemCursor(hands, { say, onChange } = {}) {
     return true;
   }
 
-  function shortcut(where) {
-    const level = hands();
+  function shortcut(where: Cell, level: Hands): Move {
     const result =
       where.kind === 'bag' ? level.equipFromBag(where.id) : level.unequipToBag(where.id);
-    if (result?.ok || !result) return result;
+    if (result.ok) return result;
     if (result.reason === 'nofit') {
       say?.(`Nowhere to put the ${String(result.item?.label ?? 'item').toLowerCase()}.`);
     }
@@ -113,13 +146,13 @@ export function createItemCursor(hands, { say, onChange } = {}) {
     },
 
     /** The pointer went down on a cell. */
-    cellDown(where, button = CARRY) {
+    cellDown(where: Cell, button = CARRY): void {
       const level = hands();
       if (!level) return;
 
       if (button === SHORTCUT) {
         if (carrying()) return;
-        shortcut(where);
+        shortcut(where, level);
         changed();
         return;
       }
@@ -127,7 +160,7 @@ export function createItemCursor(hands, { say, onChange } = {}) {
       if (button !== CARRY) return;
 
       if (carrying()) {
-        putDown(where);
+        putDown(where, level);
         grabbedAt = null;
         return;
       }
@@ -149,16 +182,17 @@ export function createItemCursor(hands, { say, onChange } = {}) {
      * first placement displaced, and leaving the click looking like it did
      * nothing at all.
      */
-    cellUp(where) {
+    cellUp(where: Cell): void {
       if (!grabbedAt) return;
 
       // Released where it was lifted from: a click, not a drag. Keep carrying,
       // and let the next press decide where it goes.
       const from = grabbedAt;
       grabbedAt = null;
-      if (sameCell(from, where) || !carrying()) return;
+      const level = hands();
+      if (!level || sameCell(from, where) || !carrying()) return;
 
-      putDown(where);
+      putDown(where, level);
     },
 
     /**
@@ -167,9 +201,9 @@ export function createItemCursor(hands, { say, onChange } = {}) {
      * @returns true when the press was spent putting the item down, so the
      *   caller knows to keep it from also being an attack.
      */
-    worldDown(button = CARRY) {
+    worldDown(button = CARRY): boolean {
       if (button !== CARRY || !carrying()) return false;
-      hands().dropHand();
+      hands()?.dropHand();
       grabbedAt = null;
       carriedFrom = null;
       changed();
@@ -185,13 +219,13 @@ export function createItemCursor(hands, { say, onChange } = {}) {
      *
      * @returns true when there was something to put back.
      */
-    uiDown(button = CARRY) {
+    uiDown(button = CARRY): boolean {
       if (button !== CARRY || !carrying()) return false;
       return returnToOrigin();
     },
 
     /** The same, for a drag that ends over interface rather than over a cell. */
-    uiUp() {
+    uiUp(): boolean {
       if (!grabbedAt || !carrying()) {
         grabbedAt = null;
         return false;
@@ -204,22 +238,25 @@ export function createItemCursor(hands, { say, onChange } = {}) {
      * press that lifted the item: a release with nothing pending is the end of
      * some other click, and must not throw the carried item on the floor.
      */
-    worldUp() {
+    worldUp(): boolean {
       if (!grabbedAt || !carrying()) {
         grabbedAt = null;
         return false;
       }
       grabbedAt = null;
       carriedFrom = null;
-      hands().dropHand();
+      hands()?.dropHand();
       changed();
       return true;
     },
 
     /** Forget any press in progress — the pointer was lost, or play stopped. */
-    cancel() {
+    cancel(): void {
       grabbedAt = null;
       carriedFrom = null;
     },
   };
 }
+
+/** What is being carried between bag cells, worn slots and the floor. */
+export type ItemCursor = ReturnType<typeof createItemCursor>;

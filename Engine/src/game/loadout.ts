@@ -249,3 +249,6 @@ export function loadoutView({
     known: known.map(describe),
   };
 }
+
+/** The ability bar and everything on it, as the panel draws it. */
+export type LoadoutView = ReturnType<typeof loadoutView>;
