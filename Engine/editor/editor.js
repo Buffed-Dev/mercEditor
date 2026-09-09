@@ -11,7 +11,7 @@ import { Plane } from '@babylonjs/core/Maths/math.plane.js';
 import '@babylonjs/core/Culling/ray.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
-import { buildMapView } from '../src/render/mapView.js';
+import { buildMapView } from '../src/render/mapView.ts';
 import { LEVEL_H } from '../src/data/dimensions.ts';
 import { colorOf, unlit } from '../src/render/materials.ts';
 import { normalizeLight } from '../src/data/lights.ts';

@@ -61,7 +61,7 @@ import { createProjectiles } from '../game/projectiles.ts';
 import { spawnMonsters, updateMonsters } from '../game/monsters.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { buildMapView } from './mapView.js';
+import { buildMapView } from './mapView.ts';
 import { createDebugViews } from './debug.ts';
 import { createMonsterViews } from './monsters.ts';
 import { createProjectileViews } from './projectiles.ts';

@@ -63,16 +63,16 @@ import { TERRAINS, terrainsById, slotMaterial, type Terrain } from '../data/terr
  */
 
 type Content = {
-  terrains?: Terrain[];
-  materials?: { id: string }[];
-  assets?: { id: string }[];
+  terrains?: readonly Terrain[];
+  materials?: readonly { id?: string }[];
+  assets?: readonly { id?: string }[];
   game?: string;
 };
 
 type World = {
   terrain: TerrainGrid;
   terrainIds: string[];
-  map: { terrainRim?: RimRing[] };
+  map: { terrainRim?: readonly RimRing[] };
 };
 
 type Bucket = {

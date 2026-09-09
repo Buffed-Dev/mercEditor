@@ -109,9 +109,7 @@ export function chunkCount(map: { chunkCount?: unknown } | null | undefined): nu
  * the generator already knows how to rotate and place.
  */
 export function chunksOf(map: GameMap): ChunkPart[] {
-  const chunks = (map?.chunks ?? []).map((chunk, index) =>
-    normalizeChunk(chunk as ChunkInput, index),
-  );
+  const chunks = (map?.chunks ?? []).map(normalizeChunk);
   const env = clone(map?.env ?? {});
 
   // The seven lists are reached by name, which an object type cannot be
@@ -167,9 +165,7 @@ export function chunksOf(map: GameMap): ChunkPart[] {
  * is the easiest thing in the world to not notice.
  */
 export function strayCount(map: GameMap): number {
-  const chunks = (map?.chunks ?? []).map((chunk, index) =>
-    normalizeChunk(chunk as ChunkInput, index),
-  );
+  const chunks = (map?.chunks ?? []).map(normalizeChunk);
   const lists = map as unknown as Record<string, readonly MapObject[] | undefined>;
   const covered = (gx: number, gy: number) =>
     chunks.some((c) => gx >= c.gx && gx < c.gx + c.w && gy >= c.gy && gy < c.gy + c.h);

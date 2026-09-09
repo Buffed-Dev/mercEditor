@@ -7,11 +7,42 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
-import { createLights } from './lights.ts';
+import { createLights, type Shadows } from './lights.ts';
 import { createDecals } from './decals.ts';
 import { colorOf, surface, unlit } from './materials.ts';
 import { LEVEL_H, WALL_H } from '../data/dimensions.ts';
 import { normalizeEnv } from '../data/mapFormat.ts';
+import { tagPick } from './pick.ts';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
+import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { World } from '../game/world.ts';
+import type { Asset } from '../data/assets.ts';
+import type { MaterialInput } from '../data/materials.ts';
+import type { Prop } from '../data/props.ts';
+import type { Terrain } from '../data/terrains.ts';
+import type { VfxInput } from '../data/vfx.ts';
+import type { VfxHandle } from './vfx.ts';
+import type { Placement } from './props.ts';
+
+/**
+ * The rule tables a map is drawn against.
+ *
+ * All optional: the game hands nothing and the shipped definitions are used,
+ * while the editor hands the document it is part way through editing.
+ */
+export type MapContent = {
+  vfx?: readonly VfxInput[];
+  props?: readonly Prop[];
+  assets?: readonly Asset[];
+  terrains?: readonly Terrain[];
+  materials?: readonly MaterialInput[];
+  game?: string;
+};
+
+/** Which way a torch faces off its wall. */
+type Facing = { x: number; y: number };
 import { applyFog } from './fog.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { createPropRuntime } from './props.ts';
@@ -36,7 +67,7 @@ import { VFX } from '../data/vfx.ts';
 // and a dim dungeon are the same code with different data. Anything a map
 // leaves out falls back to the daylight look here.
 
-const FACE_DIRS = {
+const FACE_DIRS: Record<string, Facing> = {
   '+x': { x: 1, y: 0 },
   '-x': { x: -1, y: 0 },
   '+y': { x: 0, y: 1 },
@@ -54,7 +85,7 @@ const FACE_DIRS = {
  *   edited, and only the editor names a folder, because a built game's files
  *   came through the bundler under hashed names.
  */
-export function buildMapView(scene, world, content = {}) {
+export function buildMapView(scene: Scene, world: World, content: MapContent = {}) {
   const {
     vfx: vfxDefs,
     props: propDefs,
@@ -68,7 +99,7 @@ export function buildMapView(scene, world, content = {}) {
 
   const root = new TransformNode('map', scene);
   /** Materials and lights are not scene-graph children, so they are tracked. */
-  const owned = [];
+  const owned: { dispose: () => void }[] = [];
 
   const sky = colorOf(env.sky);
 
@@ -138,9 +169,11 @@ export function buildMapView(scene, world, content = {}) {
    * mesh. Views built after the map (the player, monsters, dropped items) call
    * this as they create their meshes.
    */
-  const generators = lights.map((entry) => entry.generator).filter(Boolean);
-  const shadows = {
-    add(mesh) {
+  const generators = lights
+    .map((entry) => entry.generator)
+    .filter((generator): generator is ShadowGenerator => generator !== null);
+  const shadows: Shadows = {
+    add<T extends AbstractMesh>(mesh: T): T {
       for (const generator of generators) generator.addShadowCaster(mesh);
       return mesh;
     },
@@ -169,7 +202,7 @@ export function buildMapView(scene, world, content = {}) {
   // Objects standing on the ground rather than part of it, so they come from
   // the map's own list and sit at whatever height the terrain under them
   // reaches. A stack is the same block repeated up the same tile.
-  const blocks = [];
+  const blocks: { gx: number; gy: number; y: number; index: number }[] = [];
   (map.walls ?? []).forEach((wall, index) => {
     const { gx, gy } = wall;
     // The top of the tile's own column, so a wall stands on the ground it is on
@@ -205,17 +238,17 @@ export function buildMapView(scene, world, content = {}) {
   // What a ray that hits this mesh has actually hit. One instance is one block
   // and a wall may be several, so the instance index is looked up rather than
   // used directly. Inert for the game; it is how the editor picks things.
-  wallMesh.metadata = { pick: { list: 'walls', instances: blocks.map((block) => block.index) } };
+  tagPick(wallMesh, { list: 'walls', instances: blocks.map((block) => block.index) });
 
   // --- torches -----------------------------------------------------------
-  let doorMaterial = null;
+  let doorMaterial: StandardMaterial | null = null;
 
   const flameMaterial = unlit('flame', scene, { color: 0xffd9a0 });
   const bracketMaterial = surface('bracket', scene, { color: 0x2a2118, roughness: 1 });
   owned.push(flameMaterial, bracketMaterial);
 
   const torches = (map.torches ?? []).map(({ gx, gy, face }, index) => {
-    const dir = FACE_DIRS[face];
+    const dir = FACE_DIRS[face ?? ''];
 
     // Hang the flame off the wall face. No point light here: the flame and
     // bracket stay as props so the walls still read as torch-lit architecture,
@@ -226,7 +259,7 @@ export function buildMapView(scene, world, content = {}) {
 
     const group = new TransformNode(`torch${index}`, scene);
     group.parent = root;
-    group.metadata = { pick: { list: 'torches', index } };
+    tagPick(group, { list: 'torches', index });
 
     const flame = MeshBuilder.CreateSphere('flame', { diameter: 0.18, segments: 8 }, scene);
     flame.material = flameMaterial;
@@ -255,12 +288,13 @@ export function buildMapView(scene, world, content = {}) {
     const x = portal.gx + 0.5;
     const z = portal.gy + 0.5;
     const y = world.heightAt(x, z) * LEVEL_H;
-    const color = portal.color ?? 0x9d6bff;
+    // A map file may say anything here; only a number is a colour.
+    const color = typeof portal.color === 'number' ? portal.color : 0x9d6bff;
 
     const group = new TransformNode(`portal${index}`, scene);
     group.parent = root;
     group.position.set(x, y, z);
-    group.metadata = { pick: { list: 'portals', index } };
+    tagPick(group, { list: 'portals', index });
 
     const discMaterial = unlit('portal-disc', scene, { color, alpha: 0.55 });
     const ringMaterial = unlit('portal-ring', scene, { color });
@@ -295,8 +329,8 @@ export function buildMapView(scene, world, content = {}) {
   // portal's trigger is. One material pair for all of them, since a map with
   // two benches should not compile two shaders.
   const stationDefs = map.stations ?? [];
-  let stationBody = null;
-  let stationTop = null;
+  let stationBody: PBRMaterial | null = null;
+  let stationTop: PBRMaterial | null = null;
 
   const stations = stationDefs.map((station, index) => {
     const x = station.gx + 0.5;
@@ -306,7 +340,7 @@ export function buildMapView(scene, world, content = {}) {
     const group = new TransformNode(`station${index}`, scene);
     group.parent = root;
     group.position.set(x, y, z);
-    group.metadata = { pick: { list: 'stations', index } };
+    tagPick(group, { list: 'stations', index });
 
     stationBody ??= (() => {
       const material = surface('station-body', scene, { color: 0x4a4038, roughness: 0.8 });
@@ -344,7 +378,7 @@ export function buildMapView(scene, world, content = {}) {
   const propRuntime = createPropRuntime(scene, propDefs, assetDefs, game, materialDefs);
   const placedProps = (map.props ?? [])
     .map((entry, index) => propRuntime.place(entry, index, world, root, shadows))
-    .filter(Boolean);
+    .filter((placed): placed is Placement => placed !== null);
 
   // --- chunks ------------------------------------------------------------
   // The rectangles a generated map is cut into: four thin bars laid on the
@@ -355,10 +389,10 @@ export function buildMapView(scene, world, content = {}) {
   // its chunks have been consumed and the run carries none. They exist for the
   // editor, where a piece you cannot see the edges of is a piece you cannot
   // line a doorway up with.
-  let chunkMaterial = null;
+  let chunkMaterial: StandardMaterial | null = null;
   const chunkOutlines = (map.chunks ?? []).map((chunk, index) => {
-    const gx = Math.round(chunk.gx);
-    const gy = Math.round(chunk.gy);
+    const gx = Math.round(chunk.gx ?? 0);
+    const gy = Math.round(chunk.gy ?? 0);
     const w = Math.max(1, Math.round(chunk.w ?? 8));
     const h = Math.max(1, Math.round(chunk.h ?? 8));
 
@@ -373,7 +407,7 @@ export function buildMapView(scene, world, content = {}) {
     // Anchored at the corner, so the bars below are laid out in tile space and
     // the whole thing sits where the rectangle actually is.
     group.position.set(gx, world.heightAt(gx + 0.5, gy + 0.5) * LEVEL_H + 0.04, gy);
-    group.metadata = { pick: { list: 'chunks', index } };
+    tagPick(group, { list: 'chunks', index });
 
     const T = 0.08;
     const bars = [
@@ -415,7 +449,7 @@ export function buildMapView(scene, world, content = {}) {
       door.gy + 0.5,
     );
     marker.parent = root;
-    marker.metadata = { pick: { list: 'doors', index } };
+    tagPick(marker, { list: 'doors', index });
     return marker;
   });
 
@@ -436,7 +470,7 @@ export function buildMapView(scene, world, content = {}) {
         ),
       ),
     )
-    .filter(Boolean);
+    .filter((handle): handle is VfxHandle => handle !== null);
 
   return {
     root,
@@ -455,7 +489,7 @@ export function buildMapView(scene, world, content = {}) {
     env,
     applyEnvironment,
 
-    dispose() {
+    dispose(): void {
       vfxRuntime.dispose();
       propRuntime.dispose();
       terrainLayer.dispose();
@@ -469,3 +503,6 @@ export function buildMapView(scene, world, content = {}) {
     },
   };
 }
+
+/** Everything drawn for one map, and the means to take it all down again. */
+export type MapView = ReturnType<typeof buildMapView>;

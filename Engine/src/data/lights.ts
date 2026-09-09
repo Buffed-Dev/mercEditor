@@ -93,6 +93,15 @@ export type LightType = keyof typeof LIGHT_TYPES;
  */
 export type Light = { type: LightType; gx: number; gy: number } & Partial<LightValues>;
 
+/**
+ * A light as a map file writes it.
+ *
+ * `type` is a plain string for the reason every other Input type in this
+ * folder has one: the file is hand-edited, and `normalizeLight` is the single
+ * place that decides what an unrecognised kind becomes.
+ */
+export type LightInput = Partial<Omit<Light, 'type'>> & { type?: string };
+
 export const isLightType = (value: unknown): value is LightType =>
   typeof value === 'string' && value in LIGHT_TYPES;
 
@@ -117,7 +126,7 @@ export function defaultLight(type: string, gx: number, gy: number): Light {
 }
 
 /** Fill in anything a hand-written map left out, so the map view sees no gaps. */
-export function normalizeLight(def: Partial<Light>): Light {
+export function normalizeLight(def: LightInput): Light {
   const type: LightType = isLightType(def.type) ? def.type : 'point';
   return { ...defaultLight(type, def.gx ?? 0, def.gy ?? 0), ...def, type };
 }

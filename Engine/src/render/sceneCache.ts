@@ -71,11 +71,11 @@ export function keep<T>(scene: Scene, key: string, make: () => T): T {
  * Build a model once, and use it now or when it lands.
  *
  * @param scene the scene it is imported into
- * @param {string} key what identifies the model — the url it came from, plus
- *   anything else baked into the geometry
- * @param {() => Promise<any>} make imports it. Called at most once per key.
- * @param {(node: any) => void} use given the model, or null if it failed to
- *   load. Called synchronously when the model is already there.
+ * @param key what identifies the model — the url it came from, plus anything
+ *   else baked into the geometry
+ * @param make imports it. Called at most once per key.
+ * @param use given the model, or null if it failed to load. Called
+ *   synchronously when the model is already there.
  */
 export function keepModel<T extends Node>(
   scene: Scene,

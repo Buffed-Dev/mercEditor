@@ -128,8 +128,15 @@ export type MapObject = Placed & {
   [key: string]: unknown;
 };
 
+import type { ChunkInput } from './maps/chunks.ts';
+import type { LightInput } from './lights.ts';
+import type { RimRing } from './terrain/profile.ts';
+
 /** A wall, which stacks. */
 export type Wall = Placed & { stack?: number };
+
+/** An effect a map plays at a fixed place, for as long as the map is open. */
+export type MapVfx = Placed & { id: string };
 
 /** What assembling a run recorded about itself. See ./maps/generate.ts. */
 export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
@@ -161,14 +168,14 @@ export type GameMap = {
   name?: string;
   terrain?: readonly string[];
   terrainKeys?: Record<string, string>;
-  terrainRim?: unknown;
+  terrainRim?: readonly RimRing[];
   rows?: readonly string[];
   height?: number;
   startZ?: number;
   stepHeight?: number;
   spawns?: Record<string, Placed>;
   env?: MapEnvInput;
-  vfx?: unknown;
+  vfx?: readonly MapVfx[];
   props?: readonly MapObject[];
   decals?: readonly MapObject[];
   /**
@@ -179,9 +186,12 @@ export type GameMap = {
    * whether it is there, so both spellings answer the same question.
    */
   generated?: boolean | GeneratedInfo;
-  chunks?: readonly unknown[];
+  chunks?: readonly ChunkInput[];
   chunkCount?: number;
-} & { readonly [K in MapList]?: readonly MapObject[] };
+  // Lights are the one list with a shape of its own that the engine reads in
+  // full; the rest are a position plus whatever else their file gave them.
+  lights?: readonly LightInput[];
+} & { readonly [K in Exclude<MapList, 'lights'>]?: readonly MapObject[] };
 
 /** A grid of levels, read off a map's rows. */
 export type ParsedMap = {

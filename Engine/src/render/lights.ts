@@ -6,7 +6,12 @@ import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { colorOf } from './materials.ts';
-import { LIGHT_FIELDS, normalizeLight, type Light as LightDef } from '../data/lights.ts';
+import {
+  LIGHT_FIELDS,
+  normalizeLight,
+  type Light as LightDef,
+  type LightInput,
+} from '../data/lights.ts';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { ShadowLight } from '@babylonjs/core/Lights/shadowLight.js';
 import type { Scene } from '@babylonjs/core/scene.js';
@@ -229,7 +234,7 @@ function apply(
  */
 export function createLights(
   scene: Scene,
-  map: { lights?: readonly Partial<LightDef>[] },
+  map: { lights?: readonly LightInput[] },
   world: Ground | null,
 ) {
   return (map.lights ?? []).map((raw) => {
@@ -253,7 +258,7 @@ export function createLights(
       light,
       generator,
       /** Re-read the (possibly edited) definition. Used by the editor. */
-      refresh(next: Partial<LightDef> = raw): void {
+      refresh(next: LightInput = raw): void {
         apply(light, generator, normalizeLight(next), world);
       },
       dispose(): void {
