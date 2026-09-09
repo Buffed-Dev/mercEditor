@@ -260,7 +260,7 @@ export function createTerrainLayer(
    * does not recompile a shader per frame. That is the whole reason this is not
    * just a full rebuild of the layer.
    */
-  function setRim(rim: readonly RimRing[]): void {
+  function setRim(rim: readonly RimRing[] | null | undefined): void {
     templates = buildTemplates(normalizeRim(rim), LEVEL_H);
     for (const bucket of buckets.values()) bucket.mesh.dispose(false, false);
     buckets.clear();

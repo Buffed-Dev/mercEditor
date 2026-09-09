@@ -7,13 +7,15 @@ import type { Node } from '@babylonjs/core/node.js';
  * answers "which portal are you?". Written by whatever builds the scene --
  * ./mapView.ts and ./props.ts -- and read by the editor.
  *
- * Either `index` or `instances`, not both: an ordinary group is one entry,
- * while the walls are a single instanced mesh standing in for many, and a pick
- * against it has to be resolved to one of them by instance id.
+ * One of `index`, `key` or `instances`: an ordinary group is one entry, a
+ * named spawn is addressed by its name, and
+ * the walls are a single instanced mesh standing in for many, whose picks are
+ * resolved to one of them by instance id.
  */
 export type PickTag = {
   list: string;
   index?: number;
+  key?: string;
   instances?: number[];
 };
 
@@ -39,12 +41,13 @@ export function pickOf(node: Node | null | undefined): PickTag | null {
   const pick = (metadata as { pick?: unknown }).pick;
   if (!pick || typeof pick !== 'object') return null;
 
-  const tag = pick as { list?: unknown; index?: unknown; instances?: unknown };
+  const tag = pick as { list?: unknown; index?: unknown; key?: unknown; instances?: unknown };
   if (typeof tag.list !== 'string') return null;
 
   return {
     list: tag.list,
     index: typeof tag.index === 'number' ? tag.index : undefined,
+    key: typeof tag.key === 'string' ? tag.key : undefined,
     instances: Array.isArray(tag.instances)
       ? tag.instances.filter((entry): entry is number => typeof entry === 'number')
       : undefined,

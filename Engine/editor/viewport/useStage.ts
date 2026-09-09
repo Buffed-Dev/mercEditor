@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createRenderer } from '../../src/render/engine.ts';
 import { createInput } from '../../src/ui/input.ts';
-import { createEditor } from '../editor.js';
+import { createEditor } from '../editor.ts';
 import { say } from '../state/status';
 
 export type Stage = {

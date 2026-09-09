@@ -12,6 +12,8 @@ import { useEdit } from '../state/useEdit';
 import { useSelection } from '../state/selection';
 import styles from './Inspector.module.css';
 import type { DataDocument } from '../dataDocument.ts';
+import type { MapDocument } from '../document.ts';
+import type { MapEditor } from '../editor.ts';
 import type { TerrainRecord } from './AssetShelves';
 
 /**
@@ -235,22 +237,6 @@ function write(
 
 
 
-type MapEditor = {
-  invalidate: () => void;
-  previewLight?: (index: number, patch: Record<string, unknown>) => void;
-  reprofile?: (rim: unknown) => void;
-};
 
-/** The parts of the map document this panel touches. */
-type MapDocument = {
-  map: { env: unknown; name?: unknown; stepHeight?: unknown; terrainRim?: never };
-  setEnv: (key: string, value: FieldValue, checkpointed?: boolean) => void;
-  setMeta: (key: string, value: unknown, checkpointed?: boolean) => void;
-  updateObject: (
-    list: string,
-    index: number,
-    patch: Record<string, unknown>,
-    checkpointed?: boolean,
-  ) => void;
-  checkpoint: (checkpointed?: boolean) => void;
-};
+
+

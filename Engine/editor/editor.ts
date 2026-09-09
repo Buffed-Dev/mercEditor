@@ -16,9 +16,73 @@ import { LEVEL_H } from '../src/data/dimensions.ts';
 import { colorOf, unlit } from '../src/render/materials.ts';
 import { normalizeLight } from '../src/data/lights.ts';
 
-import { MONSTER_KINDS } from '../src/game/monsters.ts';
+import { kindOf } from '../src/game/monsters.ts';
 import { World } from '../src/game/world.ts';
 import { createDocument } from './document.ts';
+import { pickOf, tagPick } from '../src/render/pick.ts';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { LinesMesh } from '@babylonjs/core/Meshes/linesMesh.js';
+import type { Material } from '@babylonjs/core/Materials/material.js';
+import type { Node } from '@babylonjs/core/node.js';
+import type { PickingInfo } from '@babylonjs/core/Collisions/pickingInfo.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
+import type { PickTag } from '../src/render/pick.ts';
+import type { MapContent } from '../src/render/mapView.ts';
+import type { RimRing } from '../src/data/terrain/profile.ts';
+import type { TerrainGrid } from '../src/data/terrain/grid.ts';
+import type { GameMap, MapObject, Placed } from '../src/data/mapFormat.ts';
+import type { MapDoc, MapDocument } from './document.ts';
+import type { Selection } from './state/selection.ts';
+
+/** One tile. */
+type Cell = { gx: number; gy: number };
+
+/** The rectangle the view is cut down to. */
+type Rect = { gx: number; gy: number; w: number; h: number };
+
+/** A box in world space: where its middle is, and how big it is. */
+type Box = { x: number; y: number; z: number; w: number; h: number; d: number };
+
+/** A box the highlight draws, and how. See `cursorTarget`. */
+type Target = Box & { color: number; hug?: boolean };
+
+/** What a ray found: the tag, plus the node and the hit that carried it. */
+type Pick = PickTag & { object: TransformNode; hit: PickingInfo };
+
+/** Which handle a drag has hold of. */
+type Axis = 'x' | 'z' | 'turn';
+
+/** Which tool the cursor is serving. */
+export type CursorMode = 'select' | 'move' | 'terrain' | 'paint' | 'erase';
+
+/**
+ * What the panel asked to hear about.
+ *
+ * The editor works out where the pointer is and what it is over; what any of
+ * that means to the map is the panel's to decide, which is why every one of
+ * these is a report rather than an edit.
+ */
+type Listeners = {
+  paint: ((cell: Cell, first: boolean) => void) | null;
+  erase: ((cell: Cell, first: boolean) => void) | null;
+  hover: ((cell: Cell | null) => void) | null;
+  release: (() => void) | null;
+  drag: ((gx: number, gy: number) => void) | null;
+  turn: ((heading: number) => void) | null;
+  pick: ((selection: Selection) => void) | null;
+};
+
+/**
+ * A map's lists, reached by a name worked out at runtime.
+ *
+ * The panels address a list by its name -- 'walls', 'portals' -- which an
+ * object type cannot be indexed by. document.ts holds the same cast for the
+ * same reason.
+ */
+const listsOf = (map: MapDoc): Record<string, MapObject[] | undefined> =>
+  map as unknown as Record<string, MapObject[] | undefined>;
 
 /**
  * The editing surface: a free-flying isometric view of the map being edited,
@@ -54,17 +118,30 @@ const GROUP_MAP = 0;
 const GROUP_OVERLAY = 1;
 const GROUP_GIZMO = 2;
 
-const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(high, Math.max(low, value));
 
 /** How strongly the tile grid is drawn. See `buildGrid`. */
 const GRID_ALPHA = 0.18;
 
-export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, content }) {
-  let doc = null;
-  let mapView = null;
+export function createEditor({
+  scene,
+  camera,
+  setFrustum,
+  setAmbientOcclusion,
+  content,
+}: {
+  scene: Scene;
+  camera: TargetCamera;
+  setFrustum: (frustum: number) => void;
+  setAmbientOcclusion?: (strength: number) => void;
+  content?: () => MapContent;
+}) {
+  let doc: MapDocument | null = null;
+  let mapView: ReturnType<typeof buildMapView> | null = null;
   // Kept from the last rebuild so the cursor can ask how high the ground is
   // under a tile without parsing the map again every frame.
-  let world = null;
+  let world: World | null = null;
   let needsRebuild = false;
   /**
    * A terrain edit, which is a much smaller thing than a rebuild.
@@ -86,7 +163,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * that only part of it is on screen. What changes is what the camera can see
    * and what the pointer is allowed to touch.
    */
-  let focus = null;
+  let focus: Rect | null = null;
 
   let frustum = 22;
   const center = new Vector3();
@@ -98,22 +175,23 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * game never sees it. Re-applied after every rebuild because a rebuild makes
    * new nodes, which know nothing about what was hidden before them.
    */
-  let hidden = new Set();
+  let hidden = new Set<string>();
 
   /** Everything the editor draws. Switched off wholesale when it is closed. */
   const root = new TransformNode('editor', scene);
 
   const groundPlane = new Plane(0, 1, 0, 0);
   /** What the pointer is over right now, for the tools that act on things. */
-  let hoverPick = null;
+  let hoverPick: Pick | null = null;
 
-  let hover = null; // { gx, gy }
-  let painting = null;
+  let hover: Cell | null = null;
+  /** The mouse button currently held: 0 paint, 2 erase, null for neither. */
+  let painting: number | null = null;
   /** Whether a drag fills in the cells between pointer samples. */
   let interpolate = false; // the mouse button currently held: 0 paint, 2 erase
   // The drag and turn listeners are the gizmo's: the editor works out where a
   // handle was dragged to, and the panel decides what that means.
-  const listeners = {
+  const listeners: Listeners = {
     paint: null,
     erase: null,
     hover: null,
@@ -129,7 +207,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   overlay.parent = root;
 
   /** Drawn over the map rather than into it. */
-  function overlayMaterial(name, color, alpha = 1, group = GROUP_OVERLAY) {
+  function overlayMaterial(name: string, color: number, alpha = 1, group = GROUP_OVERLAY) {
     const material = unlit(name, scene, { color, alpha });
     material.disableDepthWrite = group !== GROUP_MAP;
     return material;
@@ -175,7 +253,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * ground it starts. Approximations of what the map view actually draws — near
    * enough to say "this one", which is all a highlight has to do.
    */
-  const OBJECT_BOUNDS = {
+  const OBJECT_BOUNDS: Record<string, { size: [number, number, number]; base: number }> = {
     monsters: { size: [0.75, 1, 0.75], base: 0 },
     portals: { size: [0.95, 0.8, 0.95], base: 0 },
     lights: { size: [0.5, 0.5, 0.5], base: 0.85 },
@@ -192,8 +270,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     walls: { size: [1, WALL_PREVIEW_H, 1], base: 0 },
   };
 
-  /** @type {'select'|'move'|'terrain'|'paint'|'erase'} */
-  let cursorMode = 'select';
+  let cursorMode: CursorMode = 'select';
 
   /**
    * The handles drawn on a selected object so it can be moved and turned where
@@ -215,23 +292,23 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   root.setEnabled(false);
 
   let gizmoRotatable = false;
-  /** The handle being dragged: { axis: 'x'|'z'|'turn' }, or null. */
-  let gizmoDrag = null;
+  /** The handle being dragged, or null. */
+  let gizmoDrag: { axis: Axis } | null = null;
   /** Every mesh belonging to a handle, and which axis it drags. */
-  const handleAxis = new Map();
+  const handleAxis = new Map<AbstractMesh, Axis>();
 
   const GIZMO_X = 0xe5484d;
   const GIZMO_Z = 0x3d7eff;
   const GIZMO_TURN = 0x4ade80;
 
-  function tagHandle(mesh, axis) {
+  function tagHandle(mesh: Mesh, axis: Axis): Mesh {
     mesh.renderingGroupId = GROUP_GIZMO;
     handleAxis.set(mesh, axis);
     return mesh;
   }
 
   /** An arrow from the centre out along one axis. */
-  function buildArrow(axis, color, rotation) {
+  function buildArrow(axis: Axis, color: number, rotation: Vector3): TransformNode {
     const group = new TransformNode(`arrow-${axis}`, scene);
     group.parent = gizmo;
     group.rotation.copyFrom(rotation);
@@ -275,31 +352,38 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
 
   // Ghost of whatever the active brush would drop here, so a click is never a
   // guess. Built once per brush and cached: switching brushes is frequent.
-  const previews = new Map();
-  let preview = null;
-  let previewKind = null;
+  const previews = new Map<string, TransformNode | null>();
+  let preview: TransformNode | null = null;
+  let previewKind: string | null = null;
   // How high the ghost floats. A ramp drawn at level 2 has to be previewed
   // where it would actually land, not on the ground under it.
   let previewY = 0;
 
-  let grid = null;
+  let grid: LinesMesh | null = null;
   /** Whether the tile lines are drawn. Kept across rebuilds, not per map. */
   let gridShown = true;
-  let markers = null;
+  let markers: TransformNode | null = null;
   // { list, index } for the indexed lists, { list: "spawns", key } for a named
   // spawn, or null when nothing is selected.
-  let selection = null;
+  let selection: Selection = null;
 
   /** The map entry the selection points at, or null. */
-  function selectedEntry() {
+  function selectedEntry(): Placed | null {
     if (!selection || !doc) return null;
-    if (selection.list === 'spawns') return doc.map.spawns?.[selection.key] ?? null;
-    return doc.map[selection.list]?.[selection.index] ?? null;
+    return entryOf(doc.map, selection);
+  }
+
+  /** The entry a selection names, in whichever list it names. */
+  function entryOf(map: MapDoc, at: NonNullable<Selection>): Placed | null {
+    if (at.list === 'spawns') return at.key === undefined ? null : (map.spawns[at.key] ?? null);
+    if (at.index === undefined) return null;
+    return listsOf(map)[at.list]?.[at.index] ?? null;
   }
 
   /** A ray from the camera through wherever the pointer is. */
-  const pickingRay = (event) => {
+  const pickingRay = (event: PointerEvent) => {
     const rect = scene.getEngine().getRenderingCanvasClientRect();
+    if (!rect) throw new Error('The editor is drawing into a scene with no canvas');
     return scene.createPickingRay(
       event.clientX - rect.left,
       event.clientY - rect.top,
@@ -309,7 +393,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   };
 
   /** Where on the ground the pointer is, at the height the gizmo sits at. */
-  function pointerOnPlane(event, y) {
+  function pointerOnPlane(event: PointerEvent, y: number): Vector3 | null {
     const ray = pickingRay(event);
     groundPlane.d = -y;
     const distance = ray.intersectsPlane(groundPlane);
@@ -318,14 +402,15 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   }
 
   /** Which handle, if any, is under the pointer. */
-  function handleUnderPointer(event) {
+  function handleUnderPointer(event: PointerEvent): Axis | null {
     if (!gizmo.isEnabled()) return null;
     const hit = scene.pickWithRay(pickingRay(event), (mesh) => handleAxis.has(mesh));
-    return hit?.hit ? (handleAxis.get(hit.pickedMesh) ?? null) : null;
+    if (!hit?.hit || !hit.pickedMesh) return null;
+    return handleAxis.get(hit.pickedMesh) ?? null;
   }
 
   /** Only the map itself answers a pick — never the cursor, grid or handles. */
-  const isMapMesh = (mesh) =>
+  const isMapMesh = (mesh: AbstractMesh) =>
     mesh.isPickable && mesh.isEnabled() && !mesh.isDescendantOf(overlay);
 
   /**
@@ -341,14 +426,15 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * one thin instance per block, so the instance index is looked through to the
    * wall it belongs to.
    */
-  function pickAt(event) {
+  function pickAt(event: PointerEvent): Pick | null {
     if (!mapView || !doc) return null;
     const hit = scene.pickWithRay(pickingRay(event), isMapMesh);
     if (!hit?.hit) return null;
 
-    for (let node = hit.pickedMesh; node; node = node.parent) {
-      const pick = node.metadata?.pick;
-      if (!pick) continue;
+    for (let node: Node | null = hit.pickedMesh; node; node = node.parent) {
+      const pick = pickOf(node);
+      // Only a transform answers, because the caller measures what it found.
+      if (!pick || !(node instanceof TransformNode)) continue;
       if (pick.instances) {
         const index = pick.instances[hit.thinInstanceIndex];
         return index === undefined ? null : { list: pick.list, index, object: node, hit };
@@ -365,13 +451,13 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * sizes: the outline is then the thing's real extent, and it cannot drift
    * when the thing it is drawn around changes size.
    */
-  function pickedBox(pick) {
-    if (!pick) return null;
+  function pickedBox(pick: Pick | null): Box | null {
+    if (!pick || !doc) return null;
 
     if (pick.list === 'walls') {
       // A thin instance has no object of its own to measure, and a wall may be
       // several of them, so this one is built from what the wall is.
-      const wall = doc.map.walls[pick.index];
+      const wall = pick.index === undefined ? null : doc.map.walls[pick.index];
       return wall ? boundsFor('walls', wall.gx, wall.gy) : null;
     }
 
@@ -392,7 +478,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * Shared by the cage that marks the selection and the highlight that follows
    * the pointer, because they are answering the same question.
    */
-  function boundsFor(list, gx, gy) {
+  function boundsFor(list: string, gx: number, gy: number): Box {
     const spec = OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.monsters;
     const [w, own, d] = spec.size;
     // A wall is as tall as it has been stacked; everything else is one size.
@@ -405,8 +491,9 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   }
 
   /** How tall everything standing on a tile reaches, above the ground. */
-  function stackHeight(gx, gy) {
+  function stackHeight(gx: number, gy: number): number {
     const walls = (world?.wallStack(gx, gy) ?? 0) * WALL_PREVIEW_H;
+    if (!doc) return walls;
     const objects = doc
       .objectsAt(gx, gy)
       .map(({ list }) => OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.monsters);
@@ -423,7 +510,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * outlines the whole tile's contents. Neither draws anything over bare
    * ground, because neither does anything to bare ground.
    */
-  function cursorTarget() {
+  function cursorTarget(): Target | null {
     if (!doc || !world) return null;
 
     // Terrain mode points at ground rather than at things standing on it, so
@@ -477,18 +564,18 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * caller only has to move the group. Returns null for brushes whose result is
    * already described by the tile cursor itself (floor, spawn).
    */
-  function buildPreview(kind) {
+  function buildPreview(kind: string): TransformNode | null {
     const group = new TransformNode(`preview-${kind}`, scene);
     group.parent = overlay;
 
-    const ghost = (color, alpha = 0.5) => {
+    const ghost = (color: number, alpha = 0.5) => {
       const material = unlit(`ghost-${kind}`, scene, { color, alpha });
       // A ghost never occludes the map underneath it.
       material.disableDepthWrite = true;
       return material;
     };
 
-    const place = (mesh, material, x, y, z) => {
+    const place = (mesh: Mesh, material: Material, x: number, y: number, z: number) => {
       mesh.material = material;
       mesh.position.set(x, y, z);
       mesh.isPickable = false;
@@ -616,7 +703,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
 
       case 'grunt':
       case 'brute': {
-        const spec = MONSTER_KINDS[kind] ?? MONSTER_KINDS.grunt;
+        const spec = kindOf(kind);
         const mesh = place(
           MeshBuilder.CreateCapsule('monster', { radius: 0.24, height: 0.88 }, scene),
           ghost(spec.color, 0.6),
@@ -637,8 +724,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   }
 
   /** Tile lines for the whole grid, so empty floor still reads as a grid. */
-  function buildGrid(cols, rows) {
-    const lines = [];
+  function buildGrid(cols: number, rows: number): LinesMesh {
+    const lines: Vector3[][] = [];
     for (let x = 0; x <= cols; x++) lines.push([new Vector3(x, 0, 0), new Vector3(x, 0, rows)]);
     for (let y = 0; y <= rows; y++) lines.push([new Vector3(0, 0, y), new Vector3(cols, 0, y)]);
 
@@ -657,7 +744,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * this stood at 0.05 for a long time and looked like 1.
      */
     mesh.alpha = GRID_ALPHA;
-    mesh.material.alpha = GRID_ALPHA;
+    if (mesh.material) mesh.material.alpha = GRID_ALPHA;
     mesh.position.y = 0.015;
     mesh.isPickable = false;
     mesh.parent = overlay;
@@ -675,14 +762,13 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * out. Each is set independently, and none of them touches the document — so
    * none of them costs a rebuild.
    */
-  const OVERLAY_LAYERS = {
+  const OVERLAY_LAYERS: Record<string, { color: number; alpha: number }> = {
     brush: { color: 0xffffff, alpha: 0.2 },
     drag: { color: 0x8be9fd, alpha: 0.28 },
     selection: { color: 0xffc247, alpha: 0.26 },
     debug: { color: 0xff5ad2, alpha: 0.3 },
   };
-  /** name -> { mesh, material } */
-  const cellLayers = new Map();
+  const cellLayers = new Map<string, { mesh: Mesh }>();
 
   // Drawn into the map's own depth buffer rather than over it. Everything else
   // the editor outlines is a *thing* you may need to see through the ground to
@@ -697,7 +783,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    */
   const MARK_HUG = 1.006;
 
-  function cellLayer(name) {
+  function cellLayer(name: string): { mesh: Mesh } {
     let layer = cellLayers.get(name);
     if (layer) return layer;
     const look = OVERLAY_LAYERS[name] ?? OVERLAY_LAYERS.brush;
@@ -719,11 +805,15 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * can be the whole map, and four thousand meshes each with its own edge
    * renderer is a frame's worth of work to say "these cells".
    *
-   * @param {string} name which layer
-   * @param {number[]|{gx:number,gy:number}[]} cells indices into `grid`, or tiles
-   * @param {object} [grid] the terrain grid, when `cells` are indices
+   * @param name which layer
+   * @param cells indices into `grid`, or tiles
+   * @param grid the terrain grid, when `cells` are indices
    */
-  function setCellOverlay(name, cells = [], grid = null) {
+  function setCellOverlay(
+    name: string,
+    cells: readonly (number | Cell)[] = [],
+    grid: TerrainGrid | null = null,
+  ): void {
     const layer = cellLayer(name);
     if (!cells.length) {
       layer.mesh.setEnabled(false);
@@ -732,8 +822,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
 
     const matrices = new Float32Array(cells.length * 16);
     cells.forEach((cell, n) => {
-      const gx = typeof cell === 'number' ? cell % grid.cols : cell.gx;
-      const gy = typeof cell === 'number' ? Math.floor(cell / grid.cols) : cell.gy;
+      const gx = typeof cell === 'number' ? cell % (grid?.cols ?? 1) : cell.gx;
+      const gy = typeof cell === 'number' ? Math.floor(cell / (grid?.cols ?? 1)) : cell.gy;
       const level = world?.levelAt(gx, gy) ?? 0;
       Matrix.Compose(
         new Vector3(MARK_HUG, LEVEL_H * MARK_HUG, MARK_HUG),
@@ -745,17 +835,16 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     layer.mesh.setEnabled(true);
   }
 
-  function buildMarkers(map) {
+  function buildMarkers(map: MapDoc): TransformNode {
     const group = new TransformNode('markers', scene);
     group.parent = overlay;
 
     // Markers stand in the map and are occluded by it, the way the objects
     // they stand for would be. Only the cursor and the handles float above.
-    const marker = (mesh, material, pick) => {
+    const marker = (mesh: Mesh, material: Material, pick?: PickTag): Mesh => {
       mesh.material = material;
       mesh.parent = group;
-      if (pick) mesh.metadata = { pick };
-      return mesh;
+      return pick ? tagPick(mesh, pick) : mesh;
     };
 
     // Built on first use rather than up front: markers are rebuilt with the map
@@ -763,8 +852,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     // a marker the map does not have is one nothing is ever attached to, so
     // nothing ever takes it down again. That leaked one material and one shader
     // per edit, on a map with no effects placed on it.
-    let spawnMaterial = null;
-    let vfxMaterial = null;
+    let spawnMaterial: Material | null = null;
+    let vfxMaterial: Material | null = null;
 
     // Where the player comes up. It is a character in the terrain, which parses
     // to ordinary ground — so without a marker the one tile that decides where
@@ -772,9 +861,10 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     // Both kinds of marker stand where the player would: on top of whatever is
     // on the tile, so a start put on a stack of crates is drawn on the crates
     // rather than buried in them.
-    const footing = (gx, gy) => world.standAt(gx + 0.5, gy + 0.5) * LEVEL_H;
+    const footing = (gx: number, gy: number) =>
+      (world?.standAt(gx + 0.5, gy + 0.5) ?? 0) * LEVEL_H;
 
-    const start = map.spawns?.default ?? null;
+    const start = map.spawns.default ?? null;
     if (start) {
       const ring = MeshBuilder.CreateTorus(
         'start',
@@ -792,7 +882,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       marker(pin, unlit('start', scene, { color: START_MARKER_COLOR }));
     }
 
-    for (const [key, spawn] of Object.entries(map.spawns ?? {})) {
+    for (const [key, spawn] of Object.entries(map.spawns)) {
       const cone = MeshBuilder.CreateCylinder(
         'spawn',
         { diameterTop: 0.44, diameterBottom: 0, height: 0.5, tessellation: 4 },
@@ -810,7 +900,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       const selected = selection?.list === 'lights' && selection.index === index;
       const material = unlit(`light${index}`, scene, { color: selected ? 0xffffff : def.color });
 
-      const height = def.type === 'directional' || def.type === 'hemisphere' ? 2.6 : def.height;
+      const height =
+        def.type === 'directional' || def.type === 'hemisphere' ? 2.6 : (def.height ?? 2.6);
       const x = def.gx + 0.5;
       const z = def.gy + 0.5;
 
@@ -818,7 +909,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       // rather than one of the two shapes that draw it.
       const lamp = new TransformNode(`lamp${index}`, scene);
       lamp.parent = group;
-      lamp.metadata = { pick: { list: 'lights', index } };
+      tagPick(lamp, { list: 'lights', index });
 
       const bulb = MeshBuilder.CreateSphere('bulb', { diameter: 0.32, segments: 8 }, scene);
       bulb.position.set(x, height, z);
@@ -835,7 +926,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       marker(pole, material).parent = lamp;
 
       if (def.type === 'point' || def.type === 'spot') {
-        const radius = Math.max(def.distance, 0.5);
+        const radius = Math.max(def.distance ?? 0, 0.5);
         const ring = MeshBuilder.CreateTorus(
           'reach',
           { diameter: radius * 2 - 0.06, thickness: 0.06, tessellation: 48 },
@@ -860,19 +951,21 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     });
 
     // One material per kind, so a monster reads as the colour it will be.
-    const monsterMaterials = new Map();
+    const monsterMaterials = new Map<string, Material>();
     (map.monsters ?? []).forEach((monster, index) => {
-      const spec = MONSTER_KINDS[monster.kind] ?? MONSTER_KINDS.grunt;
-      if (!monsterMaterials.has(monster.kind)) {
+      const kind = monster.kind ?? 'grunt';
+      const spec = kindOf(kind);
+      if (!monsterMaterials.has(kind)) {
         monsterMaterials.set(
-          monster.kind,
-          unlit(`monster-${monster.kind}`, scene, { color: spec.color, alpha: 0.8 }),
+          kind,
+          unlit(`monster-${kind}`, scene, { color: spec.color, alpha: 0.8 }),
         );
       }
       const mesh = MeshBuilder.CreateCapsule('monster', { radius: 0.24, height: 0.88 }, scene);
       mesh.position.set(monster.gx + 0.5, 0.45, monster.gy + 0.5);
       mesh.scaling.setAll(spec.scale);
-      marker(mesh, monsterMaterials.get(monster.kind), { list: 'monsters', index });
+      const material = monsterMaterials.get(kind);
+      if (material) marker(mesh, material, { list: 'monsters', index });
     });
 
     // A cage around the selected object, so a row picked in the panel is
@@ -904,10 +997,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   }
 
   /** Where the current selection sits on the grid, if it still exists. */
-  function selectedTile(map) {
-    if (!selection) return null;
-    if (selection.list === 'spawns') return map.spawns?.[selection.key] ?? null;
-    return map[selection.list]?.[selection.index] ?? null;
+  function selectedTile(map: MapDoc): Placed | null {
+    return selection ? entryOf(map, selection) : null;
   }
 
   /** Rebuild the map meshes from the current document. */
@@ -920,7 +1011,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * they are meshes in the same scene — which is what makes a chunk look like a
    * little map floating on its own rather than a highlighted part of a big one.
    */
-  function applyFocus() {
+  function applyFocus(): void {
     if (!focus) {
       scene.clipPlane = null;
       scene.clipPlane2 = null;
@@ -936,20 +1027,21 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
   }
 
   /** Frame whatever is on screen: the focused chunk, or the whole grid. */
-  function frame() {
-    const { gx, gy, w, h } = focus ?? { gx: 0, gy: 0, w: doc.cols, h: doc.rows };
+  function frame(): void {
+    const { gx, gy, w, h } = focus ?? { gx: 0, gy: 0, w: doc?.cols ?? 0, h: doc?.rows ?? 0 };
     center.set(gx + w / 2, 0, gy + h / 2);
     frustum = clamp(Math.max(w, h) * 1.15, MIN_FRUSTUM, MAX_FRUSTUM);
     setFrustum(frustum);
   }
 
   /** Is this tile one the pointer may touch? Outside the cut, nothing is. */
-  function inFocus(gx, gy) {
+  function inFocus(gx: number, gy: number): boolean {
     if (!focus) return true;
     return gx >= focus.gx && gx < focus.gx + focus.w && gy >= focus.gy && gy < focus.gy + focus.h;
   }
 
-  function rebuild() {
+  function rebuild(): void {
+    if (!doc) return;
     mapView?.dispose();
     grid?.dispose(false, true);
     markers?.dispose(false, true);
@@ -985,9 +1077,9 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * A light needs its lamp marker hidden *and* the light itself switched off,
    * or the room stays lit by something you cannot see.
    */
-  function applyHidden() {
+  function applyHidden(): void {
     for (const node of root.getDescendants(false)) {
-      const pick = node.metadata?.pick;
+      const pick = pickOf(node);
       if (!pick) continue;
       const at = pick.key ?? pick.index;
       if (at === undefined) continue;
@@ -1015,23 +1107,23 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * The plane is still the fallback: off the edge of the geometry, and while a
    * scene is being rebuilt, it is the only answer there is.
    */
-  function tileUnderPointer(event) {
+  function tileUnderPointer(event: PointerEvent): Cell | null {
     const ray = pickingRay(event);
     // Outside the cut there is nothing to hover: the tiles are still in the
     // document, but they are not on screen and a click that landed on one would
     // edit something invisible.
-    const inBounds = (gx, gy) => (doc.inBounds(gx, gy) && inFocus(gx, gy) ? { gx, gy } : null);
+    const inBounds = (gx: number, gy: number): Cell | null =>
+      doc?.inBounds(gx, gy) && inFocus(gx, gy) ? { gx, gy } : null;
 
     if (mapView) {
       const hit = scene.pickWithRay(ray, isMapMesh);
       if (hit?.hit) {
-        const mesh = hit.pickedMesh;
-        const instances = mesh.metadata?.pick?.instances;
+        const instances = pickOf(hit.pickedMesh)?.instances;
         if (instances && hit.thinInstanceIndex >= 0) {
           // The wall the block belongs to, so a face shared by two tiles
           // belongs to the block it is a face of rather than to whichever tile
           // the boundary rounds towards.
-          const wall = doc.map.walls[instances[hit.thinInstanceIndex]];
+          const wall = doc?.map.walls[instances[hit.thinInstanceIndex]];
           const found = wall && inBounds(wall.gx, wall.gy);
           if (found) return found;
         } else if (hit.pickedPoint) {
@@ -1048,7 +1140,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     return inBounds(Math.floor(at.x), Math.floor(at.z));
   }
 
-  function onPointerMove(event) {
+  function onPointerMove(event: PointerEvent): void {
     if (gizmoDrag) {
       dragHandle(event);
       return;
@@ -1073,7 +1165,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     }
   }
 
-  function onPointerDown(event) {
+  function onPointerDown(event: PointerEvent): void {
     if (event.button !== 0 && event.button !== 2) return;
 
     // A handle is grabbed before anything else: it is drawn on top of the map,
@@ -1114,9 +1206,9 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
    * applies it decides, since a torch has four faces to choose between and a
    * light has a whole compass.
    */
-  function dragHandle(event) {
+  function dragHandle(event: PointerEvent): void {
     const entry = selectedEntry();
-    if (!entry) return;
+    if (!entry || !gizmoDrag) return;
 
     const at = pointerOnPlane(event, gizmo.position.y);
     if (!at) return;
@@ -1143,19 +1235,19 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     painting = null;
   };
 
-  function onWheel(event) {
+  function onWheel(event: WheelEvent): void {
     event.preventDefault();
     frustum = clamp(frustum * (event.deltaY > 0 ? 1.1 : 1 / 1.1), MIN_FRUSTUM, MAX_FRUSTUM);
     setFrustum(frustum);
   }
 
-  const onContextMenu = (event) => event.preventDefault();
+  const onContextMenu = (event: Event) => event.preventDefault();
 
   const canvas = scene.getEngine().getRenderingCanvas();
   let attached = false;
 
-  function attach() {
-    if (attached) return;
+  function attach(): void {
+    if (attached || !canvas) return;
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('pointerup', onPointerUp);
@@ -1164,8 +1256,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     attached = true;
   }
 
-  function detach() {
-    if (!attached) return;
+  function detach(): void {
+    if (!attached || !canvas) return;
     canvas.removeEventListener('pointermove', onPointerMove);
     canvas.removeEventListener('pointerdown', onPointerDown);
     window.removeEventListener('pointerup', onPointerUp);
@@ -1194,8 +1286,8 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Applied at once and again after every rebuild. Nothing about it reaches
      * the document — see the note on `hidden`.
      */
-    setHiddenObjects(next) {
-      hidden = next instanceof Set ? next : new Set(next ?? []);
+    setHiddenObjects(next: Iterable<string> | null | undefined) {
+      hidden = new Set(next ?? []);
       applyHidden();
     },
 
@@ -1209,7 +1301,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * every bucket, keeping the materials — so this is what the rim sliders
      * call while they are being dragged.
      */
-    reprofile(rim) {
+    reprofile(rim: readonly RimRing[] | null | undefined) {
       mapView?.blocks.setRim(rim);
     },
 
@@ -1217,8 +1309,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       return selection;
     },
 
-    /** @param {{list: string, index?: number, key?: string}|null} next */
-    select(next) {
+    select(next: Selection) {
       const same =
         selection?.list === next?.list &&
         selection?.index === next?.index &&
@@ -1232,9 +1323,9 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Show a change on the live light without touching the document, so a
      * slider drag reads as continuous instead of one rebuild per pixel.
      */
-    previewLight(index, patch) {
+    previewLight(index: number, patch: Record<string, unknown>) {
       const entry = mapView?.lights[index];
-      const def = doc.map.lights[index];
+      const def = doc?.map.lights[index];
       if (!entry || !def) return;
       entry.refresh({ ...def, ...patch });
     },
@@ -1243,7 +1334,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Which tool the cursor is serving. The editor cannot know this for itself
      * but needs it in order to highlight what a click would actually take.
      */
-    setCursorMode(mode) {
+    setCursorMode(mode: CursorMode) {
       cursorMode = mode;
     },
 
@@ -1255,7 +1346,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Only the continuous tools want it: a rectangle wants the cell under the
      * cursor, not the path taken to reach it.
      */
-    setInterpolate(on) {
+    setInterpolate(on: unknown) {
       interpolate = Boolean(on);
     },
 
@@ -1263,7 +1354,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Whether the selected thing has a facing worth a turn handle. The panel
      * knows — it is the one that renders the field — so it says.
      */
-    setRotatable(on) {
+    setRotatable(on: unknown) {
       gizmoRotatable = Boolean(on);
     },
 
@@ -1276,7 +1367,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Choose which ghost follows the cursor. Pass null while a tool that places
      * nothing is active.
      */
-    setPreview(kind, elevation = 0) {
+    setPreview(kind: string | null, elevation = 0) {
       previewY = elevation;
       if (kind === previewKind) return;
       previewKind = kind;
@@ -1286,21 +1377,21 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       if (!kind) return;
 
       if (!previews.has(kind)) previews.set(kind, buildPreview(kind));
-      preview = previews.get(kind);
+      preview = previews.get(kind) ?? null;
       preview?.setEnabled(Boolean(hover));
     },
 
     /** Centre the view on a tile, for jumping to a row in the object list. */
-    lookAtTile(gx, gy) {
+    lookAtTile(gx: number, gy: number) {
       center.set(gx + 0.5, 0, gy + 0.5);
     },
 
-    on(event, handler) {
+    on<K extends keyof Listeners>(event: K, handler: Listeners[K]) {
       listeners[event] = handler;
     },
 
     /** Start editing a map, framing whatever is in view. */
-    open(map) {
+    open(map: GameMap) {
       selection = null;
       focus = null;
       applyFocus();
@@ -1316,7 +1407,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * Show one rectangle of the map and nothing else — a chunk, edited as the
      * little map it will be. Pass null for the whole grid back.
      */
-    setFocus(rect, refit = true) {
+    setFocus(rect: Rect | null, refit = true) {
       focus = rect ? { ...rect } : null;
       applyFocus();
       // A chunk being dragged or resized keeps the camera where it is: the view
@@ -1341,7 +1432,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
      * On the editor rather than in the panel, because the grid is rebuilt with
      * the map on every edit and the answer has to survive that.
      */
-    setGridVisible(on) {
+    setGridVisible(on: unknown) {
       gridShown = Boolean(on);
       grid?.setEnabled(gridShown);
     },
@@ -1350,7 +1441,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
       return gridShown;
     },
 
-    setVisible(on) {
+    setVisible(on: unknown) {
       root.setEnabled(Boolean(on));
       if (!on) return detach();
       // The zoom is the scene camera's, and another workspace may have moved it
@@ -1384,7 +1475,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     },
 
     /** Pan with the arrow keys / WASD, and keep the cursor on the hovered tile. */
-    update(dt, keys) {
+    update(dt: number, keys: ReadonlySet<string>) {
       // Hidden: another view has the scene and has pointed the camera at
       // something of its own. Panning it from here — or rebuilding a map
       // nobody is looking at — is work that lands on somebody else's frame.
@@ -1394,7 +1485,7 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
         mapView?.blocks.refresh();
         // Markers stand on the ground, so a height change moves them too.
         markers?.dispose(false, true);
-        markers = buildMarkers(doc.map);
+        if (doc) markers = buildMarkers(doc.map);
         needsTerrain = false;
       }
 
@@ -1481,3 +1572,6 @@ export function createEditor({ scene, camera, setFrustum, setAmbientOcclusion, c
     },
   };
 }
+
+/** The editing surface: one map, drawn and edited in the application's Scene. */
+export type MapEditor = ReturnType<typeof createEditor>;

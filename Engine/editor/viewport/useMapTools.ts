@@ -1,6 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { toolById as terrainToolById } from '../terrain/tools.ts';
 import { ASSETS } from '../document.ts';
+import type { MapDocument } from '../document.ts';
+import type { MapObject } from '../../src/data/mapFormat.ts';
+import type { CursorMode, MapEditor } from '../editor.ts';
 import { say } from '../state/status';
 import { useSelection, type Selection } from '../state/selection';
 import { isTerrainTool, toolById, useTools, type ToolId } from '../state/tools';
@@ -23,42 +26,15 @@ import { headingToDegrees, headingToFace } from './heading';
 
 type Tile = { gx: number; gy: number };
 
-type MapEditor = {
-  doc: MapDoc | null;
-  selection: Selection;
-  select: (next: Selection) => void;
-  invalidate: () => void;
-  invalidateTerrain: () => void;
-  on: (event: string, handler: (...args: never[]) => void) => void;
-  setCursorMode: (mode: string) => void;
-  setPreview: (kind: string | null, elevation?: number) => void;
-  setInterpolate?: (on: boolean) => void;
-  setRotatable?: (on: boolean) => void;
-  setCellOverlay: (name: string, cells?: number[] | { gx: number; gy: number }[], grid?: object) => void;
-};
+/** The document, under the name this file has always called it. */
+type MapDoc = MapDocument;
 
-type MapDoc = {
-  map: Record<string, never>;
-  terrain: object;
-  inBounds: (gx: number, gy: number) => boolean;
-  selectionAt: (gx: number, gy: number) => Selection;
-  place: (gx: number, gy: number, brush: unknown, options: unknown) => string | null;
-  erase: (gx: number, gy: number) => boolean;
-  setStart: (gx: number, gy: number) => boolean;
-  moveSpawn: (key: string, gx: number, gy: number, checkpointed?: boolean) => void;
-  updateObject: (
-    list: string,
-    index: number,
-    patch: Record<string, unknown>,
-    checkpointed?: boolean,
-  ) => void;
-  beginStroke: (label: string) => unknown;
-  commit: (stroke: unknown) => unknown;
-  kindOf: (id: string) => number;
-};
+/** A map's lists, reached by a name worked out at runtime. See document.ts. */
+const listsOf = (map: MapDoc['map']): Record<string, MapObject[] | undefined> =>
+  map as unknown as Record<string, MapObject[] | undefined>;
 
 /** The cursor the 3D view should draw, for each tool. */
-const CURSOR: Record<ToolId, string> = {
+const CURSOR: Record<ToolId, CursorMode> = {
   select: 'select',
   move: 'move',
   place: 'paint',
@@ -73,7 +49,7 @@ const CURSOR: Record<ToolId, string> = {
 function facingField(doc: MapDoc | null, selection: Selection): string | null {
   if (!doc || !selection) return null;
   if (selection.list === 'torches') return 'face';
-  const list = (doc.map as Record<string, unknown[]>)[selection.list];
+  const list = listsOf(doc.map)[selection.list];
   const entry = selection.index === undefined ? null : list?.[selection.index];
   if (selection.list === 'lights' && entry && 'azimuth' in (entry as object)) return 'azimuth';
   return null;
@@ -96,7 +72,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
   const gesture = useRef<{
     dragging: (Selection & { committed?: boolean }) | null;
     handleDrag: boolean;
-    stroke: unknown;
+    stroke: ReturnType<MapDoc['beginStroke']> | null;
     anchor: Tile | null;
     last: Tile | null;
   }>({ dragging: null, handleDrag: false, stroke: null, anchor: null, last: null });
@@ -211,7 +187,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       }
 
       // Select what was just placed, so the inspector is already on it.
-      const list = (current.map as Record<string, unknown[]>)[brush.list];
+      const list = listsOf(current.map)[brush.list] ?? [];
       live.current.select({ list: brush.list, index: list.length - 1 });
       editor.invalidate();
       say('');
