@@ -1,4 +1,4 @@
-import { ABILITIES } from '#game/rules/abilities.js';
+import { ABILITIES as GAME_ABILITIES } from '#game/rules/abilities.js';
 
 /**
  * Abilities: what decides *when* an effect happens and *where* it lands.
@@ -46,7 +46,10 @@ export const GLOBAL_COOLDOWN = 0.1;
 export const EFFECT_TARGETS = [
   ['target', 'what it hits'],
   ['self', 'the caster'],
-];
+] as const;
+
+/** Who an ability hands one of its effects to. */
+export type EffectTarget = (typeof EFFECT_TARGETS)[number][0];
 
 /**
  * What sets an ability's direction.
@@ -60,7 +63,13 @@ export const EFFECT_TARGETS = [
 const AIM_SOURCES = [
   ['cursor', 'the cursor'],
   ['facing', 'the way it faces'],
-];
+] as const;
+
+/** What sets an ability's direction. */
+export type AimSource = (typeof AIM_SOURCES)[number][0];
+
+/** Whether an ability fires at once or winds up first. */
+export type CastMode = 'instant' | 'timed';
 
 /**
  * The wind-up fields, in the order they read.
@@ -70,7 +79,7 @@ const AIM_SOURCES = [
  * be slowed by, and only an instant one can arrive while something else is
  * winding up, so only it has anything to say about cancelling that.
  */
-const CASTING = ['aimedBy', 'cast', 'castTime', 'castSlow', 'castTurn', 'interrupts'];
+const CASTING = ['aimedBy', 'cast', 'castTime', 'castSlow', 'castTurn', 'interrupts'] as const;
 
 export const TARGET_TYPES = {
   melee: {
@@ -143,6 +152,84 @@ export const TARGET_TYPES = {
       'cost',
     ],
   },
+} as const;
+
+/** Which shape an ability is. The four `TARGET_TYPES` keys and no others. */
+export type TargetType = keyof typeof TARGET_TYPES;
+
+export const isTargetType = (value: unknown): value is TargetType =>
+  typeof value === 'string' && value in TARGET_TYPES;
+
+/** One effect an ability applies, and who to. */
+export type EffectEntry = { effect: string; to: EffectTarget };
+
+/** An effect entry as a rules file writes it: an id on its own means the target. */
+export type EffectEntryInput = string | { effect?: string; to?: string };
+
+export type Ability = {
+  id: string;
+  label: string;
+  target: TargetType;
+  range: number;
+  arc: number;
+  speed: number;
+  size: number;
+  aimedBy: AimSource;
+  cast: CastMode;
+  castTime: number;
+  castSlow: number;
+  castTurn: number;
+  interrupts: boolean;
+  stepGap: number;
+  chainWindow: number;
+  cooldown: number;
+  /** Attribute id the cooldown is divided by, or empty for a flat one. */
+  cooldownRate: string;
+  vfx: string;
+  trail: string;
+  costAttribute: string;
+  cost: number;
+  effects: EffectEntry[];
+  /** Ability ids a combo plays in order. Empty for every other shape. */
+  steps: string[];
+};
+
+/**
+ * A fresh ability, carrying only the fields a melee one has.
+ *
+ * The rest arrive in `normalizeAbility`, which is also where a shape that has
+ * no use for them gets them zeroed -- see the notes there.
+ */
+export type NewAbility = Omit<
+  Ability,
+  'speed' | 'size' | 'trail' | 'stepGap' | 'chainWindow' | 'steps'
+>;
+
+/** An ability as a rules file writes it. */
+export type AbilityInput = {
+  id?: string;
+  label?: string;
+  target?: string;
+  range?: number;
+  arc?: number;
+  speed?: number;
+  size?: number;
+  aimedBy?: string;
+  cast?: string;
+  castTime?: number;
+  castSlow?: number;
+  castTurn?: number;
+  interrupts?: boolean;
+  stepGap?: number;
+  chainWindow?: number;
+  cooldown?: number;
+  cooldownRate?: string;
+  vfx?: string;
+  trail?: string;
+  costAttribute?: string;
+  cost?: number;
+  effects?: readonly EffectEntryInput[];
+  steps?: readonly string[];
 };
 
 export const ABILITY_FIELDS = {
@@ -217,7 +304,7 @@ export const ABILITY_FIELDS = {
   trail: { kind: 'vfx', label: 'Trail', default: '' },
   costAttribute: { kind: 'attribute', label: 'Costs', default: '' },
   cost: { kind: 'range', label: 'Amount', min: 0, max: 100, step: 1, default: 0 },
-};
+} as const;
 
 /**
  * Which fields an ability actually has: its shape's, minus the wind-up ones
@@ -226,19 +313,23 @@ export const ABILITY_FIELDS = {
  * Here rather than in the editor because it is a fact about the ability, not
  * about the panel — the same reason `TARGET_TYPES` lives here at all.
  */
-export function abilityFields(def) {
-  const fields = TARGET_TYPES[def?.target]?.fields ?? TARGET_TYPES.melee.fields;
+export function abilityFields(def?: AbilityInput): string[] {
+  const fields = isTargetType(def?.target)
+    ? TARGET_TYPES[def.target].fields
+    : TARGET_TYPES.melee.fields;
   const instant = def?.cast !== 'timed';
-  return fields.filter((key) => {
+  return (fields as readonly string[]).filter((key) => {
     if (key === 'castTime' || key === 'castSlow' || key === 'castTurn') return !instant;
     if (key === 'interrupts') return instant;
     return true;
   });
 }
 
-export function defaultAbility(id = 'newAbility') {
-  const ability = { id };
-  for (const key of TARGET_TYPES.melee.fields) ability[key] = ABILITY_FIELDS[key].default;
+export function defaultAbility(id = 'newAbility'): NewAbility {
+  const ability = { id } as NewAbility;
+  for (const key of TARGET_TYPES.melee.fields) {
+    (ability as Record<string, unknown>)[key] = ABILITY_FIELDS[key].default;
+  }
   return { ...ability, effects: [] };
 }
 
@@ -247,17 +338,18 @@ export function defaultAbility(id = 'newAbility') {
  * at the target, which is what every ability meant before self-application
  * existed.
  */
-export function normalizeEffectEntry(entry) {
+export function normalizeEffectEntry(entry: EffectEntryInput): EffectEntry {
   if (typeof entry === 'string') return { effect: entry, to: 'target' };
   return { effect: entry?.effect ?? '', to: entry?.to === 'self' ? 'self' : 'target' };
 }
 
-export function normalizeAbility(def) {
-  const target = TARGET_TYPES[def.target] ? def.target : 'melee';
+export function normalizeAbility(def: AbilityInput): Ability {
+  const target: TargetType = isTargetType(def.target) ? def.target : 'melee';
   // Written before the switch existed: a wind-up is what made it timed.
-  const castMode = (def.cast ?? ((def.castTime ?? 0) > 0 ? 'timed' : 'instant')) === 'timed'
-    ? 'timed'
-    : 'instant';
+  const castMode: CastMode =
+    (def.cast ?? ((def.castTime ?? 0) > 0 ? 'timed' : 'instant')) === 'timed'
+      ? 'timed'
+      : 'instant';
   return {
     ...defaultAbility(def.id ?? 'newAbility'),
     // Fields the default shape (melee) does not carry, so a projectile read
@@ -285,11 +377,12 @@ export function normalizeAbility(def) {
   };
 }
 
-export function abilityMap(defs = ABILITIES) {
-  return new Map(defs.map((def) => [def.id, normalizeAbility(def)]));
+export function abilityMap(defs: readonly AbilityInput[] = ABILITIES): Map<string, Ability> {
+  return new Map(defs.map((def) => [def.id ?? 'newAbility', normalizeAbility(def)]));
 }
 
-export { ABILITIES };
+/** Left unnormalized: the rules editor reads this straight into what it saves. */
+export const ABILITIES = GAME_ABILITIES as AbilityInput[];
 
 /**
  * Which input fires slot n. Order on the archetype *is* the binding, so this
@@ -303,7 +396,10 @@ export { ABILITIES };
  * binding whether or not anything is in it, and a loadout is exactly this long.
  * Adding a sixth is a line here.
  */
-export const SLOT_BINDINGS = [
+/** One input a slot answers to: a mouse button, or a key. */
+export type SlotBinding = { label: string; button?: number; code?: string };
+
+export const SLOT_BINDINGS: SlotBinding[] = [
   { label: 'LMB', button: 0 },
   { label: 'RMB', button: 2 },
   { label: '1', code: 'Digit1' },

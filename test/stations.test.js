@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assemble, rotatePart } from '../Engine/src/data/maps/generate.js';
+import { assemble, rotatePart } from '../Engine/src/data/maps/generate.ts';
 
 /** A one-room part with a bench and a monster on known tiles. */
 function part(id, extra = {}) {

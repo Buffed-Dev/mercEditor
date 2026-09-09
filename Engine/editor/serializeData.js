@@ -53,7 +53,7 @@ const RULE_FILES = {
   vfx: {
     constant: 'VFX',
     title: 'Visual effects',
-    note: 'What each field does is in ../../../Engine/src/data/vfx.js.',
+    note: 'What each field does is in ../../../Engine/src/data/vfx.ts.',
   },
   terrains: {
     constant: 'TERRAINS',
@@ -63,7 +63,7 @@ const RULE_FILES = {
   assets: {
     constant: 'ASSETS',
     title: 'Asset definitions',
-    note: 'The files themselves are in ../assets/; the shape is in ../../../Engine/src/data/assets.js.',
+    note: 'The files themselves are in ../assets/; the shape is in ../../../Engine/src/data/assets.ts.',
   },
   materials: {
     constant: 'MATERIALS',

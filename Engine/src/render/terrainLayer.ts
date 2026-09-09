@@ -9,7 +9,7 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { surface, materialFrom, applyMaterial, materialKey, colorOf } from './materials.js';
 import { keep } from './sceneCache.js';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { assetById, assetUrl } from '../data/assets.js';
+import { assetById, assetUrl } from '../data/assets.ts';
 import { materialById } from '../data/materials.ts';
 import { buildTemplates, shapeOf } from '../data/terrain/templates.ts';
 import { topologyOf, subSides } from '../data/terrain/mask.ts';

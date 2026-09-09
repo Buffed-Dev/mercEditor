@@ -1,6 +1,41 @@
-import { MAPS } from './index.js';
-import { DEFAULT_CHUNK_COUNT, chunkCount, chunksOf } from './chunks.js';
-import { SPAWN_CHAR } from '../mapFormat.js';
+import { MAPS } from './index.ts';
+import { DEFAULT_CHUNK_COUNT, chunkCount, chunksOf } from './chunks.ts';
+import {
+  MAP_LISTS,
+  SPAWN_CHAR,
+  type GameMap,
+  type GeneratedInfo,
+  type MapObject,
+  type Placed,
+} from '../mapFormat.ts';
+import type { ChunkPart } from './chunks.ts';
+
+/** Which edge of a part a doorway sits on. */
+export type Side = '+x' | '-x' | '+y' | '-y';
+
+/** A step of one tile. */
+export type Dir = { x: number; y: number };
+
+/** A run of door tiles along one edge, treated as a single opening. */
+export type Doorway = { side: Side; dir: Dir; gx: number; gy: number; width: number };
+
+/** A doorway still looking for something to join onto, and how far in it is. */
+export type OpenDoor = Doorway & { depth: number };
+
+/** Where a part sits in the assembled grid. */
+export type Rect = { x: number; y: number; w: number; h: number };
+
+/** A part that has been given a place. */
+export type Placement = {
+  part: ChunkPart;
+  rect: Rect;
+  isStart?: boolean;
+  depth?: number;
+  joinedAt?: Doorway;
+};
+
+/** What `fitAgainst` found: a placement that has definitely joined something. */
+type Fit = { part: ChunkPart; rect: Rect; joinedAt: Doorway; depth?: number };
 
 /**
  * Generated maps: assembled out of their own chunks.
@@ -34,7 +69,7 @@ import { SPAWN_CHAR } from '../mapFormat.js';
  */
 
 /** The outward side of a door, from where it sits on its part's border. */
-export function doorSide(part, door) {
+export function doorSide(part: ChunkPart, door: Placed): Side | null {
   const cols = part.rows[0].length;
   const rows = part.rows.length;
   if (door.gx === 0) return '-x';
@@ -44,7 +79,7 @@ export function doorSide(part, door) {
   return null; // not on the border: not a door, whatever it says
 }
 
-const DIRS = {
+const DIRS: Record<Side, Dir> = {
   '+x': { x: 1, y: 0 },
   '-x': { x: -1, y: 0 },
   '+y': { x: 0, y: 1 },
@@ -63,22 +98,23 @@ const DIRS = {
  * Parts are only ever turned and slid, never mirrored, so laying two doorways
  * first-tile to first-tile lines up every tile behind them.
  */
-export function doorsOf(part) {
-  const tiles = (part.doors ?? [])
+export function doorsOf(part: ChunkPart): Doorway[] {
+  type Tile = { gx: number; gy: number; side: Side };
+  const tiles: Tile[] = (part.doors ?? [])
     .map((door) => ({ gx: door.gx, gy: door.gy, side: doorSide(part, door) }))
-    .filter((door) => door.side);
+    .filter((door): door is Tile => door.side !== null);
 
   // A doorway runs along its edge: up the side ones, across the top and bottom.
-  const alongOf = (side) => (side === '+x' || side === '-x' ? 'gy' : 'gx');
+  const alongOf = (side: Side): 'gx' | 'gy' => (side === '+x' || side === '-x' ? 'gy' : 'gx');
 
-  const edges = new Map();
+  const edges = new Map<string, Tile[]>();
   for (const tile of tiles) {
     const key = `${tile.side}:${alongOf(tile.side) === 'gy' ? tile.gx : tile.gy}`;
     if (!edges.has(key)) edges.set(key, []);
-    edges.get(key).push(tile);
+    edges.get(key)!.push(tile);
   }
 
-  const doorways = [];
+  const doorways: Tile[][] = [];
   for (const list of edges.values()) {
     const along = alongOf(list[0].side);
     list.sort((a, b) => a[along] - b[along]);
@@ -106,7 +142,7 @@ export function doorsOf(part) {
 // --------------------------------------------------------------- rotation
 
 /** Where a face points after one quarter turn clockwise. */
-const TURN_FACE = { '+x': '+y', '+y': '-x', '-x': '-y', '-y': '+x' };
+const TURN_FACE: Record<string, string> = { '+x': '+y', '+y': '-x', '-x': '-y', '-y': '+x' };
 
 /**
  * A part turned a quarter of the way round, `k` times.
@@ -117,7 +153,7 @@ const TURN_FACE = { '+x': '+y', '+y': '-x', '-x': '-y', '-y': '+x' };
  * (rows - 1 - gy, gx) and a direction (dx, dy) becomes (-dy, dx), and every
  * line below is one of those two facts applied to a different field.
  */
-export function rotatePart(part, k = 0) {
+export function rotatePart(part: ChunkPart, k = 0): ChunkPart {
   const turns = ((k % 4) + 4) % 4;
   if (turns === 0) return part;
   if (turns > 1) return rotatePart(rotatePart(part, 1), turns - 1);
@@ -129,10 +165,11 @@ export function rotatePart(part, k = 0) {
     Array.from({ length: rows }, (_, gx) => part.rows[rows - 1 - gx][gy]).join(''),
   );
 
-  const turn = ({ gx, gy, ...rest }) => ({ ...rest, gx: rows - 1 - gy, gy: gx });
-  const list = (name) => (part[name] ?? []).map(turn);
+  const turn = <T extends Placed>({ gx, gy, ...rest }: T): T =>
+    ({ ...rest, gx: rows - 1 - gy, gy: gx }) as T;
+  const list = (name: (typeof MAP_LISTS)[number]) => (part[name] ?? []).map(turn);
 
-  const spawns = {};
+  const spawns: Record<string, Placed> = {};
   for (const [name, spawn] of Object.entries(part.spawns ?? {})) spawns[name] = turn(spawn);
 
   return {
@@ -144,18 +181,22 @@ export function rotatePart(part, k = 0) {
     monsters: list('monsters'),
     doors: list('doors'),
     stations: list('stations'),
+    // `face` is narrowed rather than cast: a placed thing is a position plus
+    // whatever else its file gave it, so the format cannot promise this is a
+    // side, only this function can check that it is.
     torches: (part.torches ?? []).map((torch) => ({
       ...turn(torch),
-      face: TURN_FACE[torch.face] ?? torch.face,
+      face: typeof torch.face === 'string' ? (TURN_FACE[torch.face] ?? torch.face) : torch.face,
     })),
     lights: (part.lights ?? []).map((light) => {
       const turned = turn(light);
       // The sun's bearing is an angle on the same compass the tiles live on:
       // its offset is (sin a, cos a), and turning that vector clockwise is the
       // same as taking ninety degrees off the angle.
-      return light.azimuth === undefined
+      const azimuth = light.azimuth;
+      return typeof azimuth !== 'number'
         ? turned
-        : { ...turned, azimuth: (((light.azimuth - 90) % 360) + 360) % 360 };
+        : { ...turned, azimuth: (((azimuth - 90) % 360) + 360) % 360 };
     }),
   };
 }
@@ -170,10 +211,10 @@ export function rotatePart(part, k = 0) {
 // which is a different dungeon by definition.
 
 /** Map id -> the run its chunks were last assembled into. */
-const runs = new Map();
+const runs = new Map<string, GameMap>();
 
 /** The dungeon you are in, built on the way in and kept until the run ends. */
-export function currentRun(id, options) {
+export function currentRun(id: string, options?: AssembleOptions): GameMap {
   let map = runs.get(id);
   if (!map) {
     map = generateMap(MAPS[id], options);
@@ -183,7 +224,7 @@ export function currentRun(id, options) {
 }
 
 /** Start the next one over. No argument ends every run there is. */
-export function endRun(id) {
+export function endRun(id?: string): void {
   if (id === undefined) runs.clear();
   else runs.delete(id);
 }
@@ -191,7 +232,7 @@ export function endRun(id) {
 // -------------------------------------------------------------- generation
 
 /** Deterministic, so a seed is a layout you can go back to. */
-function rngFrom(seed) {
+function rngFrom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d2b79f5) >>> 0;
@@ -201,7 +242,7 @@ function rngFrom(seed) {
   };
 }
 
-const shuffled = (items, random) => {
+const shuffled = <T>(items: readonly T[], random: () => number): T[] => {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
@@ -210,7 +251,7 @@ const shuffled = (items, random) => {
   return out;
 };
 
-const overlaps = (a, b) =>
+const overlaps = (a: Rect, b: Rect) =>
   a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /**
@@ -220,7 +261,12 @@ const overlaps = (a, b) =>
  * doors — first fit wins, and the order is already shuffled, so "first" is
  * "random" without a second pass to pick from.
  */
-function fitAgainst(door, candidates, placed, random) {
+function fitAgainst(
+  door: OpenDoor,
+  candidates: readonly ChunkPart[],
+  placed: readonly Placement[],
+  random: () => number,
+): Fit | null {
   // The tile the new part's door has to occupy, and the way that door must
   // face: straight back at the one it is joining.
   const target = { gx: door.gx + door.dir.x, gy: door.gy + door.dir.y };
@@ -269,7 +315,7 @@ function fitAgainst(door, candidates, placed, random) {
  *   the saved file of the same id so unsaved edits can be walked. The editor
  *   holds the whole map open at once, so this takes the map rather than an id.
  */
-export function generateMap(map, options = {}) {
+export function generateMap(map: GameMap | null | undefined, options: AssembleOptions = {}): GameMap {
   if (!map) throw new Error('Nothing to generate: no such map');
   return assemble(map.id, chunksOf(map), { count: chunkCount(map), ...options });
 }
@@ -281,7 +327,14 @@ export function generateMap(map, options = {}) {
  * the registry — which is what a test does, and what the registry cannot offer
  * outside a browser anyway.
  */
-export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 0 } = {}) {
+/** How a run is put together: how many pieces, and from which seed. */
+export type AssembleOptions = { count?: number; seed?: number };
+
+export function assemble(
+  id: string,
+  all: readonly ChunkPart[],
+  { count, seed = (Math.random() * 2 ** 32) >>> 0 }: AssembleOptions = {},
+): GameMap {
   if (!all.length) throw new Error(`Cluster "${id}" has no parts`);
 
   const random = rngFrom(seed);
@@ -290,7 +343,7 @@ export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 
   const filler = all.filter((part) => part !== start && part.role !== 'end');
   const wanted = Math.max(1, count ?? DEFAULT_CHUNK_COUNT);
 
-  const placed = [
+  const placed: Placement[] = [
     {
       part: start,
       rect: { x: 0, y: 0, w: start.rows[0].length, h: start.rows.length },
@@ -314,7 +367,10 @@ export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 
    * A door that nothing fits against is used up either way: nothing will ever
    * fit there, and leaving it in would mean trying it again for every part.
    */
-  const attach = (candidates, order = (doors) => shuffled(doors, random)) => {
+  const attach = (
+    candidates: readonly ChunkPart[],
+    order: (doors: OpenDoor[]) => OpenDoor[] = (doors) => shuffled(doors, random),
+  ): boolean => {
     for (const door of order(open)) {
       open = open.filter((other) => other !== door);
 
@@ -341,7 +397,7 @@ export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 
             ...other,
             gx: other.gx + fit.rect.x,
             gy: other.gy + fit.rect.y,
-            depth: fit.depth,
+            depth: fit.depth ?? 0,
           })),
       );
       return true;
@@ -350,7 +406,7 @@ export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 
   };
 
   /** Deepest first, so the stair down is as far in as the layout allows. */
-  const deepestFirst = (doors) =>
+  const deepestFirst = (doors: OpenDoor[]) =>
     shuffled(doors, random).sort((a, b) => b.depth - a.depth);
 
   // Filler until the run is one short, then the way out — held back so the exit
@@ -366,12 +422,14 @@ export function assemble(id, all, { count, seed = (Math.random() * 2 ** 32) >>> 
 }
 
 /** How many doorways in from the entrance the deepest placed part is. */
-function depthOf(placed, part) {
-  return placed.find((entry) => entry.part === part)?.depth ?? 0;
-}
 
 /** Paste the placed parts into one grid, in one coordinate space. */
-function compose(id, placed, start, seed) {
+function compose(
+  id: string,
+  placed: readonly Placement[],
+  start: ChunkPart,
+  seed: number,
+): GameMap {
   // One tile of rock all the way round the parts. Without it a door that
   // nothing was fitted against, on a part at the outer edge, is a floor tile on
   // the map's own boundary — walkable up to a wall that is not there, held back
@@ -386,6 +444,12 @@ function compose(id, placed, start, seed) {
   const grid = Array.from({ length: rows }, () => Array.from({ length: cols }, () => '.'));
   const covered = Array.from({ length: rows }, () => new Array(cols).fill(false));
 
+  const generated: GeneratedInfo = {
+    seed,
+    parts: placed.length,
+    endDepth: Math.max(0, ...placed.filter((e) => e.part.role === 'end').map((e) => e.depth ?? 0)),
+  };
+
   const out = {
     id,
     // The place, not the piece you happen to arrive in: what the status line
@@ -393,23 +457,22 @@ function compose(id, placed, start, seed) {
     name:
       start.clusterName ??
       id.replace(/(^|-)(\w)/g, (_, sep, c) => (sep ? ' ' : '') + c.toUpperCase()),
-    rows: [],
-    spawns: {},
-    walls: [],
-    portals: [],
-    monsters: [],
-    torches: [],
-    stations: [],
-    lights: [],
+    rows: [] as string[],
+    spawns: {} as Record<string, Placed>,
+    walls: [] as MapObject[],
+    portals: [] as MapObject[],
+    monsters: [] as MapObject[],
+    torches: [] as MapObject[],
+    stations: [] as MapObject[],
+    lights: [] as MapObject[],
     env: start.env,
     // Worth being able to read back: whether the stair down actually landed
     // somewhere deep is not something you can tell by looking at the map.
-    generated: {
-      seed,
-      parts: placed.length,
-      endDepth: Math.max(0, ...placed.filter((e) => e.part.role === 'end').map((e) => e.depth ?? 0)),
-    },
+    generated,
   };
+
+  // The five moved lists are reached by name, which needs an index signature.
+  const outLists = out as unknown as Record<string, MapObject[]>;
 
   for (const { part, rect, isStart } of placed) {
     const ox = rect.x - minX;
@@ -424,9 +487,10 @@ function compose(id, placed, start, seed) {
       });
     });
 
-    const move = ({ gx, gy, ...rest }) => ({ ...rest, gx: gx + ox, gy: gy + oy });
-    for (const name of ['walls', 'portals', 'monsters', 'torches', 'stations']) {
-      out[name].push(...(part[name] ?? []).map(move));
+    const move = <T extends Placed>({ gx, gy, ...rest }: T): T =>
+      ({ ...rest, gx: gx + ox, gy: gy + oy }) as T;
+    for (const name of ['walls', 'portals', 'monsters', 'torches', 'stations'] as const) {
+      outLists[name].push(...(part[name] ?? []).map(move));
     }
     for (const [name, spawn] of Object.entries(part.spawns ?? {})) {
       // First writer wins, and the start part is first: it is the one holding
@@ -437,7 +501,8 @@ function compose(id, placed, start, seed) {
       // A sun and a sky fill light the whole map at once, so ten parts each
       // carrying one would be ten suns. Only the entrance's set the weather;
       // everything local — a torch glow, a spot — comes along from every part.
-      const global = light.type === 'directional' || light.type === 'hemisphere';
+      const type = light.type;
+      const global = type === 'directional' || type === 'hemisphere';
       if (!global || isStart) out.lights.push(move(light));
     }
   }

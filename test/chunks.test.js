@@ -11,8 +11,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chunkCount, chunksOf, isGenerated, normalizeChunk, strayCount } from '../Engine/src/data/maps/chunks.js';
-import { assemble } from '../Engine/src/data/maps/generate.js';
+import { chunkCount, chunksOf, isGenerated, normalizeChunk, strayCount } from '../Engine/src/data/maps/chunks.ts';
+import { assemble } from '../Engine/src/data/maps/generate.ts';
 
 /** Two 4x4 rooms side by side with a gap, and one thing outside both. */
 const map = {

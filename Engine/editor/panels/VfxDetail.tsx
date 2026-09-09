@@ -15,7 +15,8 @@ import {
   particleKeys,
   partsOf,
   sheetKeys,
-} from '../../src/data/vfx.js';
+  type VfxSection,
+} from '../../src/data/vfx.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { Section } from '../ui/Section';
@@ -60,9 +61,9 @@ const SECTIONS: Record<
     fields: EMITTER_FIELDS,
     /** An emitter's shape decides which of its geometry rows are worth showing. */
     keysFor: (emitter) => {
-      const shapes = EMITTER_SHAPES as Record<string, { fields: string[]; hint: string }>;
+      const shapes = EMITTER_SHAPES as Record<string, { fields: readonly string[]; hint: string }>;
       const shape = shapes[String(emitter.shape)] ?? shapes.cone;
-      const [first, ...rest] = EMITTER_KEYS as string[];
+      const [first, ...rest] = EMITTER_KEYS as readonly string[];
       return [first, ...shape.fields, ...rest];
     },
     hintFor: (emitter) => {
@@ -115,7 +116,7 @@ export function VfxDetail({
    * in the old flat shape is upgraded by being edited rather than left as half
    * of each.
    */
-  function patch(part: string, values: Record_, checkpointed = true) {
+  function patch(part: VfxSection, values: Record_, checkpointed = true) {
     const cleared: Record_ = {};
     for (const key of Object.keys(record)) {
       if (!['id', 'label', 'emitter', 'particle', 'sheet', 'kind'].includes(key)) {
@@ -161,7 +162,7 @@ export function VfxDetail({
         }}
       />
 
-      {(partsOf(def.kind) as string[]).map((part) => {
+      {partsOf(String(def.kind)).map((part) => {
         const spec = SECTIONS[part];
         const values = (def[part] as Record_) ?? {};
         const table = spec.fields as Record<string, Record<string, unknown>>;
@@ -202,13 +203,13 @@ function Modifiers({
   values,
   onPatch,
 }: {
-  part: string;
+  part: VfxSection;
   values: Record_;
-  onPatch: (part: string, patch: Record_, checkpointed?: boolean) => void;
+  onPatch: (part: VfxSection, patch: Record_, checkpointed?: boolean) => void;
 }) {
   const modifiers = (values.modifiers as Record_[]) ?? [];
   const table = MODIFIER_FIELDS as Record<string, Record<string, unknown>>;
-  const kinds = modifiersFor(part) as [string, string][];
+  const kinds = modifiersFor(part);
 
   const write = (next: Record_[], checkpointed = true) =>
     onPatch(part, { modifiers: next }, checkpointed);

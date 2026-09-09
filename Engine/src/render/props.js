@@ -7,7 +7,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 // Side-effect only: this is what teaches the loader above to read a .glb.
 import '@babylonjs/loaders/glTF/index.js';
-import { ASSETS, assetById, assetFrames, assetUrl } from '../data/assets.js';
+import { ASSETS, assetById, assetFrames, assetUrl } from '../data/assets.ts';
 import { materialById, normalizeMaterial } from '../data/materials.ts';
 import { PROPS, propById } from '../data/props.ts';
 import { LEVEL_H } from '../data/dimensions.ts';

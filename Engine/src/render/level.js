@@ -1,7 +1,7 @@
-import { getMap } from '../data/maps/index.js';
+import { getMap } from '../data/maps/index.ts';
 import { ATTRIBUTES } from '../data/attributes.ts';
 import { EFFECTS } from '../data/effects.ts';
-import { ABILITIES, abilityMap } from '../data/abilities.js';
+import { ABILITIES, abilityMap } from '../data/abilities.ts';
 import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
 import { World } from '../game/world.js';
 import { createActor, grantStartingEffects, tickActor } from '../game/actor.js';
@@ -68,7 +68,7 @@ import { createProjectileViews } from './projectiles.js';
 import { createGroundItemViews } from './groundItems.js';
 import { createTrailViews } from './trail.js';
 import { createVfxRuntime } from './vfx.js';
-import { VFX } from '../data/vfx.js';
+import { VFX } from '../data/vfx.ts';
 import { createPlayer } from './player.js';
 
 /**

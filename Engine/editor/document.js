@@ -1,6 +1,6 @@
 import { defaultLight } from '../src/data/lights.ts';
-import { defaultChunk } from '../src/data/maps/chunks.js';
-import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.js';
+import { defaultChunk } from '../src/data/maps/chunks.ts';
+import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import { decodeTerrain } from '../src/data/terrain/codec.ts';
 import { resizeGrid, idx, levelAt, kindAt, EMPTY } from '../src/data/terrain/grid.ts';
 import { createHistory } from './history.ts';

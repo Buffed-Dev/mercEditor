@@ -1,4 +1,4 @@
-import { GLOBAL_COOLDOWN } from '../data/abilities.js';
+import { GLOBAL_COOLDOWN } from '../data/abilities.ts';
 import { hostile } from './actor.js';
 
 /**

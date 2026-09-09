@@ -4,9 +4,9 @@ import { Plane } from '@babylonjs/core/Maths/math.plane.js';
 // Side-effect only: this is what adds `createPickingRay` to Scene.
 import '@babylonjs/core/Culling/ray.js';
 
-import { START_MAP } from './data/maps/index.js';
-import { endRun } from './data/maps/generate.js';
-import { SLOT_BINDINGS } from './data/abilities.js';
+import { START_MAP } from './data/maps/index.ts';
+import { endRun } from './data/maps/generate.ts';
+import { SLOT_BINDINGS } from './data/abilities.ts';
 import { createRenderer } from './render/engine.js';
 import { createLevel } from './render/level.js';
 import { CURRENCIES } from './data/currencies.ts';

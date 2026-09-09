@@ -27,7 +27,7 @@
  * found in a menu.
  */
 
-import { SLOT_BINDINGS } from '../data/abilities.js';
+import { SLOT_BINDINGS } from '../data/abilities.ts';
 import { EQUIPMENT_SLOTS } from './inventory.js';
 
 /** How many bindings there are. The list of bindings is the authority. */

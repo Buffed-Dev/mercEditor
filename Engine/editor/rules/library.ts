@@ -1,4 +1,4 @@
-import { ASSET_FIELDS, ASSET_KINDS } from '../../src/data/assets.js';
+import { ASSET_FIELDS, ASSET_KINDS } from '../../src/data/assets.ts';
 import { MATERIAL_FIELDS } from '../../src/data/materials.ts';
 import { PROP_FIELDS } from '../../src/data/props.ts';
 import { TERRAIN_FIELDS } from '../../src/data/terrains.ts';

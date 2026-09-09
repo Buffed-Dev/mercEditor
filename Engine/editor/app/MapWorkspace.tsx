@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { MAPS, START_MAP, mapIds } from '../../src/data/maps/index.js';
+import { MAPS, START_MAP, mapIds } from '../../src/data/maps/index.ts';
 import { blankMap } from '../document.js';
 import { servedGame } from '../games.js';
 import { writeMap, writeRules } from '../save.js';

@@ -1,6 +1,6 @@
 import { ATTRIBUTES, defaultAttribute } from '../src/data/attributes.ts';
 import { ARCHETYPES, defaultArchetype } from '../src/data/archetypes.ts';
-import { ABILITIES, defaultAbility } from '../src/data/abilities.js';
+import { ABILITIES, defaultAbility } from '../src/data/abilities.ts';
 import { EFFECTS, defaultEffect, defaultModifier } from '../src/data/effects.ts';
 import { ITEMS, defaultItem, defaultItemStat } from '../src/data/items.ts';
 import { RECIPES, defaultRecipe } from '../src/data/recipes.ts';
@@ -8,8 +8,8 @@ import { CATEGORIES, behaviourOf, defaultCategory } from '../src/data/categories
 import { defaultCost } from '../src/data/costs.ts';
 import { LOOT_TABLES, defaultLootRoll, defaultLootTable } from '../src/data/lootTables.ts';
 import { BASE_LEVELS, defaultBaseLevel } from '../src/data/baseLevels.ts';
-import { VFX, defaultVfx } from '../src/data/vfx.js';
-import { ASSETS, defaultAsset, normalizeAsset } from '../src/data/assets.js';
+import { VFX, defaultVfx } from '../src/data/vfx.ts';
+import { ASSETS, defaultAsset, normalizeAsset } from '../src/data/assets.ts';
 import { TERRAINS, TERRAIN_FIELDS, defaultTerrain, normalizeTerrain } from '../src/data/terrains.ts';
 import {
   MATERIALS,

@@ -1,4 +1,4 @@
-import { ASSET_EXTENSIONS, ASSET_KINDS, assetRewritten } from '../src/data/assets.js';
+import { ASSET_EXTENSIONS, ASSET_KINDS, assetRewritten } from '../src/data/assets.ts';
 
 /**
  * Getting a file into a game folder.

@@ -10,7 +10,7 @@ import {
   IconSun,
   IconTargetArrow,
 } from '@tabler/icons-react';
-import { destinationIds } from '../../src/data/maps/index.js';
+import { destinationIds } from '../../src/data/maps/index.ts';
 import { LIGHT_TYPES } from '../../src/data/lights.ts';
 import { ASSETS, ASSET_GROUPS } from '../document.js';
 import { Field } from '../fields/Field';

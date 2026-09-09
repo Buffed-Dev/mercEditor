@@ -7,7 +7,7 @@ import {
   chainReady,
   updateChain,
 } from '../Engine/src/game/abilities.js';
-import { normalizeAbility } from '../Engine/src/data/abilities.js';
+import { normalizeAbility } from '../Engine/src/data/abilities.ts';
 
 const combo = normalizeAbility({
   id: 'sword',

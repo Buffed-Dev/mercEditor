@@ -11,12 +11,12 @@ import { createLights } from './lights.js';
 import { createDecals } from './decals.js';
 import { colorOf, surface, unlit } from './materials.js';
 import { LEVEL_H, WALL_H } from '../data/dimensions.ts';
-import { normalizeEnv } from '../data/mapFormat.js';
+import { normalizeEnv } from '../data/mapFormat.ts';
 import { applyFog } from './fog.js';
 import { createVfxRuntime } from './vfx.js';
 import { createPropRuntime } from './props.js';
 import { createTerrainLayer } from './terrainLayer.ts';
-import { VFX } from '../data/vfx.js';
+import { VFX } from '../data/vfx.ts';
 
 /**
  * Everything a map is made of: the ground, the walls standing on it, the

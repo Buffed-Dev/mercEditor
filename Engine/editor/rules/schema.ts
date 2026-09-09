@@ -1,6 +1,6 @@
 import { ATTRIBUTE_FIELDS, ATTRIBUTE_KINDS } from '../../src/data/attributes.ts';
 import { EFFECT_FIELDS, DURATION_TYPES } from '../../src/data/effects.ts';
-import { ABILITY_FIELDS } from '../../src/data/abilities.js';
+import { ABILITY_FIELDS } from '../../src/data/abilities.ts';
 import { ITEM_FIELDS } from '../../src/data/items.ts';
 import { CATEGORY_FIELDS } from '../../src/data/categories.ts';
 import { RECIPE_FIELDS } from '../../src/data/recipes.ts';

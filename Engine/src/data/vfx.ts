@@ -1,4 +1,4 @@
-import { VFX } from '#game/rules/vfx.js';
+import { VFX as GAME_VFX } from '#game/rules/vfx.js';
 
 /**
  * Visual effects: a puff of particles, described as data.
@@ -49,10 +49,10 @@ export const VFX_CURVES = [
   ['quick', 'Quick'],
   ['smooth', 'Smooth'],
   ['bell', 'There and back'],
-];
+] as const;
 
 /** Where along the ramp a curve is at `t`, both in 0..1. */
-export function curveAt(curve, t) {
+export function curveAt(curve: string | undefined, t: number): number {
   const at = Math.min(1, Math.max(0, t));
   switch (curve) {
     // Stays near the start, then goes.
@@ -123,7 +123,7 @@ export const EMITTER_SHAPES = {
     hint: 'Only the rim of that circle, which is the shockwave itself.',
     fields: ['radius', 'spread'],
   },
-};
+} as const;
 
 export const EMITTER_FIELDS = {
   shape: {
@@ -160,10 +160,10 @@ export const EMITTER_FIELDS = {
   // 0 means it never stops, which is what an effect standing on a map wants.
   // Thrown by an ability it is stopped after one lifetime whatever this says.
   duration: { kind: 'range', label: 'Emits for (sec)', min: 0, max: 10, step: 0.05, default: 0 },
-};
+} as const;
 
 /** The rows an emitter always shows, before its shape's own and its modifiers. */
-export const EMITTER_KEYS = ['shape', 'mode', 'count', 'lift', 'duration'];
+export const EMITTER_KEYS = ['shape', 'mode', 'count', 'lift', 'duration'] as const;
 
 // --------------------------------------------------------------- particle
 
@@ -176,7 +176,7 @@ export const PARTICLE_SHAPES = [
   ['star', 'Star'],
   ['streak', 'Streak'],
   ['sprite', 'Sprite'],
-];
+] as const;
 
 export const PARTICLE_FIELDS = {
   shape: { kind: 'select', label: 'Shape', options: PARTICLE_SHAPES, default: 'dot' },
@@ -199,7 +199,7 @@ export const PARTICLE_FIELDS = {
   size: { kind: 'range', label: 'Size (tiles)', min: 0.01, max: 3, step: 0.01, default: 0.18 },
   speed: { kind: 'range', label: 'Speed (tiles/sec)', min: 0, max: 20, step: 0.1, default: 1.4 },
   gravity: { kind: 'range', label: 'Gravity', min: -20, max: 20, step: 0.1, default: 0 },
-};
+} as const;
 
 export const PARTICLE_KEYS = [
   'shape',
@@ -212,11 +212,13 @@ export const PARTICLE_KEYS = [
   'size',
   'speed',
   'gravity',
-];
+] as const;
 
 /** Which of a particle's rows are worth showing, given the shape it is. */
-export function particleKeys(particle) {
-  return PARTICLE_KEYS.filter((key) => key !== 'image' || particle?.shape === 'sprite');
+export function particleKeys(particle?: { shape?: string }): string[] {
+  return (PARTICLE_KEYS as readonly string[]).filter(
+    (key) => key !== 'image' || particle?.shape === 'sprite',
+  );
 }
 
 // -------------------------------------------------------------- movements
@@ -228,7 +230,7 @@ export const MOVEMENT_FIELDS = {
   heading: { kind: 'range', label: 'Direction (deg)', min: 0, max: 360, step: 15, default: 0 },
   force: { kind: 'range', label: 'Force (tiles/sec2)', min: -20, max: 20, step: 0.1, default: 2 },
   flip: { kind: 'bool', label: 'Backhand', default: false },
-};
+} as const;
 
 export const MOVEMENT_TYPES = {
   orbit: {
@@ -263,7 +265,7 @@ export const MOVEMENT_TYPES = {
       points come from the ability — its arc and its aim — so the sparks match the blow.`,
     fields: ['flip'],
   },
-};
+} as const;
 
 // ------------------------------------------------------------------ sheet
 
@@ -279,7 +281,7 @@ export const MOVEMENT_TYPES = {
 export const VFX_KINDS = [
   ['particles', 'Particles'],
   ['sheet', 'Sprite sheet'],
-];
+] as const;
 
 /** The meshes a sheet can be played on, and the geometry each one needs. */
 export const SHEET_SHAPES = {
@@ -313,7 +315,7 @@ export const SHEET_SHAPES = {
     hint: 'A cube with the sheet on every face.',
     fields: ['width', 'height', 'depth'],
   },
-};
+} as const;
 
 export const SHEET_FIELDS = {
   shape: {
@@ -388,7 +390,7 @@ export const SHEET_FIELDS = {
   // How long it stays. 0 means until the animation has run once for a sheet
   // that does not loop, and forever for one that does.
   duration: { kind: 'range', label: 'Lasts (sec)', min: 0, max: 20, step: 0.05, default: 0 },
-};
+} as const;
 
 /** The rows a sheet always shows, before its shape's own and its modifiers. */
 export const SHEET_KEYS = [
@@ -407,11 +409,11 @@ export const SHEET_KEYS = [
   'raw',
   'lift',
   'duration',
-];
+] as const;
 
 /** Which of a sheet's rows are worth showing, given the shape it is on. */
-export function sheetKeys(sheet) {
-  const shape = SHEET_SHAPES[sheet?.shape] ?? SHEET_SHAPES.plane;
+export function sheetKeys(sheet?: { shape?: string }): string[] {
+  const shape = isSheetShape(sheet?.shape) ? SHEET_SHAPES[sheet.shape] : SHEET_SHAPES.plane;
   const [first, ...rest] = SHEET_KEYS;
   return [first, ...shape.fields, ...rest];
 }
@@ -424,9 +426,14 @@ export function sheetKeys(sheet) {
  * anyone means to author, and a divide by zero downstream is worse than a still
  * picture.
  */
-export function sheetFrames(sheet) {
-  const columns = Math.max(1, Math.round(sheet.columns));
-  const rows = Math.max(1, Math.round(sheet.rows));
+export function sheetFrames(sheet: Partial<VfxSheet>): {
+  columns: number;
+  rows: number;
+  first: number;
+  count: number;
+} {
+  const columns = Math.max(1, Math.round(sheet.columns ?? 1));
+  const rows = Math.max(1, Math.round(sheet.rows ?? 1));
   const all = columns * rows;
 
   const first = Math.min(Math.max(0, Math.round(sheet.frameFrom ?? 0)), all - 1);
@@ -445,6 +452,191 @@ export function sheetFrames(sheet) {
  * both places and one or two do not: an emitter has no lifetime to randomise
  * over, and a particle has no transform of its own to set.
  */
+/** How a value travels from its start to its end. */
+export type VfxCurve = (typeof VFX_CURVES)[number][0];
+
+/** Which of the two machines an effect is. */
+export type VfxKind = (typeof VFX_KINDS)[number][0];
+
+/** Which part of an effect a modifier can sit on. */
+export type VfxSection = 'emitter' | 'particle' | 'sheet';
+
+/** The volume particles are born from. */
+export type EmitterShape = keyof typeof EMITTER_SHAPES;
+
+/** What one particle is drawn as. */
+export type ParticleShape = (typeof PARTICLE_SHAPES)[number][0];
+
+/** The body a sprite sheet is wrapped around. */
+export type SheetShape = keyof typeof SHEET_SHAPES;
+
+/** How a movement modifier carries what it is attached to. */
+export type MovementType = keyof typeof MOVEMENT_TYPES;
+
+/**
+ * Every setting any modifier can carry.
+ *
+ * One flat list rather than one type per kind, because a modifier stores its
+ * settings beside its `kind` and that is what decides which of them mean
+ * anything -- exactly the shape `MODIFIER_FIELDS` already has. Written out
+ * rather than derived from that table for the reason given on `LightValues`
+ * in ./lights.ts: `as const` would pin every default to a literal, and a
+ * modifier whose scale could only ever be 1 is no use to anyone.
+ */
+export type ModifierValues = {
+  turn: number;
+  rise: number;
+  widen: number;
+  heading: number;
+  force: number;
+  flip: boolean;
+  scaleFrom: number;
+  scaleTo: number;
+  scaleCurve: VfxCurve;
+  fadeFrom: number;
+  fadeTo: number;
+  fadeCurve: VfxCurve;
+  colorFrom: number;
+  colorTo: number;
+  colorCurve: VfxCurve;
+  varySize: number;
+  varyOpacity: number;
+  varyPosition: number;
+  varyRotation: number;
+  posX: number;
+  posY: number;
+  posZ: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  scaleX: number;
+  scaleY: number;
+  scaleZ: number;
+  spin: number;
+  spinStart: number;
+};
+
+/** One modifier: which kind, which flavour of it, and its settings. */
+export type VfxModifier = {
+  kind: ModifierKind;
+  /** Only a `movement` modifier has one. */
+  type?: MovementType;
+} & Partial<ModifierValues>;
+
+/** A modifier as a rules file writes it. */
+export type ModifierInput = { kind?: string; type?: string } & Partial<ModifierValues>;
+
+export type VfxEmitter = {
+  shape: EmitterShape;
+  mode: 'continuous' | 'burst';
+  radius: number;
+  height: number;
+  sizeX: number;
+  sizeY: number;
+  sizeZ: number;
+  spread: number;
+  lift: number;
+  count: number;
+  duration: number;
+  modifiers: VfxModifier[];
+};
+
+export type VfxParticle = {
+  shape: ParticleShape;
+  image: string;
+  color: number;
+  glow: number;
+  opacity: number;
+  raw: boolean;
+  life: number;
+  size: number;
+  speed: number;
+  gravity: number;
+  modifiers: VfxModifier[];
+};
+
+export type VfxSheet = {
+  shape: SheetShape;
+  facing: 'camera' | 'ground' | 'upright';
+  image: string;
+  columns: number;
+  rows: number;
+  frameFrom: number;
+  frames: number;
+  fps: number;
+  loop: boolean;
+  color: number;
+  glow: boolean;
+  opacity: number;
+  raw: boolean;
+  lift: number;
+  duration: number;
+  width: number;
+  height: number;
+  depth: number;
+  radius: number;
+  modifiers: VfxModifier[];
+};
+
+/** A visual effect, filled in. */
+export type Vfx = {
+  id: string;
+  label: string;
+  kind: VfxKind;
+  emitter: VfxEmitter;
+  particle: VfxParticle;
+  sheet: VfxSheet;
+};
+
+/**
+ * An effect as a rules file writes it.
+ *
+ * Carries both spellings. The flat fields after `sheet` are the shape effects
+ * had before an emitter and a particle were told apart, and `upconvert` below
+ * is what reads them; `isLegacy` decides which of the two a record is.
+ */
+export type VfxInput = {
+  id?: string;
+  label?: string;
+  kind?: string;
+  emitter?: (Partial<VfxEmitter> & { modifiers?: readonly ModifierInput[] }) | string;
+  particle?: Partial<VfxParticle> & { modifiers?: readonly ModifierInput[] };
+  sheet?: Partial<VfxSheet> & { modifiers?: readonly ModifierInput[] };
+  spread?: number;
+  radius?: number;
+  height?: number;
+  duration?: number;
+  burst?: number;
+  rate?: number;
+  image?: string;
+  shape?: string;
+  color?: number;
+  glow?: boolean | number;
+  opacity?: number;
+  raw?: boolean;
+  life?: number;
+  size?: number;
+  speed?: number;
+  gravity?: number;
+  sizeEnd?: number;
+  fade?: string;
+  fadeTo?: number;
+  vary?: number;
+  spin?: number;
+  angle?: number;
+  movements?: readonly ModifierInput[];
+};
+
+/** Reaches a field table by a key worked out at runtime. */
+const fieldDefault = (table: object, key: string): unknown =>
+  (table as Record<string, { default: unknown }>)[key]?.default;
+
+export const isParticleShape = (value: unknown): value is ParticleShape =>
+  PARTICLE_SHAPES.some(([id]) => id === value);
+
+export const isVfxCurve = (value: unknown): value is VfxCurve =>
+  VFX_CURVES.some(([id]) => id === value);
+
 export const MODIFIER_FIELDS = {
   // A movement's own settings live here too, so one table answers "what is
   // this field" for every modifier, the typed ones included. The names do not
@@ -482,9 +674,21 @@ export const MODIFIER_FIELDS = {
   // --- spin, for a particle that has a face worth turning
   spin: { kind: 'range', label: 'Spin (deg/sec)', min: -720, max: 720, step: 15, default: 90 },
   spinStart: { kind: 'range', label: 'Start angle (deg)', min: 0, max: 180, step: 15, default: 0 },
+} as const;
+
+/** What one kind of modifier offers. */
+type ModifierTypeSpec = {
+  label: string;
+  where: readonly VfxSection[];
+  hint: string;
+  fields: readonly string[];
+  /** Only `movement` has flavours; the rest are one thing. */
+  typed?: Record<string, { label: string; hint: string; fields: readonly string[] }>;
+  typeLabel?: string;
+  typeDefault?: string;
 };
 
-export const MODIFIER_TYPES = {
+const MODIFIER_TABLE = {
   overTime: {
     label: 'Over time',
     where: ['emitter', 'particle', 'sheet'],
@@ -534,66 +738,99 @@ export const MODIFIER_TYPES = {
     typeLabel: 'Kind',
     typeDefault: 'orbit',
   },
-};
+} as const;
+
+/** Which kind of modifier. The `MODIFIER_TYPES` keys and no others. */
+export type ModifierKind = keyof typeof MODIFIER_TABLE;
+
+/**
+ * The same table, read through one shape.
+ *
+ * Handed a common type rather than left as the literal object so that
+ * `MODIFIER_TYPES[kind]` is one thing to reach into: only `movement` carries
+ * `typed`, and against the raw union every read of it would have to ask which
+ * member it had first.
+ */
+export const MODIFIER_TYPES: Record<ModifierKind, ModifierTypeSpec> = MODIFIER_TABLE;
+
+export const isModifierKind = (value: unknown): value is ModifierKind =>
+  typeof value === 'string' && value in MODIFIER_TABLE;
+
+export const isSheetShape = (value: unknown): value is SheetShape =>
+  typeof value === 'string' && value in SHEET_SHAPES;
+
+export const isEmitterShape = (value: unknown): value is EmitterShape =>
+  typeof value === 'string' && value in EMITTER_SHAPES;
 
 /** What may be added to a section, for its Add menu. */
-export function modifiersFor(section) {
+export function modifiersFor(section: VfxSection): [string, string][] {
   return Object.entries(MODIFIER_TYPES)
     .filter(([, spec]) => spec.where.includes(section))
     .map(([kind, spec]) => [kind, spec.label]);
 }
 
 /** The fields one modifier actually shows, its type's included. */
-export function modifierFields(modifier) {
-  const spec = MODIFIER_TYPES[modifier?.kind];
-  if (!spec) return [];
+export function modifierFields(modifier?: ModifierInput | null): readonly string[] {
+  if (!isModifierKind(modifier?.kind)) return [];
+  const spec = MODIFIER_TYPES[modifier.kind];
   if (!spec.typed) return spec.fields;
-  return spec.typed[modifier.type]?.fields ?? [];
+  return (modifier.type ? spec.typed[modifier.type]?.fields : undefined) ?? [];
 }
 
-export function defaultModifier(kind, type) {
+export function defaultModifier(kind: ModifierKind, type?: string): VfxModifier;
+export function defaultModifier(kind: string, type?: string): VfxModifier | null;
+export function defaultModifier(kind: string, type?: string): VfxModifier | null {
+  if (!isModifierKind(kind)) return null;
   const spec = MODIFIER_TYPES[kind];
-  if (!spec) return null;
-
-  const made = { kind };
-  if (spec.typed) made.type = type && spec.typed[type] ? type : spec.typeDefault;
-
-  for (const key of modifierFields(made)) made[key] = MODIFIER_FIELDS[key].default;
-  for (const key of spec.fields) made[key] = MODIFIER_FIELDS[key].default;
+  const made = { kind } as VfxModifier;
+  const fields = made as Record<string, unknown>;
+  if (spec.typed) fields.type = type && spec.typed[type] ? type : spec.typeDefault;
+  for (const key of modifierFields(made)) fields[key] = fieldDefault(MODIFIER_FIELDS, key);
+  for (const key of spec.fields) fields[key] = fieldDefault(MODIFIER_FIELDS, key);
   return made;
 }
 
-function normalizeModifier(raw = {}) {
+function normalizeModifier(raw: ModifierInput = {}): VfxModifier | null {
+  if (!isModifierKind(raw.kind)) return null;
   const spec = MODIFIER_TYPES[raw.kind];
-  if (!spec) return null;
-  const type = spec.typed ? (spec.typed[raw.type] ? raw.type : spec.typeDefault) : undefined;
-  return { ...defaultModifier(raw.kind, type), ...raw, kind: raw.kind, ...(type ? { type } : {}) };
+  const type = spec.typed
+    ? ((raw.type && spec.typed[raw.type] ? raw.type : spec.typeDefault) as MovementType | undefined)
+    : undefined;
+  return {
+    ...defaultModifier(raw.kind, type),
+    ...raw,
+    kind: raw.kind,
+    ...(type ? { type } : {}),
+  } as VfxModifier;
 }
 
 // ------------------------------------------------------------- the effect
 
-export function defaultEmitter() {
-  const emitter = { modifiers: [] };
-  for (const key of Object.keys(EMITTER_FIELDS)) emitter[key] = EMITTER_FIELDS[key].default;
+export function defaultEmitter(): VfxEmitter {
+  const emitter = { modifiers: [] } as unknown as VfxEmitter;
+  const fields = emitter as unknown as Record<string, unknown>;
+  for (const key of Object.keys(EMITTER_FIELDS)) fields[key] = fieldDefault(EMITTER_FIELDS, key);
   return emitter;
 }
 
-export function defaultParticle() {
-  const particle = { modifiers: [] };
-  for (const key of PARTICLE_KEYS) particle[key] = PARTICLE_FIELDS[key].default;
+export function defaultParticle(): VfxParticle {
+  const particle = { modifiers: [] } as unknown as VfxParticle;
+  const fields = particle as unknown as Record<string, unknown>;
+  for (const key of PARTICLE_KEYS) fields[key] = fieldDefault(PARTICLE_FIELDS, key);
   return particle;
 }
 
-export function defaultSheet() {
-  const sheet = { modifiers: [] };
-  for (const key of SHEET_KEYS) sheet[key] = SHEET_FIELDS[key].default;
+export function defaultSheet(): VfxSheet {
+  const sheet = { modifiers: [] } as unknown as VfxSheet;
+  const fields = sheet as unknown as Record<string, unknown>;
+  for (const key of SHEET_KEYS) fields[key] = fieldDefault(SHEET_FIELDS, key);
   for (const key of ['width', 'height', 'depth', 'radius']) {
-    sheet[key] = SHEET_FIELDS[key].default;
+    fields[key] = fieldDefault(SHEET_FIELDS, key);
   }
   return sheet;
 }
 
-export function defaultVfx(id = 'newEffect') {
+export function defaultVfx(id = 'newEffect'): Vfx {
   return {
     id,
     label: 'New effect',
@@ -610,7 +847,7 @@ export function defaultVfx(id = 'newEffect') {
  * Both kinds carry both sets — switching between them must not throw away what
  * you had tuned on the other — so this is what says which of them is live.
  */
-export function partsOf(kind) {
+export function partsOf(kind: string): VfxSection[] {
   return kind === 'sheet' ? ['sheet'] : ['emitter', 'particle'];
 }
 
@@ -622,11 +859,11 @@ export function partsOf(kind) {
  * rejected because the alternative is somebody's saved work turning into a
  * default effect the first time they open the editor.
  */
-function upconvert(def) {
+function upconvert(def: VfxInput): Vfx {
   const emitter = defaultEmitter();
   const particle = defaultParticle();
 
-  emitter.shape = EMITTER_SHAPES[def.emitter] ? def.emitter : 'cone';
+  emitter.shape = isEmitterShape(def.emitter) ? def.emitter : 'cone';
   // A spread wide enough to stop being a cone *was* how you asked for a ball.
   if (def.emitter === undefined && (def.spread ?? 0) >= 175) emitter.shape = 'sphere';
   emitter.radius = def.radius ?? emitter.radius;
@@ -634,10 +871,12 @@ function upconvert(def) {
   emitter.lift = def.height ?? emitter.lift;
   emitter.duration = def.duration ?? emitter.duration;
   // One count, spent one of two ways: a burst if it had one, otherwise a rate.
-  emitter.mode = def.burst > 0 ? 'burst' : 'continuous';
-  emitter.count = def.burst > 0 ? def.burst : (def.rate ?? emitter.count);
-
-  particle.shape = def.image ? 'sprite' : (def.shape ?? particle.shape);
+  const burst = def.burst ?? 0;
+  emitter.mode = burst > 0 ? 'burst' : 'continuous';
+  emitter.count = burst > 0 ? burst : (def.rate ?? emitter.count);
+  particle.shape = def.image
+    ? 'sprite'
+    : (isParticleShape(def.shape) ? def.shape : particle.shape);
   particle.image = def.image ?? '';
   particle.color = def.color ?? particle.color;
   particle.glow = typeof def.glow === 'boolean' ? (def.glow ? 1 : 0) : (def.glow ?? particle.glow);
@@ -651,31 +890,36 @@ function upconvert(def) {
   // Everything the old form said with a dedicated field is a modifier now.
   const overTime = defaultModifier('overTime');
   overTime.scaleFrom = 1;
-  overTime.scaleTo = def.size > 0 ? (def.sizeEnd ?? 0) / def.size : 0;
+  const size = def.size ?? 0;
+  overTime.scaleTo = size > 0 ? (def.sizeEnd ?? 0) / size : 0;
   overTime.fadeFrom = 1;
   overTime.fadeTo = 0;
-  overTime.fadeCurve = def.fade === 'inOut' ? 'bell' : (def.fade ?? 'linear');
+  overTime.fadeCurve =
+    def.fade === 'inOut' ? 'bell' : (isVfxCurve(def.fade) ? def.fade : 'linear');
   overTime.colorFrom = def.color ?? particle.color;
   overTime.colorTo = def.fadeTo ?? 0xff4400;
   particle.modifiers.push(overTime);
 
-  if (def.vary > 0 || def.spin > 0 || def.angle > 0) {
-    if (def.vary > 0) {
+  const vary = def.vary ?? 0;
+  const spinBy = def.spin ?? 0;
+  const angle = def.angle ?? 0;
+  if (vary > 0 || spinBy > 0 || angle > 0) {
+    if (vary > 0) {
       const randomize = defaultModifier('randomize');
-      randomize.varySize = Math.round(def.vary * 100);
+      randomize.varySize = Math.round(vary * 100);
       particle.modifiers.push(randomize);
     }
-    if (def.spin > 0 || def.angle > 0) {
+    if (spinBy > 0 || angle > 0) {
       const spin = defaultModifier('spin');
-      spin.spin = def.spin ?? 0;
-      spin.spinStart = def.angle ?? 0;
+      spin.spin = spinBy;
+      spin.spinStart = angle;
       particle.modifiers.push(spin);
     }
   }
 
   for (const raw of def.movements ?? []) {
     const move = defaultModifier('movement', raw.type);
-    particle.modifiers.push({ ...move, ...raw, kind: 'movement' });
+    particle.modifiers.push({ ...move, ...raw, kind: 'movement' } as VfxModifier);
   }
 
   // The old colour variation was a second birth colour, which the over-time
@@ -699,26 +943,28 @@ function upconvert(def) {
  * that says nothing is read as the old kind because the old kind is what a
  * record that says nothing used to be, and either way it ends up at defaults.
  */
-function isLegacy(def) {
+function isLegacy(def: VfxInput): boolean {
   if (typeof def.emitter === 'string') return true;
   return !def.kind && !def.emitter && !def.particle && !def.sheet;
 }
 
 /** Fill in whatever a hand-written or half-edited definition left out. */
-export function normalizeVfx(def = {}) {
+/** Drops the modifiers a rules file named that nothing knows how to build. */
+const kept = (raw: readonly ModifierInput[] | undefined): VfxModifier[] =>
+  (raw ?? []).map(normalizeModifier).filter((modifier): modifier is VfxModifier => modifier !== null);
+
+export function normalizeVfx(def: VfxInput = {}): Vfx {
   if (isLegacy(def)) return upconvert(def);
-
-  const emitter = { ...defaultEmitter(), ...def.emitter };
-  if (!EMITTER_SHAPES[emitter.shape]) emitter.shape = 'cone';
-  emitter.modifiers = (def.emitter?.modifiers ?? []).map(normalizeModifier).filter(Boolean);
-
+  const given = typeof def.emitter === 'string' ? undefined : def.emitter;
+  const emitter = { ...defaultEmitter(), ...given };
+  if (!isEmitterShape(emitter.shape)) emitter.shape = 'cone';
+  emitter.modifiers = kept(given?.modifiers);
   const particle = { ...defaultParticle(), ...def.particle };
-  if (!PARTICLE_SHAPES.some(([id]) => id === particle.shape)) particle.shape = 'dot';
-  particle.modifiers = (def.particle?.modifiers ?? []).map(normalizeModifier).filter(Boolean);
-
+  if (!isParticleShape(particle.shape)) particle.shape = 'dot';
+  particle.modifiers = kept(def.particle?.modifiers);
   const sheet = { ...defaultSheet(), ...def.sheet };
-  if (!SHEET_SHAPES[sheet.shape]) sheet.shape = 'plane';
-  sheet.modifiers = (def.sheet?.modifiers ?? []).map(normalizeModifier).filter(Boolean);
+  if (!isSheetShape(sheet.shape)) sheet.shape = 'plane';
+  sheet.modifiers = kept(def.sheet?.modifiers);
 
   return {
     id: def.id ?? 'newEffect',
@@ -731,17 +977,24 @@ export function normalizeVfx(def = {}) {
 }
 
 /** The modifiers of one kind a section carries, in the order they were added. */
-export function modifiersOf(part, kind) {
+export function modifiersOf(
+  part: { modifiers?: readonly VfxModifier[] } | null | undefined,
+  kind: ModifierKind,
+): VfxModifier[] {
   return (part?.modifiers ?? []).filter((modifier) => modifier.kind === kind);
 }
 
 /** The first modifier of a kind, for the ones it makes no sense to have two of. */
-export function modifierOf(part, kind) {
+export function modifierOf(
+  part: { modifiers?: readonly VfxModifier[] } | null | undefined,
+  kind: ModifierKind,
+): VfxModifier | null {
   return modifiersOf(part, kind)[0] ?? null;
 }
 
-export function vfxMap(defs = VFX) {
-  return new Map(defs.map((def) => [def.id, normalizeVfx(def)]));
+export function vfxMap(defs: readonly VfxInput[] = VFX): Map<string, Vfx> {
+  return new Map(defs.map((def) => [def.id ?? 'newEffect', normalizeVfx(def)]));
 }
 
-export { VFX };
+/** Left unnormalized: the rules editor reads this straight into what it saves. */
+export const VFX = GAME_VFX as VfxInput[];

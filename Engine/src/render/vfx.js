@@ -18,7 +18,7 @@ import {
   modifiersOf,
   normalizeVfx,
   sheetFrames,
-} from '../data/vfx.js';
+} from '../data/vfx.ts';
 
 /**
  * Turning a VFX definition into a running particle system.

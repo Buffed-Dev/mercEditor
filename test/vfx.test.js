@@ -11,9 +11,9 @@ import {
   partsOf,
   sheetFrames,
   sheetKeys,
-} from '../Engine/src/data/vfx.js';
-import { DEFAULT_ENV, normalizeEnv } from '../Engine/src/data/mapFormat.js';
-import { abilityFields, normalizeAbility } from '../Engine/src/data/abilities.js';
+} from '../Engine/src/data/vfx.ts';
+import { DEFAULT_ENV, normalizeEnv } from '../Engine/src/data/mapFormat.ts';
+import { abilityFields, normalizeAbility } from '../Engine/src/data/abilities.ts';
 import { serializeRules } from '../Engine/editor/serializeData.js';
 import { serializeMap } from '../Engine/editor/serialize.js';
 import { mapDoc } from './helpers/terrainFixtures.ts';

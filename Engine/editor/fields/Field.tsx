@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { destinationIds } from '../../src/data/maps/index.js';
+import { destinationIds } from '../../src/data/maps/index.ts';
 import { ColorField } from './ColorField';
 import { IconPicker } from '../ui/IconPicker';
 import { NumberField } from './NumberField';

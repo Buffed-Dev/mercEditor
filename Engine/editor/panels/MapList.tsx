@@ -1,5 +1,5 @@
 import { IconPlus } from '@tabler/icons-react';
-import { MAPS, mapIds } from '../../src/data/maps/index.js';
+import { MAPS, mapIds } from '../../src/data/maps/index.ts';
 import { Button } from '../ui/Button';
 import styles from './MapList.module.css';
 

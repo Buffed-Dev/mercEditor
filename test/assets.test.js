@@ -8,7 +8,7 @@ import {
   defaultAsset,
   kindOfFile,
   normalizeAsset,
-} from '../Engine/src/data/assets.js';
+} from '../Engine/src/data/assets.ts';
 import {
   blockedTiles,
   defaultProp,

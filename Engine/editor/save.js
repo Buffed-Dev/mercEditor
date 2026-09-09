@@ -1,4 +1,4 @@
-import { registerMap } from '../src/data/maps/index.js';
+import { registerMap } from '../src/data/maps/index.ts';
 import { serializeMap } from './serialize.js';
 import { serializeAllRules } from './serializeData.js';
 

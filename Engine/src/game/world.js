@@ -1,4 +1,4 @@
-import { spawnPoint, wallStacks } from '../data/mapFormat.js';
+import { spawnPoint, wallStacks } from '../data/mapFormat.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { blockedTiles, standHeights } from '../data/props.ts';
 import { decodeTerrain } from '../data/terrain/codec.ts';

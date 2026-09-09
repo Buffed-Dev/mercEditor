@@ -1,7 +1,7 @@
 import { IconFocus, IconFocusCentered, IconPlus } from '@tabler/icons-react';
-import { CHUNK_ROLES, chunkCount } from '../../src/data/maps/chunks.js';
+import { CHUNK_ROLES, chunkCount } from '../../src/data/maps/chunks.ts';
 import { EMPTY, kindAt, type TerrainGrid } from '../../src/data/terrain/grid.ts';
-import { endRun } from '../../src/data/maps/generate.js';
+import { endRun } from '../../src/data/maps/generate.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { Button, IconButton } from '../ui/Button';
@@ -43,7 +43,7 @@ const field = (spec: { key: string; kind: string; label: string } & Record<strin
 
 /** What a role is called, so the entrance is findable without opening each. */
 const roleLabel = (role?: string) =>
-  (CHUNK_ROLES as [string, string][]).find(([id]) => id === (role ?? ''))?.[1] ?? '';
+  CHUNK_ROLES.find(([id]) => id === (role ?? ''))?.[1] ?? '';
 
 /** The object lists a chunk can contain — the same set `chunksOf` cuts out. */
 const LISTS = ['walls', 'portals', 'monsters', 'torches', 'stations', 'lights', 'doors'];

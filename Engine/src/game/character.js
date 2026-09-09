@@ -15,7 +15,7 @@
  * actor's attributes, and the actor belongs to the level — see ../game/equipment.js.
  */
 
-import { SLOT_BINDINGS } from '../data/abilities.js';
+import { SLOT_BINDINGS } from '../data/abilities.ts';
 import { CURRENCIES } from '../data/currencies.ts';
 import { normalizeCosts } from '../data/costs.ts';
 import { createInventory } from './inventory.js';

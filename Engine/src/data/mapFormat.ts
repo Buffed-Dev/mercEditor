@@ -81,17 +81,117 @@ export const DEFAULT_ENV = {
 };
 
 /**
+ * A map's environment settings, filled in.
+ *
+ * Taken from `DEFAULT_ENV` rather than written out beside it, because that
+ * table is already the list of what an env has and what each one defaults to.
+ * Deliberately not `as const`: these are values to be edited, not literals.
+ */
+export type MapEnv = typeof DEFAULT_ENV;
+
+/**
+ * An env as a map file writes it.
+ *
+ * `clouds` widens to a number because that is how maps written before clouds
+ * had an on/off switch say it -- see `normalizeEnv`.
+ */
+export type MapEnvInput = Partial<Omit<MapEnv, 'clouds'>> & { clouds?: boolean | number };
+
+/** Anything a map puts at a tile. */
+export type Placed = { gx: number; gy: number };
+
+/**
+ * One of a map's placed things, whatever kind.
+ *
+ * Open past the position on purpose: what else a portal or a monster carries
+ * belongs to the renderer that reads it, not to the file format. The parts of
+ * the data layer that handle these lists only ever ask where something is and
+ * move it, so a position plus 'and whatever else it had' is the whole contract
+ * here, and it stays honest rather than inventing fields.
+ */
+export type MapObject = Placed & { [key: string]: unknown };
+
+/** A wall, which stacks. */
+export type Wall = Placed & { stack?: number };
+
+/** What assembling a run recorded about itself. See ./maps/generate.ts. */
+export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
+
+/** The lists a map keeps of things standing somewhere. */
+export const MAP_LISTS = [
+  'walls',
+  'portals',
+  'monsters',
+  'torches',
+  'stations',
+  'lights',
+  'doors',
+] as const;
+
+export type MapList = (typeof MAP_LISTS)[number];
+
+/**
+ * A map as a file in `Games/*\/maps` writes it.
+ *
+ * Almost everything is optional because a map file says only what it has: a
+ * handwritten room has rows and a spawn and nothing else, while one the editor
+ * has been through carries every list. `terrain` and `rows` are two spellings
+ * of the same grid, the second being what maps written before the terrain
+ * codec used.
+ */
+export type GameMap = {
+  id: string;
+  name?: string;
+  terrain?: readonly string[];
+  terrainKeys?: Record<string, string>;
+  terrainRim?: unknown;
+  rows?: readonly string[];
+  height?: number;
+  startZ?: number;
+  stepHeight?: number;
+  spawns?: Record<string, Placed>;
+  env?: MapEnvInput;
+  vfx?: unknown;
+  props?: readonly MapObject[];
+  decals?: readonly MapObject[];
+  /**
+   * Set on a map that is rebuilt from chunks each run.
+   *
+   * A source map says `true`; a map that has just been assembled carries what
+   * the assembly recorded instead. Everything that reads this only asks
+   * whether it is there, so both spellings answer the same question.
+   */
+  generated?: boolean | GeneratedInfo;
+  chunks?: readonly unknown[];
+  chunkCount?: number;
+} & { readonly [K in MapList]?: readonly MapObject[] };
+
+/** A grid of levels, read off a map's rows. */
+export type ParsedMap = {
+  cols: number;
+  rows: number;
+  levels: number[][];
+  levelAt: (tx: number, ty: number) => number | null;
+  spawn: Placed;
+};
+
+/**
  * A map's env, with everything it left out filled in.
  *
  * The clouds took their switch's name before they had one — `clouds` was how
  * strong they were — so a number found there is read as both: on, and that
  * strong. Nothing else has ever changed shape.
  */
-export function normalizeEnv(env = {}) {
-  const full = { ...DEFAULT_ENV, ...env };
-  if (typeof env.clouds === 'number') {
-    full.clouds = env.clouds > 0;
-    full.cloudShade = env.clouds;
+export function normalizeEnv(env: MapEnvInput = {}): MapEnv {
+  const { clouds, ...rest } = env;
+  const full: MapEnv = {
+    ...DEFAULT_ENV,
+    ...rest,
+    clouds: typeof clouds === 'boolean' ? clouds : DEFAULT_ENV.clouds,
+  };
+  if (typeof clouds === 'number') {
+    full.clouds = clouds > 0;
+    full.cloudShade = clouds;
   }
   return full;
 }
@@ -110,7 +210,7 @@ export const WALL_CHAR = '#';
 export const MAX_LEVEL = 9;
 
 /** The height a terrain character stands for. Anything unknown is ground. */
-export function levelFromChar(char) {
+export function levelFromChar(char: string): number {
   const level = Number.parseInt(char, 10);
   return Number.isNaN(level) ? 0 : Math.min(MAX_LEVEL, level);
 }
@@ -122,13 +222,13 @@ export function levelFromChar(char) {
  * every hand-written map already uses for plain ground, and a map speckled with
  * zeroes would be a worse file to read.
  */
-export function levelChar(level) {
+export function levelChar(level: number): string {
   const clamped = Math.min(MAX_LEVEL, Math.max(0, Math.round(level)));
   return clamped === 0 ? '.' : String(clamped);
 }
 
 /** The height grid and the spawn tile. */
-export function parseMap(rows) {
+export function parseMap(rows: readonly string[]): ParsedMap {
   const cols = rows[0].length;
   rows.forEach((row, i) => {
     if (row.length !== cols) {
@@ -136,7 +236,7 @@ export function parseMap(rows) {
     }
   });
 
-  let spawn = { gx: cols / 2, gy: rows.length / 2 };
+  let spawn: Placed = { gx: cols / 2, gy: rows.length / 2 };
 
   const levels = rows.map((row, gy) =>
     [...row].map((char, gx) => {
@@ -146,7 +246,7 @@ export function parseMap(rows) {
   );
 
   const height = rows.length;
-  const levelAt = (tx, ty) =>
+  const levelAt = (tx: number, ty: number): number | null =>
     tx < 0 || ty < 0 || tx >= cols || ty >= height ? null : levels[ty][tx];
 
   return { cols, rows: height, levels, levelAt, spawn };
@@ -158,7 +258,7 @@ export function parseMap(rows) {
  * portals target so you arrive beside the door you came out of rather than at
  * the map's start.
  */
-export function spawnPoint(map, parsed, name = 'default') {
+export function spawnPoint(map: GameMap, parsed: ParsedMap, name = 'default'): Placed {
   const named = map.spawns?.[name];
   if (named) return { gx: named.gx + 0.5, gy: named.gy + 0.5 };
   return { ...parsed.spawn };
@@ -170,8 +270,8 @@ export function spawnPoint(map, parsed, name = 'default') {
  * A wall entry without a stack is one block, which is what every wall converted
  * from the old '#' grid is.
  */
-export function wallStacks(walls = []) {
-  const stacks = new Map();
+export function wallStacks(walls: readonly Wall[] = []): Map<string, number> {
+  const stacks = new Map<string, number>();
   for (const wall of walls) {
     stacks.set(`${wall.gx},${wall.gy}`, Math.max(1, Math.round(wall.stack ?? 1)));
   }

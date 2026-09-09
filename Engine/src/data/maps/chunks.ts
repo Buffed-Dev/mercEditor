@@ -18,33 +18,68 @@
  * room you are not using yet.
  */
 
-import { SPAWN_CHAR } from '../mapFormat.js';
+import {
+  MAP_LISTS,
+  SPAWN_CHAR,
+  type GameMap,
+  type MapEnvInput,
+  type MapObject,
+  type Placed,
+} from '../mapFormat.ts';
 
 /** The object lists a chunk carries out of the map with it. */
-const LISTS = ['walls', 'portals', 'monsters', 'torches', 'stations', 'lights', 'doors'];
+const LISTS = MAP_LISTS;
 
 export const CHUNK_ROLES = [
   ['', 'Filler'],
   ['start', 'Entrance'],
   ['end', 'Way down'],
-];
+] as const;
+
+/** What a chunk is for: the way in, the way down, or neither. */
+export type ChunkRole = (typeof CHUNK_ROLES)[number][0];
+
+/** A rectangle of a hand-drawn map, cut out to be reused as a room. */
+export type Chunk = {
+  gx: number;
+  gy: number;
+  w: number;
+  h: number;
+  name: string;
+  role: ChunkRole;
+};
+
+/** A chunk as a map file writes it. */
+export type ChunkInput = Partial<Omit<Chunk, 'role'>> & { role?: string };
+
+/** One chunk cut out and moved to its own origin, ready to be placed. */
+export type ChunkPart = {
+  id: string;
+  name: string;
+  role: ChunkRole;
+  rows: string[];
+  spawns: Record<string, Placed>;
+  env: MapEnvInput;
+  /** What an assembled run is called. Set by whoever supplies the parts. */
+  clusterName?: string;
+} & { [K in (typeof MAP_LISTS)[number]]: MapObject[] };
 
 /** How many chunks a run places when the map does not say. */
 export const DEFAULT_CHUNK_COUNT = 10;
 
-const clone = (value) => JSON.parse(JSON.stringify(value));
+const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-export function defaultChunk(gx = 0, gy = 0) {
+export function defaultChunk(gx = 0, gy = 0): Chunk {
   return { gx, gy, w: 8, h: 8, name: 'chunk', role: '' };
 }
 
 /** Fill in anything a hand-written chunk left out. Never smaller than a tile. */
-export function normalizeChunk(chunk = {}, index = 0) {
-  const whole = (value, fallback) =>
-    Number.isFinite(value) ? Math.max(1, Math.round(value)) : fallback;
+export function normalizeChunk(chunk: ChunkInput = {}, index = 0): Chunk {
+  const whole = (value: number | undefined, fallback: number) =>
+    Number.isFinite(value) ? Math.max(1, Math.round(value as number)) : fallback;
   return {
-    gx: Number.isFinite(chunk.gx) ? Math.max(0, Math.round(chunk.gx)) : 0,
-    gy: Number.isFinite(chunk.gy) ? Math.max(0, Math.round(chunk.gy)) : 0,
+    gx: Number.isFinite(chunk.gx) ? Math.max(0, Math.round(chunk.gx as number)) : 0,
+    gy: Number.isFinite(chunk.gy) ? Math.max(0, Math.round(chunk.gy as number)) : 0,
     w: whole(chunk.w, 8),
     h: whole(chunk.h, 8),
     name: chunk.name || `chunk${index + 1}`,
@@ -53,12 +88,17 @@ export function normalizeChunk(chunk = {}, index = 0) {
 }
 
 /** Whether this map is assembled from its chunks rather than walked as drawn. */
-export const isGenerated = (map) => Boolean(map?.generated) && (map?.chunks ?? []).length > 0;
+export const isGenerated = (map: GameMap | null | undefined): boolean =>
+  Boolean(map?.generated) && (map?.chunks ?? []).length > 0;
 
 /** How many pieces a run of this map places. */
-export function chunkCount(map) {
+export function chunkCount(map: { chunkCount?: unknown } | null | undefined): number {
+  // Typed by the one field it reads rather than by GameMap, so the editor can
+  // ask about the map it is part way through building.
   const wanted = map?.chunkCount;
-  return Number.isFinite(wanted) && wanted > 0 ? Math.round(wanted) : DEFAULT_CHUNK_COUNT;
+  return typeof wanted === 'number' && Number.isFinite(wanted) && wanted > 0
+    ? Math.round(wanted)
+    : DEFAULT_CHUNK_COUNT;
 }
 
 /**
@@ -68,14 +108,24 @@ export function chunkCount(map) {
  * everything moved so its top-left corner is the origin — because that is what
  * the generator already knows how to rotate and place.
  */
-export function chunksOf(map) {
-  const chunks = (map?.chunks ?? []).map(normalizeChunk);
+export function chunksOf(map: GameMap): ChunkPart[] {
+  const chunks = (map?.chunks ?? []).map((chunk, index) =>
+    normalizeChunk(chunk as ChunkInput, index),
+  );
   const env = clone(map?.env ?? {});
 
+  // The seven lists are reached by name, which an object type cannot be
+  // indexed by on its own. One cast here beats seven near-identical branches.
+  const lists = map as unknown as Record<string, readonly MapObject[] | undefined>;
+
   return chunks.map((chunk) => {
-    const inside = (o) =>
+    const inside = (o: Placed) =>
       o.gx >= chunk.gx && o.gx < chunk.gx + chunk.w && o.gy >= chunk.gy && o.gy < chunk.gy + chunk.h;
-    const move = (o) => ({ ...o, gx: o.gx - chunk.gx, gy: o.gy - chunk.gy });
+    const move = <T extends Placed>(o: T): T => ({
+      ...o,
+      gx: o.gx - chunk.gx,
+      gy: o.gy - chunk.gy,
+    });
 
     // Short rows and a short grid are both possible: a chunk may hang off the
     // edge of what has been drawn, and the missing part is simply floor.
@@ -84,7 +134,7 @@ export function chunksOf(map) {
       return row.slice(chunk.gx, chunk.gx + chunk.w).padEnd(chunk.w, '.');
     });
 
-    const spawns = {};
+    const spawns: Record<string, Placed> = {};
     for (const [name, at] of Object.entries(map?.spawns ?? {})) {
       if (inside(at)) spawns[name] = move(at);
     }
@@ -96,9 +146,9 @@ export function chunksOf(map) {
       rows,
       spawns,
       env,
-    };
+    } as ChunkPart;
     for (const list of LISTS) {
-      part[list] = clone((map?.[list] ?? []).filter(inside)).map(move);
+      part[list] = clone((lists[list] ?? []).filter(inside)).map(move);
     }
 
     // The arrival tile belongs to the entrance. A '@' in any other chunk is one
@@ -116,9 +166,12 @@ export function chunksOf(map) {
  * For the editor to say so out loud. A room you have drawn and not marked off
  * is the easiest thing in the world to not notice.
  */
-export function strayCount(map) {
-  const chunks = (map?.chunks ?? []).map(normalizeChunk);
-  const covered = (gx, gy) =>
+export function strayCount(map: GameMap): number {
+  const chunks = (map?.chunks ?? []).map((chunk, index) =>
+    normalizeChunk(chunk as ChunkInput, index),
+  );
+  const lists = map as unknown as Record<string, readonly MapObject[] | undefined>;
+  const covered = (gx: number, gy: number) =>
     chunks.some((c) => gx >= c.gx && gx < c.gx + c.w && gy >= c.gy && gy < c.gy + c.h);
 
   let strays = 0;
@@ -128,7 +181,7 @@ export function strayCount(map) {
     });
   });
   for (const list of LISTS) {
-    strays += (map?.[list] ?? []).filter((o) => !covered(o.gx, o.gy)).length;
+    strays += (lists[list] ?? []).filter((o) => !covered(o.gx, o.gy)).length;
   }
   return strays;
 }

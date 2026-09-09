@@ -1,5 +1,5 @@
 import { LIGHT_FIELDS, LIGHT_TYPES, normalizeLight } from '../src/data/lights.ts';
-import { CHUNK_ROLES } from '../src/data/maps/chunks.js';
+import { CHUNK_ROLES } from '../src/data/maps/chunks.ts';
 
 /**
  * What each kind of map object exposes to the inspector. The panel renders

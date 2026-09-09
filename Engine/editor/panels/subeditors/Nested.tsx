@@ -1,5 +1,5 @@
 import { MODIFIER_OPS, MAGNITUDE_TYPES, MAGNITUDE_SOURCES, EXECUTIONS } from '../../../src/data/effects.ts';
-import { EFFECT_TARGETS } from '../../../src/data/abilities.js';
+import { EFFECT_TARGETS } from '../../../src/data/abilities.ts';
 import { COST_KINDS } from '../../../src/data/costs.ts';
 import { LOOT_ROLL_FIELDS } from '../../../src/data/lootTables.ts';
 import { ITEM_STAT_FIELDS } from '../../../src/data/items.ts';

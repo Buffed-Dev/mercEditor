@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { SLOT_BINDINGS } from '../Engine/src/data/abilities.js';
+import { SLOT_BINDINGS } from '../Engine/src/data/abilities.ts';
 import { createCharacter } from '../Engine/src/game/character.js';
 import { rollItem } from '../Engine/src/game/items.js';
 import {

@@ -1,4 +1,13 @@
-import { ASSET_URLS } from '#game';
+import { ASSET_URLS as GAME_ASSET_URLS } from '#game';
+
+/**
+ * Where the bundler put each file, by its name.
+ *
+ * `#game` is a content folder outside the type checker, and this particular
+ * export is built by `import.meta.glob`, which types as `any`. Naming the shape
+ * once here is what stops that `any` spreading through every url lookup below.
+ */
+const ASSET_URLS = GAME_ASSET_URLS as Record<string, string> | undefined;
 import { ASSETS as GAME_ASSETS } from '#game/rules/assets.js';
 
 /**
@@ -42,9 +51,52 @@ export const ASSET_KINDS = {
     blurb: `A grid of frames in one picture, played in order. Cells are counted
       left to right, top to bottom, from the top-left.`,
   },
+} as const;
+
+/** Which of the three things a file is. */
+export type AssetKind = keyof typeof ASSET_KINDS;
+
+export const isAssetKind = (value: unknown): value is AssetKind =>
+  typeof value === 'string' && value in ASSET_KINDS;
+
+/**
+ * Every setting any kind of asset can carry.
+ *
+ * One flat list rather than three, because an asset stores its settings beside
+ * its id and `kind` decides which of them mean anything -- the same shape the
+ * editor's field tables already have. Written out rather than derived from
+ * ASSET_FIELDS for the reason given on `LightValues` in ./lights.ts.
+ */
+type AssetValues = {
+  scale: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  lift: number;
+  uScale: number;
+  vScale: number;
+  uOffset: number;
+  vOffset: number;
+  transparent: boolean;
+  columns: number;
+  rows: number;
+  frameFrom: number;
+  frames: number;
+  fps: number;
+  loop: boolean;
 };
 
-export const ASSET_KIND_KEYS = Object.keys(ASSET_KINDS);
+export type Asset = {
+  id: string;
+  label: string;
+  kind: AssetKind;
+  file: string;
+} & Partial<AssetValues>;
+
+/** An asset as a rules file writes it. */
+export type AssetInput = Partial<Omit<Asset, 'kind'>> & { kind?: string };
+
+export const ASSET_KIND_KEYS = Object.keys(ASSET_KINDS) as AssetKind[];
 
 /** Every extension any kind will take, for the upload check on both sides. */
 export const ASSET_EXTENSIONS = [
@@ -79,25 +131,31 @@ export const ASSET_FIELDS = {
     fps: { kind: 'range', label: 'Frames / sec', min: 0.5, max: 60, step: 0.5, default: 12 },
     loop: { kind: 'bool', label: 'Loop', default: true },
   },
-};
+} as const;
+
+/** The settings table for one kind, as a plain lookup. */
+const fieldsOf = (kind: AssetKind): Record<string, { default: unknown }> =>
+  ASSET_FIELDS[kind];
 
 /** The field names a kind carries, for a panel that draws whatever is there. */
-export const assetKeys = (asset) => Object.keys(ASSET_FIELDS[asset?.kind] ?? {});
+export const assetKeys = (asset?: AssetInput): string[] =>
+  isAssetKind(asset?.kind) ? Object.keys(fieldsOf(asset.kind)) : [];
 
 const KIND_DEFAULTS = Object.fromEntries(
   ASSET_KIND_KEYS.map((kind) => [
     kind,
-    Object.fromEntries(Object.entries(ASSET_FIELDS[kind]).map(([key, f]) => [key, f.default])),
+    Object.fromEntries(Object.entries(fieldsOf(kind)).map(([key, f]) => [key, f.default])),
   ]),
-);
+  // `fromEntries` forgets its keys; the values are still read from ASSET_FIELDS.
+) as Record<AssetKind, Partial<AssetValues>>;
 
 /** The kind a filename implies, so an upload does not have to be told twice. */
-export function kindOfFile(name = '') {
+export function kindOfFile(name = ''): AssetKind {
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
-  return ASSET_KINDS.mesh.extensions.includes(ext) ? 'mesh' : 'texture';
+  return (ASSET_KINDS.mesh.extensions as readonly string[]).includes(ext) ? 'mesh' : 'texture';
 }
 
-export function defaultAsset(id = 'asset', kind = 'mesh', file = '') {
+export function defaultAsset(id = 'asset', kind: AssetKind = 'mesh', file = ''): Asset {
   return { id, label: id, kind, file, ...KIND_DEFAULTS[kind] };
 }
 
@@ -108,16 +166,17 @@ export function defaultAsset(id = 'asset', kind = 'mesh', file = '') {
  * now a sheet has no use for a tiling factor, and carrying the old kind's
  * settings around would put them in the file and in the diff for ever.
  */
-export function normalizeAsset(asset = {}) {
-  const kind = ASSET_KINDS[asset.kind] ? asset.kind : 'mesh';
+export function normalizeAsset(asset: AssetInput = {}): Asset {
+  const kind: AssetKind = isAssetKind(asset.kind) ? asset.kind : 'mesh';
+  const given = asset as Record<string, unknown>;
   return {
     id: asset.id ?? 'asset',
     label: asset.label ?? asset.id ?? 'asset',
     kind,
     file: asset.file ?? '',
-    ...Object.fromEntries(
-      Object.entries(ASSET_FIELDS[kind]).map(([key, f]) => [key, asset[key] ?? f.default]),
-    ),
+    ...(Object.fromEntries(
+      Object.entries(fieldsOf(kind)).map(([key, f]) => [key, given[key] ?? f.default]),
+    ) as Partial<AssetValues>),
   };
 }
 
@@ -126,7 +185,12 @@ export function normalizeAsset(asset = {}) {
  * actually holds — the same rule the visual effects use, because a clip that
  * runs off the end of its own sheet is not something anyone means.
  */
-export function assetFrames(sheet) {
+export function assetFrames(sheet?: Partial<AssetValues> | null): {
+  columns: number;
+  rows: number;
+  first: number;
+  count: number;
+} {
   const columns = Math.max(1, Math.round(sheet?.columns ?? 1));
   const rows = Math.max(1, Math.round(sheet?.rows ?? 1));
   const all = columns * rows;
@@ -136,11 +200,11 @@ export function assetFrames(sheet) {
   return { columns, rows, first, count: asked > 0 ? Math.min(asked, left) : left };
 }
 
-export const ASSETS = (GAME_ASSETS ?? []).map(normalizeAsset);
+export const ASSETS: Asset[] = ((GAME_ASSETS as AssetInput[]) ?? []).map(normalizeAsset);
 
 const BY_ID = new Map(ASSETS.map((asset) => [asset.id, asset]));
 
-export const assetById = (id) => BY_ID.get(id) ?? null;
+export const assetById = (id: string): Asset | null => BY_ID.get(id) ?? null;
 
 /**
  * Where an asset's file can actually be fetched from.
@@ -167,7 +231,7 @@ export const assetById = (id) => BY_ID.get(id) ?? null;
  * than with a guess between them.
  */
 const URLS_BY_LOWER = (() => {
-  const seen = new Map();
+  const seen = new Map<string, string | null>();
   for (const [file, url] of Object.entries(ASSET_URLS ?? {})) {
     const key = file.toLowerCase();
     seen.set(key, seen.has(key) ? null : url);
@@ -189,14 +253,14 @@ const URLS_BY_LOWER = (() => {
  * editor: a published game's urls come from the build, and its files cannot
  * change under it.
  */
-const rewrites = new Map();
+const rewrites = new Map<string, number>();
 
 /** Note that a file has been written over, so the next look at it is a fetch. */
-export function assetRewritten(file) {
+export function assetRewritten(file: string | undefined): void {
   if (file) rewrites.set(file, (rewrites.get(file) ?? 0) + 1);
 }
 
-export function assetUrl(asset, game = '') {
+export function assetUrl(asset: AssetInput | null | undefined, game = ''): string {
   if (!asset?.file) return '';
   const built = ASSET_URLS?.[asset.file] ?? URLS_BY_LOWER.get(asset.file.toLowerCase()) ?? null;
   if (built && !game) return built;
