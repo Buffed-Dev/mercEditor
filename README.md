@@ -1,8 +1,8 @@
 # Merc
 
-An isometric action-RPG prototype: **Babylon.js**, **Vite** and plain
-JavaScript, built out of 3D primitives with a map editor and a rules editor
-inside the game.
+An isometric action-RPG prototype: **Babylon.js**, **Vite** and **TypeScript**,
+built out of 3D primitives with a map editor and a rules editor inside the
+game.
 
 ## Run it
 
@@ -49,12 +49,13 @@ and no maps, which is not something the editor can open.
 
 It has three workspaces. **Map** edits the terrain, lights and objects of one
 map; **Rules** edits the attributes, effects, abilities, archetypes and items
-that govern actors, and never touches a map; **VFX** is a library of particle
-effects, each shown running while you tune it — fifteen sliders describe a puff
-of smoke and none of them tell you what it looks like, which is why that one has
-a viewport. VFX and Rules are two views of one document, so an effect is saved
-and undone with the rules beside it. All three share one shell — the switch in
-the top bar moves between them.
+that govern actors, and never touches a map; **Library** holds the files a game
+brings with it and the things built out of them — materials, objects, terrains
+and effects — each shown on a little stage while you tune it. Fifteen sliders
+describe a puff of smoke and none of them tell you what it looks like, which is
+why that one has a viewport. Library and Rules are two views of one document, so
+an effect is saved and undone with the rules beside it. All three share one
+shell — the switch in the top bar moves between them.
 
 An effect is named rather than copied: a map places one on a tile (a fire, a
 shine on a chest) and an ability names the one it throws when it lands, and both
@@ -81,20 +82,26 @@ index.html          the game: its canvas, menu, character sheet, fault banner
 editor.html         the editor: a development tool, never in a build
 Engine/             everything that is not a particular game
   src/              the runtime a game runs on, and the game built on it
-    main.js         the application: bootstrap, input wiring, the frame's work
+    main.ts         the application: bootstrap, input wiring, the frame's work
     data/           schema and defaults — no game logic, no rendering
-      maps/         the map registry; generate.js assembles chunks
+      maps/         the map registry; generate.ts assembles chunks
+      terrain/      the grid, its file format, and the block geometry
     game/           the simulation. No Babylon anywhere in here.
     render/         Babylon: the engine, the scene, the map, the views
     gui/            Babylon GUI: the read-outs and the item name plates
     ui/             DOM: the character sheet, the cursor, input
   editor/           the tool the games are made with
-    main.js         which screen: the home screen, or a game's workspace
-    games.js        the shelf: what games there are, opening and starting one
-    home.js         the home screen — a card per folder under Games/
-    workspace.js    the editor pointed at one game; everything Babylon
-    ui.js editor.js the map and rules workspaces, sharing one shell
-    vfxMode.js      the VFX workspace: the library, and one effect running
+    main.tsx        the router: the home screen, or one of the workspaces
+    editor.ts       the map's editing surface — everything Babylon
+    document.ts     one map, open for editing, with its own undo stack
+    dataDocument.ts every rules list, with one undo stack over all of them
+    games.ts        the shelf: what games there are, opening and starting one
+    save.ts         writing a map or the rules back, through the dev server
+    app/            one component per workspace: Map, Rules, Library, Home
+    panels/ fields/ shell/ ui/    the interface the workspaces are built from
+    state/          the stores: selection, tools, layout, status
+    preview/        the little stages the Library draws one record on
+    viewport/       Babylon mounted into React, and what a click on it means
 Games/
   Merc/             a game: everything about it that is not code
     game.js         the manifest — its id, its label, where it starts
@@ -109,11 +116,26 @@ Five rules hold the shape together:
 - **`src/render/` never decides anything.** It is told where things are.
 - **`src/data/` imports neither.** It is the schema and the defaults, so the editors
   and the game read the same definitions.
-- **`main.js` joins them up.** Nothing else knows about more than one layer.
+- **`main.ts` joins them up.** Nothing else knows about more than one layer.
 - **Nothing under `src/` imports `editor/`.** The arrow points one way: the
   editor reaches into the engine to draw what a map means, and the game never
   reaches back. `vite build` takes `index.html` alone, so a published game has
   no editor in it and no way to ask for one.
+
+Everything under `Engine/` and `test/` is TypeScript, and one convention holds
+it together: **an import carries the extension of the file it points at.**
+`'./grid.ts'`, not `'./grid.js'`. Node runs the tests and strips types without
+rewriting extensions, so a stale `.js` specifier is a runtime failure — and
+neither `tsc` nor Vite will tell you, because both resolve it happily. That is
+what `test/specifiers.test.js` is for: it resolves every relative import the way
+Node does and refuses the bundler's fallback. The one exception is the React
+interface under `editor/app/`, `panels/`, `fields/`, `shell/`, `ui/`, `rules/`
+and `state/`, which is only ever loaded by Vite and imports without extensions.
+
+`Games/` is the other exception, and stays JavaScript: those files are content
+the editor writes back, so `allowJs` is not migration scaffolding — it is how
+the engine reads a game folder. Each data module casts once where a rules file
+arrives (`data/terrains.ts` is the pattern) and is typed from there on.
 
 A game folder is content, not code — the files under `maps/` and `rules/` have
 no imports at all. `#game` is how the runtime asks for the one it was built for,
@@ -122,7 +144,7 @@ answered by `vite.config.js` (`GAME=other npm run dev`) and by package.json's
 
 ## The engine
 
-`render/engine.js` owns the Babylon `Engine`, the one `Scene`, the isometric
+`render/engine.ts` owns the Babylon `Engine`, the one `Scene`, the isometric
 camera and the render loop. There is exactly one of each for the life of the
 application.
 
@@ -137,8 +159,8 @@ uses: `gx → x`, `gy → z`, `y` up, and a heading is `atan2(dx, dz)`. Babylon
 supports both; picking the one the simulation already speaks means no axis is
 flipped anywhere between the grid and the screen. One consequence to know about:
 Babylon's own mesh builders wind their triangles the opposite way round from
-three.js, so `render/terrain.js` — the only geometry built by hand — winds to
-match, and computes its normals accordingly.
+three.js, so `data/terrain/geometry.ts` — the only geometry built by hand —
+winds to match, and computes its normals accordingly.
 
 The camera is **orthographic**, looking down the `(1, 1, 1)` diagonal. It moves
 but never turns, which is why billboarding is a constant quaternion rather than
@@ -152,7 +174,7 @@ screen to explain it is the worst way to find a bug.
 
 **Shaders are compiled up front.** A material is not drawn at all until its
 shader is ready, and which shaders a map needs depends on the lights it places —
-so the map you start on cannot warm up the others. `warmMaps` in `src/main.js`
+so the map you start on cannot warm up the others. `warmMaps` in `src/main.ts`
 builds each one for a moment while the menu is still up, and the ground is drawn
 with a single material for the whole application rather than one per map, since
 `PBRCustomMaterial` registers a fresh shader name per instance and would
@@ -162,7 +184,7 @@ screen, so anything missed arrives before the fade lifts rather than after.
 
 ## Rendering
 
-**Terrain** (`render/terrain.js`) is one mesh built from the height of each
+**Terrain** (`data/terrain/geometry.ts`) is one mesh built from the height of each
 tile's four corners. There is no ramp geometry and no corner piece, because
 there is nothing to choose between: a tile is two triangles creased along one of
 its diagonals, and its corners sit wherever the corner heights put them. Four
@@ -171,7 +193,7 @@ corner makes a pyramid hip. The three cases people usually hand-author are the
 same case.
 
 Which diagonal the crease runs along is `foldsOnMainDiagonal` in
-`game/world.js`, and it goes where the corners disagree most. That is what makes
+`game/world.ts`, and it goes where the corners disagree most. That is what makes
 a plateau's outside corner a pyramid — two ramp planes meeting along a hip that
 runs all the way out to the corner — rather than a tile that is half flat with
 the ramp apparently stopping in its middle.
@@ -209,7 +231,7 @@ is this point", which is why a wall meets a floor with no seam and a character
 in flat ambient light appears to hover.
 
 **Ground shapes** — the wedge an ability is about to test — are painted by the
-ground itself (`render/decals.js`). Nothing is projected: the terrain material
+ground itself (`render/decals.ts`). Nothing is projected: the terrain material
 carries a few extra lines of shader that test each fragment's world position
 against a small list of decals. It is exact at any zoom, costs no geometry, and
 a shape can never hang down the side of a platform, because a fragment whose
@@ -236,7 +258,7 @@ Two layers, on purpose:
 The editors are DOM throughout. They are dense forms and lists — a tool, not a
 head-up display.
 
-`ui/input.js` owns every DOM listener the game has. Gameplay systems ask it what
+`ui/input.ts` owns every DOM listener the game has. Gameplay systems ask it what
 is held; they do not each grow a listener. It also answers the one question
 Babylon cannot: whether a press landed on the world, on a control, or on some
 other part of the interface — a press that misses an inventory cell but hits the
@@ -244,7 +266,7 @@ sheet around it is a miss, not an instruction to throw the carried item away.
 
 ## The simulation
 
-`game/world.js` owns the map, the surface heights and the collision rules, and
+`game/world.ts` owns the map, the surface heights and the collision rules, and
 knows nothing about rendering. Positions are continuous grid coordinates and
 heights are in levels; the renderer decides what a level is worth in world
 units.
@@ -277,7 +299,7 @@ than support them.
 
 ## Items
 
-An item **definition** lives in `data/rules/items.js` and holds ranges: a short
+An item **definition** lives in `Games/<Name>/rules/items.js` and holds ranges: a short
 sword is 4–6 attack damage. Rolling one produces an **instance** with settled
 numbers, and a rolled stat is `{attribute, op, value}` — which is exactly the
 shape a modifier already had. That is why equipping needed no new mechanism:
@@ -338,8 +360,8 @@ and the editor says how much of it there is rather than losing it quietly.
 Turning the toggle off walks the grid exactly as drawn and keeps the chunks, so
 it is a switch and not a delete.
 
-The generator (`src/data/maps/generate.js`) cuts the chunks out
-(`src/data/maps/chunks.js`), places the one marked `start`, then keeps picking
+The generator (`src/data/maps/generate.ts`) cuts the chunks out
+(`src/data/maps/chunks.ts`), places the one marked `start`, then keeps picking
 an open door and fitting another chunk against it — trying every chunk at every
 quarter turn until one fits without overlapping something already placed. A
 chunk marked `end` is held back for last, and it is fitted onto the **deepest**
@@ -400,6 +422,6 @@ and compiling its shaders, which is what the loading cover is over.
 
 ## Next steps
 
-- `ruleOverrides` in `src/main.js` is never cleared after a rules play-test, so
+- `ruleOverrides` in `src/main.ts` is never cleared after a rules play-test, so
   the session keeps running on unsaved rules until it is reloaded.
 - Deleting a rule leaves dangling references; renaming one chases them.
