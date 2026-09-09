@@ -3,6 +3,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { PLAYER_RADIUS } from '../game/world.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { surface } from './materials.ts';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Shadows } from './lights.ts';
 
 // The first two are exported so the dash trail can leave afterimages of the
 // same silhouette rather than guessing at a capsule that nearly matches.
@@ -30,7 +32,7 @@ export const RISE_TIME = 0.08;
  * Without a `dt` it arrives at once: that is what a fresh level or a teleport
  * wants, where easing would show the body flying in from wherever it last was.
  */
-export function riseToward(shown, target, dt) {
+export function riseToward(shown: number, target: number, dt: number): number {
   if (!(dt > 0)) return target;
   const step = dt / RISE_TIME;
   const gap = target - shown;
@@ -41,7 +43,7 @@ export function riseToward(shown, target, dt) {
  * The player: a capsule, plus a small box on the front so its facing is
  * readable (a capsule on its own is rotationally symmetric).
  */
-export function createPlayer(scene, root, shadows) {
+export function createPlayer(scene: Scene, root: TransformNode, shadows: Shadows) {
   const group = new TransformNode('player', scene);
   group.parent = root;
 
@@ -63,7 +65,7 @@ export function createPlayer(scene, root, shadows) {
   shadows.add(visor);
 
   /** The height the body is drawn at, which trails the one it stands at. */
-  let shown = null;
+  let shown: number | null = null;
 
   return {
     group,
@@ -81,7 +83,7 @@ export function createPlayer(scene, root, shadows) {
      * so a step takes the time it says it takes and finishes rather than
      * approaching forever.
      */
-    sync(gx, gy, heightLevels, dt = 0) {
+    sync(gx: number, gy: number, heightLevels: number, dt = 0): void {
       shown = shown === null ? heightLevels : riseToward(shown, heightLevels, dt);
       group.position.set(gx, shown * LEVEL_H, gy);
     },
@@ -91,12 +93,12 @@ export function createPlayer(scene, root, shadows) {
      * tested against the aim direction immediately, so easing the mesh round
      * would leave the visor pointing somewhere the cone was not.
      */
-    snapTo(heading) {
+    snapTo(heading: number): void {
       group.rotation.y = heading;
     },
 
     /** Turn to face a movement direction, smoothly. */
-    face(dx, dz, dt) {
+    face(dx: number, dz: number, dt: number): void {
       if (dx === 0 && dz === 0) return;
       const target = Math.atan2(dx, dz);
       const current = group.rotation.y;
@@ -106,8 +108,11 @@ export function createPlayer(scene, root, shadows) {
       group.rotation.y = current + delta * Math.min(1, dt * 14);
     },
 
-    dispose() {
+    dispose(): void {
       group.dispose(false, true);
     },
   };
 }
+
+/** The player's body, and where it is standing. */
+export type PlayerView = ReturnType<typeof createPlayer>;

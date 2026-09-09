@@ -1,7 +1,17 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 // Side-effect only: this is what adds `createInstance` to Mesh.
 import '@babylonjs/core/Meshes/instancedMesh.js';
-import { SETTLE_SECONDS } from '../game/ground.ts';
+import { SETTLE_SECONDS, type Drop } from '../game/ground.ts';
+import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Ground, Shadows } from './lights.ts';
+
+/** Where a drop was thrown from, and when. See `flightFor`. */
+type Flight = { born: number; gx: number; gy: number; y: number; still: boolean };
+
+/** A name plate the HUD draws over a drop. */
+export type Plate = { id: string; label: string; x: number; y: number; z: number };
 import { LEVEL_H } from '../data/dimensions.ts';
 import { surface } from './materials.ts';
 
@@ -47,31 +57,32 @@ const TOSS_FROM_Y = 0.6;
 /** Babylon's polyhedron catalogue: 1 is the octahedron. */
 const OCTAHEDRON = 1;
 
-const lerp = (a, b, t) => a + (b - a) * t;
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export function createGroundItemViews(scene, root, shadows) {
+export function createGroundItemViews(scene: Scene, root: TransformNode, shadows: Shadows) {
   const source = MeshBuilder.CreatePolyhedron(
     'drop',
     { type: OCTAHEDRON, size: 0.17 },
     scene,
   );
-  source.material = surface('drop', scene, {
+  const material = surface('drop', scene, {
     color: 0xd7c08a,
     roughness: 0.35,
     metallic: 0.55,
   });
-  source.material.emissiveColor = source.material.albedoColor.scale(0.35);
+  material.emissiveColor = material.albedoColor.scale(0.35);
+  source.material = material;
   source.setEnabled(false);
   shadows.add(source);
 
   /** drop id -> its mesh. */
-  const meshes = new Map();
+  const meshes = new Map<string, InstancedMesh>();
   /** drop id -> where its throw started, and when. */
-  const flights = new Map();
+  const flights = new Map<string, Flight>();
   /** Reused so `anchors` allocates nothing on a frame where nothing changed. */
-  const plates = [];
+  const plates: Plate[] = [];
 
-  function meshFor(drop) {
+  function meshFor(drop: Drop): InstancedMesh {
     let mesh = meshes.get(drop.id);
     if (mesh) return mesh;
     mesh = source.createInstance(`drop${drop.id}`);
@@ -87,12 +98,12 @@ export function createGroundItemViews(scene, root, shadows) {
    * and should not grow one: a drop is a thing on a tile, and how long it has
    * been drawn is a fact about drawing it.
    */
-  function flightFor(drop, world, elapsed) {
-    let flight = flights.get(drop.id);
-    if (flight) return flight;
+  function flightFor(drop: Drop, world: Ground, elapsed: number): Flight {
+    const found = flights.get(drop.id);
+    if (found) return found;
 
     const from = drop.from ?? { gx: drop.gx, gy: drop.gy };
-    flight = {
+    const flight: Flight = {
       born: elapsed,
       gx: from.gx,
       gy: from.gy,
@@ -113,8 +124,8 @@ export function createGroundItemViews(scene, root, shadows) {
      * list is the truth, and a drop that is picked up during a frame should not
      * depend on two places agreeing about it.
      */
-    sync(drops, world, elapsed) {
-      const live = new Set();
+    sync(drops: readonly Drop[], world: Ground, elapsed: number): void {
+      const live = new Set<string>();
 
       plates.length = 0;
       for (const drop of drops) {
@@ -169,9 +180,9 @@ export function createGroundItemViews(scene, root, shadows) {
      * Where each name plate belongs, in world space. Turning that into a screen
      * position is the label layer's business.
      */
-    anchors: () => plates,
+    anchors: (): readonly Plate[] => plates,
 
-    dispose() {
+    dispose(): void {
       for (const mesh of meshes.values()) mesh.dispose();
       meshes.clear();
       flights.clear();
@@ -180,3 +191,6 @@ export function createGroundItemViews(scene, root, shadows) {
     },
   };
 }
+
+/** Every item lying on the floor, as it is drawn. */
+export type GroundItemViews = ReturnType<typeof createGroundItemViews>;

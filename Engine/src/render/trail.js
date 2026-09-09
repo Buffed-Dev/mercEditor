@@ -7,7 +7,7 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.ts';
-import { BODY_LENGTH, BODY_RADIUS } from './player.js';
+import { BODY_LENGTH, BODY_RADIUS } from './player.ts';
 
 /**
  * The spark trail a dash leaves behind.

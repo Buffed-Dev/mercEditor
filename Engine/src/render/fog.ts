@@ -2,6 +2,11 @@ import { Effect } from '@babylonjs/core/Materials/effect.js';
 import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CAMERA_OFFSET, SCREEN_RIGHT } from './isoCamera.ts';
+import type { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+
+/** What the fog needs to know about the map: where its edges are. */
+type Island = { cols: number; rows: number };
 
 /**
  * Fog rolling in off the edges of the map.
@@ -55,7 +60,7 @@ void main(void) {
 }
 `;
 
-let pass = null;
+let pass: PostProcess | null = null;
 
 /**
  * Whether the fog draws at all.
@@ -69,7 +74,7 @@ let pass = null;
  */
 let enabled = true;
 
-export function setFogEnabled(on) {
+export function setFogEnabled(on: unknown): void {
   enabled = Boolean(on);
 }
 
@@ -83,7 +88,13 @@ export function setFogEnabled(on) {
  * @param {number} reach how many tiles in from the edge the fog gets, in tiles
  * @param {number} smooth how many of those are the fade rather than solid fog
  */
-export function applyFog(scene, world, tint, reach, smooth) {
+export function applyFog(
+  scene: Scene,
+  world: Island,
+  tint: Color3,
+  reach: number,
+  smooth: number,
+): void {
   if (!pass) {
     const uniforms = ['tint', 'band', 'bounds', 'eye', 'axisA', 'axisB', 'fwd'];
     pass = new PostProcess('shoreFog', 'mercShoreFog', uniforms, null, 1, scene.activeCamera);
@@ -95,8 +106,12 @@ export function applyFog(scene, world, tint, reach, smooth) {
 
   pass.onApply = (effect) => {
     const camera = scene.activeCamera;
-    const width = camera.orthoRight - camera.orthoLeft;
-    const height = camera.orthoTop - camera.orthoBottom;
+    // A scene with no camera has nothing to draw fog over. The extents are
+    // set by the renderer the moment it makes the camera orthographic, so the
+    // fallbacks below are only here to say what "unset" would mean.
+    if (!camera) return;
+    const width = (camera.orthoRight ?? 0) - (camera.orthoLeft ?? 0);
+    const height = (camera.orthoTop ?? 0) - (camera.orthoBottom ?? 0);
 
     effect.setColor3('tint', tint);
     // A zero-wide smoothstep is undefined, and a hard ring of fog is not what

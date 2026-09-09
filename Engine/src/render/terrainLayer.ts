@@ -7,6 +7,7 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import type { Shadows } from './lights.ts';
 import {
   surface,
   materialFrom,
@@ -73,8 +74,6 @@ type World = {
   terrainIds: string[];
   map: { terrainRim?: RimRing[] };
 };
-
-type Shadows = { add(mesh: Mesh): Mesh };
 
 type Bucket = {
   mesh: Mesh;

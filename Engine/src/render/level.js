@@ -63,13 +63,13 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { buildMapView } from './mapView.js';
 import { createDebugViews } from './debug.ts';
-import { createMonsterViews } from './monsters.js';
-import { createProjectileViews } from './projectiles.js';
-import { createGroundItemViews } from './groundItems.js';
+import { createMonsterViews } from './monsters.ts';
+import { createProjectileViews } from './projectiles.ts';
+import { createGroundItemViews } from './groundItems.ts';
 import { createTrailViews } from './trail.js';
 import { createVfxRuntime } from './vfx.js';
 import { VFX } from '../data/vfx.ts';
-import { createPlayer } from './player.js';
+import { createPlayer } from './player.ts';
 
 /**
  * One loaded map: its World, its slice of the scene, the player and whatever

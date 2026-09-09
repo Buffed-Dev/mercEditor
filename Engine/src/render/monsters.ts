@@ -3,7 +3,28 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import { MONSTER_KINDS } from '../game/monsters.ts';
+import { kindOf, type Monster, type MonsterKind } from '../game/monsters.ts';
+import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
+import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Ground, Shadows } from './lights.ts';
+
+/** The two bars that make up one monster's health readout. */
+type Bar = { group: TransformNode; fill: InstancedMesh };
+
+/** The meshes every monster of one kind shares. */
+type Shared = { spec: MonsterKind; body: Mesh; half: number };
+
+/** One monster on screen. */
+type View = {
+  monster: Monster;
+  group: TransformNode;
+  /** Null for a prop, which has no eyes to light up. */
+  eyeMaterial: StandardMaterial | null;
+  bar: Bar | null;
+  barY: number;
+};
 import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.ts';
 import { colorOf, surface, unlit } from './materials.ts';
@@ -25,9 +46,14 @@ const CALM_EYE = 0xffd166;
  * instance of it — so a room full of grunts is one draw call rather than one
  * each. The eyes cannot be instanced: their colour is animated per monster.
  */
-export function createMonsterViews(scene, root, shadows, monsters) {
-  const shared = new Map();
-  const owned = [];
+export function createMonsterViews(
+  scene: Scene,
+  root: TransformNode,
+  shadows: Shadows,
+  monsters: readonly Monster[],
+) {
+  const shared = new Map<string, Shared>();
+  const owned: Mesh[] = [];
 
   /**
    * A quad whose origin is baked to its left edge, so scaling x fills from the
@@ -37,13 +63,14 @@ export function createMonsterViews(scene, root, shadows, monsters) {
    * material and the track and the fill are different colours. Each is a
    * template: hidden itself, drawn once per monster as an instance.
    */
-  function barSource(name, color) {
+  function barSource(name: string, color: number): Mesh {
     const mesh = MeshBuilder.CreatePlane(name, { width: 1, height: 1 }, scene);
     mesh.bakeTransformIntoVertices(Matrix.Translation(0.5, 0, 0));
-    mesh.material = unlit(name, scene, { color });
+    const material = unlit(name, scene, { color });
     // Two triangles apiece, and a bar the player cannot read because it happens
     // to face away is worse than the cost of drawing both sides.
-    mesh.material.backFaceCulling = false;
+    material.backFaceCulling = false;
+    mesh.material = material;
     mesh.setEnabled(false);
     owned.push(mesh);
     return mesh;
@@ -53,7 +80,7 @@ export function createMonsterViews(scene, root, shadows, monsters) {
   const fillSource = barSource('bar-fill', 0xd4574a);
 
   /** A track with a fill in front of it, already turned to face the camera. */
-  function makeBar() {
+  function makeBar(): Bar {
     const group = new TransformNode('healthbar', scene);
     group.parent = root;
     group.rotationQuaternion = BILLBOARD.clone();
@@ -71,9 +98,10 @@ export function createMonsterViews(scene, root, shadows, monsters) {
     return { group, fill };
   }
 
-  function assetsFor(kind) {
-    if (!shared.has(kind)) {
-      const spec = MONSTER_KINDS[kind] ?? MONSTER_KINDS.grunt;
+  function assetsFor(kind: string): Shared {
+    const found = shared.get(kind);
+    if (!found) {
+      const spec = kindOf(kind);
       const height = 0.5 * spec.scale + spec.radius * 0.9 * 2;
 
       // A prop is a pot: wider at the belly than at the lip, and squat enough
@@ -102,9 +130,11 @@ export function createMonsterViews(scene, root, shadows, monsters) {
       shadows.add(body);
       owned.push(body);
 
-      shared.set(kind, { spec, body, half: height / 2 });
+      const made: Shared = { spec, body, half: height / 2 };
+      shared.set(kind, made);
+      return made;
     }
-    return shared.get(kind);
+    return found;
   }
 
   /**
@@ -112,13 +142,13 @@ export function createMonsterViews(scene, root, shadows, monsters) {
    * an instance, and disposing an instance's material would take the whole kind
    * with it. Only the eye material belongs to this monster alone.
    */
-  function dropView(view) {
+  function dropView(view: View): void {
     view.group.dispose(false, false);
     view.bar?.group.dispose(false, false);
     view.eyeMaterial?.dispose();
   }
 
-  const views = monsters.map((monster) => {
+  const views: View[] = monsters.map((monster): View => {
     const { spec, body, half } = assetsFor(monster.kind);
     const group = new TransformNode(`monster-${monster.kind}`, scene);
     group.parent = root;
@@ -150,7 +180,7 @@ export function createMonsterViews(scene, root, shadows, monsters) {
     views,
 
     /** Put each mesh where its monster now is, on top of the surface. */
-    sync(world) {
+    sync(world: Ground): void {
       for (const { monster, group, eyeMaterial, bar, barY } of views) {
         const { gx, gy } = monster.pos;
         const ground = world.heightAt(gx, gy) * LEVEL_H;
@@ -181,7 +211,7 @@ export function createMonsterViews(scene, root, shadows, monsters) {
      * Drop one monster's meshes — it died. The shared source mesh and its
      * material stay: the rest of its kind is still using them.
      */
-    remove(monster) {
+    remove(monster: Monster): boolean {
       const index = views.findIndex((view) => view.monster === monster);
       if (index < 0) return false;
       const [view] = views.splice(index, 1);
@@ -193,7 +223,7 @@ export function createMonsterViews(scene, root, shadows, monsters) {
      * Shared meshes outlive any one monster, so they are freed here rather than
      * with the map they happened to be standing on.
      */
-    dispose() {
+    dispose(): void {
       for (const view of views) dropView(view);
       // Templates, and their materials with them: nothing else is using either.
       for (const template of owned) template.dispose(false, true);
@@ -202,3 +232,6 @@ export function createMonsterViews(scene, root, shadows, monsters) {
     },
   };
 }
+
+/** Every monster currently drawn. */
+export type MonsterViews = ReturnType<typeof createMonsterViews>;

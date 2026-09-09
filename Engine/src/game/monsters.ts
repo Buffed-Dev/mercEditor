@@ -52,7 +52,7 @@ const KINDS = {
 const isKind = (kind: string): kind is keyof typeof KINDS => kind in KINDS;
 
 /** The kind a definition names, or the ordinary one. */
-const kindOf = (kind: string): MonsterKind => (isKind(kind) ? KINDS[kind] : KINDS.grunt);
+export const kindOf = (kind: string): MonsterKind => (isKind(kind) ? KINDS[kind] : KINDS.grunt);
 
 const WANDER_RADIUS = 3.5; // how far from home a wandering monster will drift
 const REPATH_MIN = 1.2; // seconds between picking new wander headings

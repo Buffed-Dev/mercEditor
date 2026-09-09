@@ -152,7 +152,7 @@ test('a body already inside a cliff can still walk out of it', async () => {
 });
 
 test('the body climbs to a new step instead of appearing at it', async () => {
-  const { riseToward, RISE_TIME } = await import('../Engine/src/render/player.js');
+  const { riseToward, RISE_TIME } = await import('../Engine/src/render/player.ts');
 
   // One level takes RISE_TIME, so half of it covers half the step.
   assert.equal(riseToward(0, 1, RISE_TIME / 2), 0.5);

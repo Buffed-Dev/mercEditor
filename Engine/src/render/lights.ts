@@ -6,7 +6,29 @@ import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { colorOf } from './materials.ts';
-import { normalizeLight } from '../data/lights.ts';
+import { LIGHT_FIELDS, normalizeLight, type Light as LightDef } from '../data/lights.ts';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { ShadowLight } from '@babylonjs/core/Lights/shadowLight.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+
+/**
+ * Somewhere to register a mesh as casting shadows.
+ *
+ * One call rather than a generator, because a map has as many generators as it
+ * has shadow-casting lights and every caller would otherwise have to loop over
+ * them. mapView builds it over the generators these lights hand back.
+ */
+export type Shadows = { add: <T extends AbstractMesh>(mesh: T) => T };
+
+/** What placing a light needs to know about the ground under it. */
+export type Ground = {
+  cols: number;
+  rows: number;
+  heightAt: (gx: number, gy: number) => number;
+};
+
+/** The four kinds a map can declare. See data/lights.ts. */
+type AnyLight = HemisphericLight | DirectionalLight | SpotLight | PointLight;
 import { LEVEL_H } from '../data/dimensions.ts';
 
 /**
@@ -79,13 +101,14 @@ const LOCAL_NORMAL_BIAS = 0.05;
 const DEPTH_BIAS = 0.0006;
 
 /** How far outside the map the sun sits. Direction is what matters, not this. */
-const sunDistance = (world) => (world ? Math.max(world.cols, world.rows) * 0.8 : 20);
+const sunDistance = (world: Ground | null) =>
+  world ? Math.max(world.cols, world.rows) * 0.8 : 20;
 
-function positionLocal(light, def, world) {
+function positionLocal(light: ShadowLight, def: LightDef, world: Ground | null): void {
   const x = def.gx + 0.5;
   const z = def.gy + 0.5;
   const groundY = world ? world.heightAt(x, z) * LEVEL_H : 0;
-  light.position.set(x, groundY + def.height, z);
+  light.position.set(x, groundY + (def.height ?? LIGHT_FIELDS.height.default), z);
 }
 
 /**
@@ -93,12 +116,12 @@ function positionLocal(light, def, world) {
  * are far friendlier to edit than an xyz, so the map stores angles and the
  * distance is just far enough to sit outside the map.
  */
-function positionSun(light, def, world) {
+function positionSun(light: ShadowLight, def: LightDef, world: Ground | null): void {
   const tx = def.gx + 0.5;
   const tz = def.gy + 0.5;
   const radius = sunDistance(world);
-  const azimuth = def.azimuth * DEG;
-  const elevation = def.elevation * DEG;
+  const azimuth = (def.azimuth ?? LIGHT_FIELDS.azimuth.default) * DEG;
+  const elevation = (def.elevation ?? LIGHT_FIELDS.elevation.default) * DEG;
 
   light.position.set(
     tx + Math.cos(elevation) * Math.sin(azimuth) * radius,
@@ -108,11 +131,11 @@ function positionSun(light, def, world) {
   light.direction = new Vector3(tx, 0, tz).subtractInPlace(light.position).normalize();
 }
 
-function build(def, world, scene) {
+function build(def: LightDef, world: Ground | null, scene: Scene): AnyLight {
   switch (def.type) {
     case 'hemisphere': {
       const light = new HemisphericLight('hemi', Vector3.Up(), scene);
-      light.groundColor = colorOf(def.groundColor);
+      light.groundColor = colorOf(def.groundColor ?? LIGHT_FIELDS.groundColor.default);
       return light;
     }
 
@@ -130,7 +153,14 @@ function build(def, world, scene) {
     case 'spot': {
       // Babylon's angle is the whole cone; the authored number is the half
       // angle, as it is everywhere else that talks about spotlights.
-      const light = new SpotLight('spot', Vector3.Zero(), Vector3.Down(), def.angle * DEG * 2, 1, scene);
+      const light = new SpotLight(
+        'spot',
+        Vector3.Zero(),
+        Vector3.Down(),
+        (def.angle ?? LIGHT_FIELDS.angle.default) * DEG * 2,
+        1,
+        scene,
+      );
       positionLocal(light, def, world);
       return light;
     }
@@ -141,12 +171,20 @@ function build(def, world, scene) {
 }
 
 /** Push the current values of `def` onto an already-built light. */
-function apply(light, generator, def, world) {
-  light.diffuse = colorOf(def.color);
-  light.intensity = def.intensity;
+function apply(
+  light: AnyLight,
+  generator: ShadowGenerator | null,
+  def: LightDef,
+  world: Ground | null,
+): void {
+  light.diffuse = colorOf(def.color ?? LIGHT_FIELDS.color.default);
+  light.intensity = def.intensity ?? LIGHT_FIELDS.intensity.default;
 
-  if (def.type === 'hemisphere') {
-    light.groundColor = colorOf(def.groundColor);
+  // Asked of the light rather than of `def.type`, which is the same question --
+  // `build` makes the class from the type -- and the only form of it that lets
+  // the compiler follow which fields exist further down.
+  if (light instanceof HemisphericLight) {
+    light.groundColor = colorOf(def.groundColor ?? LIGHT_FIELDS.groundColor.default);
     return;
   }
 
@@ -165,22 +203,22 @@ function apply(light, generator, def, world) {
   }
   light.shadowEnabled = Boolean(def.castShadow);
 
-  if (def.type === 'directional') {
+  if (light instanceof DirectionalLight) {
     positionSun(light, def, world);
     return;
   }
 
   // Inverse-square falloff, so `distance` reads as the reach at which the
   // light has effectively run out rather than as an arbitrary cutoff.
-  light.range = def.distance;
+  light.range = def.distance ?? LIGHT_FIELDS.distance.default;
   light.falloffType = Light.FALLOFF_PHYSICAL;
   positionLocal(light, def, world);
 
-  if (def.type === 'spot') {
-    light.angle = def.angle * DEG * 2;
+  if (light instanceof SpotLight) {
+    light.angle = (def.angle ?? LIGHT_FIELDS.angle.default) * DEG * 2;
     // Babylon softens between the inner cone and the outer one; the authored
     // penumbra is what fraction of the cone that soft band takes up.
-    light.innerAngle = light.angle * (1 - def.penumbra);
+    light.innerAngle = light.angle * (1 - (def.penumbra ?? LIGHT_FIELDS.penumbra.default));
     light.direction = Vector3.Down();
   }
 }
@@ -190,7 +228,11 @@ function apply(light, generator, def, world) {
  * @param {object} map the map definition
  * @param {import('../game/world.ts').World} world
  */
-export function createLights(scene, map, world) {
+export function createLights(
+  scene: Scene,
+  map: { lights?: readonly Partial<LightDef>[] },
+  world: Ground | null,
+) {
   return (map.lights ?? []).map((raw) => {
     const def = normalizeLight(raw);
     const light = build(def, world, scene);
@@ -200,7 +242,10 @@ export function createLights(scene, map, world) {
     const generator =
       def.type === 'hemisphere'
         ? null
-        : new ShadowGenerator(def.type === 'directional' ? SUN_SHADOW_MAP : LOCAL_SHADOW_MAP, light);
+        : new ShadowGenerator(
+            def.type === 'directional' ? SUN_SHADOW_MAP : LOCAL_SHADOW_MAP,
+            light as ShadowLight,
+          );
 
     apply(light, generator, def, world);
 
@@ -209,13 +254,16 @@ export function createLights(scene, map, world) {
       light,
       generator,
       /** Re-read the (possibly edited) definition. Used by the editor. */
-      refresh(next = raw) {
+      refresh(next: Partial<LightDef> = raw): void {
         apply(light, generator, normalizeLight(next), world);
       },
-      dispose() {
+      dispose(): void {
         generator?.dispose();
         light.dispose();
       },
     };
   });
 }
+
+/** One light on a map, and the shadows it casts. */
+export type LightHandle = ReturnType<typeof createLights>[number];

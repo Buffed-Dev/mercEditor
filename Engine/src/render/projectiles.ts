@@ -5,6 +5,26 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { unlit } from './materials.ts';
+import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Shot } from '../game/projectiles.ts';
+
+/**
+ * The trail a shot drags behind it.
+ *
+ * Named by what a projectile does with one rather than imported from ./vfx:
+ * it is carried along, stopped where the shot died, and thrown away.
+ */
+type TrailHandle = { follow: (where: Vector3) => void; stop: () => void; dispose: () => void };
+
+/** All a projectile asks of the effects system. */
+export type VfxAttacher = { attach: (id: string, node: TransformNode) => TrailHandle | null };
+
+/** What the ground is, to something flying over it. */
+type Overflown = { heightAt: (gx: number, gy: number) => number };
+
+/** One pooled shot: its node, the instance drawn at it, and its trail. */
+type Entry = { node: TransformNode; mesh: InstancedMesh; trail: TrailHandle | null };
 
 /**
  * Meshes for the shots game/projectiles.js is simulating.
@@ -39,16 +59,20 @@ const FLIGHT_HEIGHT = 0.55;
  * @param vfx the effect runtime, for the shots that leave a trail. Optional, so
  *   nothing that only wants meshes has to have one.
  */
-export function createProjectileViews(scene, root, vfx = null) {
+export function createProjectileViews(
+  scene: Scene,
+  root: TransformNode,
+  vfx: VfxAttacher | null = null,
+) {
   const source = MeshBuilder.CreateSphere('shot', { diameter: 2, segments: SEGMENTS }, scene);
   source.material = unlit('shot', scene, { color: 0xffd166 });
   source.isPickable = false;
   source.setEnabled(false);
 
-  const pool = [];
-  const inUse = new Map(); // projectile id -> { node, mesh, trail }
+  const pool: Entry[] = [];
+  const inUse = new Map<number, Entry>();
 
-  function take() {
+  function take(): Entry {
     const entry = pool.pop();
     if (entry) {
       entry.mesh.setEnabled(true);
@@ -60,7 +84,7 @@ export function createProjectileViews(scene, root, vfx = null) {
     return { node, mesh, trail: null };
   }
 
-  function give(entry) {
+  function give(entry: Entry): void {
     // The tail is left where the shot ended rather than following the body back
     // into the pool: pinning it to the death spot is what makes it read as
     // something the shot left behind instead of something it is dragging.
@@ -75,8 +99,8 @@ export function createProjectileViews(scene, root, vfx = null) {
 
   return {
     /** Match the meshes to whatever is currently in flight. */
-    sync(shots, world) {
-      const seen = new Set();
+    sync(shots: readonly Shot[], world: Overflown): void {
+      const seen = new Set<number>();
 
       for (const shot of shots) {
         seen.add(shot.id);
@@ -94,7 +118,9 @@ export function createProjectileViews(scene, root, vfx = null) {
           back.set(-shot.dirX, 0, -shot.dirY);
           entry.node.rotationQuaternion ??= new Quaternion();
           Quaternion.FromUnitVectorsToRef(UP, back, entry.node.rotationQuaternion);
-          entry.trail = shot.ability.trail ? vfx?.attach(shot.ability.trail, entry.node) : null;
+          entry.trail = shot.ability.trail
+            ? (vfx?.attach(shot.ability.trail, entry.node) ?? null)
+            : null;
           inUse.set(shot.id, entry);
         }
         const ground = world.heightAt(shot.gx, shot.gy) * LEVEL_H;
@@ -109,7 +135,7 @@ export function createProjectileViews(scene, root, vfx = null) {
       }
     },
 
-    dispose() {
+    dispose(): void {
       for (const entry of inUse.values()) {
         entry.trail?.dispose();
         entry.node.dispose(false, true);
@@ -121,3 +147,6 @@ export function createProjectileViews(scene, root, vfx = null) {
     },
   };
 }
+
+/** Every shot currently drawn. */
+export type ProjectileViews = ReturnType<typeof createProjectileViews>;
