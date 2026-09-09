@@ -19,6 +19,8 @@ import { useGame } from '../state/useGame';
 import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import { createAssetPreview } from '../preview/assetPreview.ts';
+import type { Asset } from '../../src/data/assets.ts';
+import type { MaterialInput } from '../../src/data/materials.ts';
 import { createMaterialPreview } from '../preview/materialPreview.ts';
 import { createVfxPreview } from '../preview/vfxPreview.ts';
 import { VfxDetail } from '../panels/VfxDetail';
@@ -99,7 +101,16 @@ export function LibraryWorkspace() {
     if (!ready || !preview) return;
     // One contract across the three stages: the record, and whatever that kind
     // of stage needs to build it.
-    preview.draw(record, { assets, materials, game: gameId, kind: active, shape, urlOf });
+    preview.draw(record, {
+      // The rules lists are loose records (see dataDocument); which list holds
+      // what is known here and nowhere the checker can see.
+      assets: assets as unknown as readonly Asset[],
+      materials: materials as unknown as readonly MaterialInput[],
+      game: gameId,
+      kind: active,
+      shape,
+      urlOf,
+    });
   }, [ready, preview, active, record, shape, urlOf, assets, materials, gameId, doc?.revision]);
 
   async function onSave() {
@@ -135,6 +146,7 @@ export function LibraryWorkspace() {
         continue;
       }
       const made = doc.add('assets');
+      if (!made) continue;
       const label = stemOf(result.name);
       doc.update('assets', made.index, {
         label,

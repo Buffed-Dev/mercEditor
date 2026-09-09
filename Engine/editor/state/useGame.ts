@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { resetMaps } from '../../src/data/maps/index.ts';
-import { createDataDocument } from '../dataDocument.js';
+import { createDataDocument } from '../dataDocument.ts';
 import { loadGame } from '../games.ts';
 import { say } from './status';
 

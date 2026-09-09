@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createDataDocument, idFromLabel } from '../Engine/editor/dataDocument.js';
+import { createDataDocument, idFromLabel } from '../Engine/editor/dataDocument.ts';
 import { blankMap, createDocument } from '../Engine/editor/document.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { decodeTerrain } from '../Engine/src/data/terrain/codec.ts';
@@ -24,7 +24,7 @@ test('renaming an asset carries every record that draws itself out of it', () =>
     assets: [{ id: 'asset1', label: 'asset1', kind: 'mesh', file: 'rock.glb' }],
     props: [{ id: 'boulder', mesh: 'asset1' }],
   });
-  const index = doc.list('assets').findIndex((entry: { id: string }) => entry.id === 'asset1');
+  const index = doc.list('assets').findIndex((entry) => entry.id === 'asset1');
 
   assert.equal(doc.rename('assets', index, 'rock'), null);
   assert.equal(doc.list('props')[0].mesh, 'rock');

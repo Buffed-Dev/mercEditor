@@ -87,13 +87,14 @@ function optionsFor(brush: string): FieldSpec[] {
   return [];
 }
 
-type TerrainRecord = { id: string; label?: string; char?: string };
+/** What a ground swatch needs of a terrain. See dataDocument's RuleRecord. */
+export type TerrainRecord = { id: string; label?: string; char?: string };
 
 export function AssetShelves({
   terrains,
   onEditTerrain,
 }: {
-  terrains: TerrainRecord[];
+  terrains: readonly TerrainRecord[];
   /** Open a terrain's own record, where what it is made of is decided. */
   onEditTerrain: (id: string) => void;
 }) {

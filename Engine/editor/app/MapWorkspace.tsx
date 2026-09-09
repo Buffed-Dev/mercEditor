@@ -19,6 +19,8 @@ import { IconAngle } from '@tabler/icons-react';
 import { IconButton } from '../ui/Button';
 import { DEBUG_LAYERS, layerById } from '../terrain/debugLayers.ts';
 import { TURN_STEP } from '../viewport/heading';
+import type { Terrain } from '../../src/data/terrains.ts';
+import type { TerrainRecord } from '../panels/AssetShelves';
 import { Viewport, useHoveredTile } from '../viewport/Viewport';
 import { useStage } from '../viewport/useStage';
 import { AssetShelves } from '../panels/AssetShelves';
@@ -165,7 +167,7 @@ export function MapWorkspace() {
         say(`Wrote ${files} rule files`, 'good');
       }
       if (doc.dirty || !rules.dirty) {
-        const file = await writeMap(gameId, doc.map, rules.list('terrains'));
+        const file = await writeMap(gameId, doc.map, rules.list('terrains') as Terrain[]);
         doc.markSaved();
         say(`Wrote ${file}`, 'good');
       }
@@ -249,7 +251,7 @@ export function MapWorkspace() {
           )}
           {leftTab === 'assets' && (
             <AssetShelves
-              terrains={rules?.list('terrains') ?? []}
+              terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
               onEditTerrain={(id) => void navigate(`/${gameId}/library/terrains/${id}`)}
             />
           )}

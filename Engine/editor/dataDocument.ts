@@ -21,6 +21,35 @@ import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/prop
 import { createUndoable } from './undoable.ts';
 
 /**
+ * One record of a rules list, while the editor holds it.
+ *
+ * Deliberately loose. This module edits the rules as a graph -- renaming an
+ * attribute walks every effect, ability, item and archetype that could name it
+ * -- and the shapes it walks through belong to fourteen different lists. Every
+ * field it reads goes through one of the three readers below, so a rules file
+ * carrying something unexpected is described rather than assumed.
+ */
+export type RuleRecord = Record<string, unknown>;
+
+/** Every rules list, by name. */
+export type RulesData = Record<string, RuleRecord[]>;
+
+/** A nested record, or null when that is not what is there. */
+const obj = (value: unknown): RuleRecord | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as RuleRecord)
+    : null;
+
+/** A nested list. The same array, so writing through it still writes home. */
+const arr = (value: unknown): RuleRecord[] => (Array.isArray(value) ? (value as RuleRecord[]) : []);
+
+/** A field read as text. */
+const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** A list of ids. Every rules list that references another holds one. */
+const texts = (value: unknown): string[] => (Array.isArray(value) ? value.map(text) : []);
+
+/**
  * The editable rules document: attributes, effects, abilities, archetypes and
  * items together.
  *
@@ -61,14 +90,14 @@ const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]*$/;
  * they hold, so nothing here has to be kept in step when a block grows another
  * mesh slot. Which is the whole reason it is not a line per field.
  */
-const REFERENCE_FIELDS = {
+const REFERENCE_FIELDS: Record<string, Record<string, { kind?: string }>> = {
   terrains: TERRAIN_FIELDS,
   props: PROP_FIELDS,
   materials: MATERIAL_FIELDS,
 };
 
 /** `Stone Wall` → `stoneWall`: the id a name asks for. Empty if it asks for none. */
-export function idFromLabel(label) {
+export function idFromLabel(label: unknown): string {
   const words = String(label ?? '')
     .replace(/[^a-zA-Z0-9]+/g, ' ')
     .trim()
@@ -94,14 +123,14 @@ export function idFromLabel(label) {
  * went to disk as "bm" and came back as "b" — which read as the letter refusing
  * to change, and made three blocks answer to the same letter.
  */
-const cleaners = {
+const cleaners: Record<string, ((entry: RuleRecord) => unknown) | undefined> = {
   assets: normalizeAsset,
   materials: normalizeMaterial,
   terrains: normalizeTerrain,
   props: normalizeProp,
 };
 
-const makers = {
+const makers: Record<string, ((id: string) => unknown) | undefined> = {
   attributes: defaultAttribute,
   effects: defaultEffect,
   abilities: defaultAbility,
@@ -119,7 +148,7 @@ const makers = {
 };
 
 /** `attribute`, `attribute2`, `attribute3`… — the first id not already taken. */
-function freshId(entries, stem) {
+function freshId(entries: readonly RuleRecord[], stem: string): string {
   const taken = new Set(entries.map((entry) => entry.id));
   if (!taken.has(stem)) return stem;
   for (let n = 2; ; n++) {
@@ -127,7 +156,7 @@ function freshId(entries, stem) {
   }
 }
 
-export function createDataDocument(rules = {}) {
+export function createDataDocument(rules: Partial<RulesData> = {}) {
   const history = createUndoable({
     attributes: rules.attributes ?? ATTRIBUTES,
     effects: rules.effects ?? EFFECTS,
@@ -149,30 +178,32 @@ export function createDataDocument(rules = {}) {
     props: (rules.props ?? PROPS).map(normalizeProp),
   });
 
-  const data = () => history.state;
-  const listOf = (list) => data()[list] ?? [];
-  const entryAt = (list, index) => listOf(list)[index] ?? null;
+  const data = (): RulesData => history.state as RulesData;
+  const listOf = (list: string): RuleRecord[] => data()[list] ?? [];
+  const entryAt = (list: string, index: number): RuleRecord | null =>
+    listOf(list)[index] ?? null;
 
   /** The items that are money, by id — what a price or a payout may name. */
-  const currencyIds = () =>
+  const currencyIds = (): string[] =>
     listOf('items')
-      .filter((item) => behaviourOf(item.category, listOf('categories')) === 'currency')
-      .map((item) => item.id);
+      .filter((item) => behaviourOf(text(item.category), listOf('categories')) === 'currency')
+      .map((item) => text(item.id));
 
   /**
    * Follow an attribute id through everything that names one. Renaming without
    * this leaves effects pointing at an attribute that no longer exists, and the
    * failure is silent — the magnitude just resolves to zero.
    */
-  function rewriteAttributeId(from, to) {
+  function rewriteAttributeId(from: string, to: string): void {
     for (const effect of listOf('effects')) {
-      for (const mod of effect.modifiers ?? []) {
+      for (const mod of arr(effect.modifiers)) {
         if (mod.attribute === from) mod.attribute = to;
-        if (mod.magnitude?.type === 'attribute' && mod.magnitude.attribute === from) {
-          mod.magnitude.attribute = to;
+        const modMagnitude = obj(mod.magnitude);
+        if (modMagnitude?.type === 'attribute' && modMagnitude.attribute === from) {
+          modMagnitude.attribute = to;
         }
       }
-      const magnitude = effect.execution?.magnitude;
+      const magnitude = obj(obj(effect.execution)?.magnitude);
       if (magnitude?.type === 'attribute' && magnitude.attribute === from) {
         magnitude.attribute = to;
       }
@@ -187,15 +218,16 @@ export function createDataDocument(rules = {}) {
 
     // An item's stat lines name the attribute they roll into.
     for (const item of listOf('items')) {
-      for (const stat of item.stats ?? []) {
+      for (const stat of arr(item.stats)) {
         if (stat.attribute === from) stat.attribute = to;
       }
     }
 
     for (const archetype of listOf('archetypes')) {
-      if (!(from in (archetype.attributes ?? {}))) continue;
-      archetype.attributes[to] = archetype.attributes[from];
-      delete archetype.attributes[from];
+      const attributes = obj(archetype.attributes);
+      if (!attributes || !(from in attributes)) continue;
+      attributes[to] = attributes[from];
+      delete attributes[from];
     }
   }
 
@@ -218,22 +250,22 @@ export function createDataDocument(rules = {}) {
     entry: entryAt,
 
     /** Attribute ids, for the pickers a modifier row needs. */
-    attributeOptions() {
-      return listOf('attributes').map((attribute) => [attribute.id, attribute.label || attribute.id]);
+    attributeOptions(): [string, string][] {
+      return listOf('attributes').map((attribute): [string, string] => [text(attribute.id), text(attribute.label) || text(attribute.id)]);
     },
 
-    effectOptions() {
-      return listOf('effects').map((effect) => [effect.id, effect.label || effect.id]);
+    effectOptions(): [string, string][] {
+      return listOf('effects').map((effect): [string, string] => [text(effect.id), text(effect.label) || text(effect.id)]);
     },
 
     /** How a category behaves, for anything that has to sort items by machine. */
-    behaviour(item) {
-      return behaviourOf(item?.category, listOf('categories'));
+    behaviour(item: RuleRecord | null | undefined) {
+      return behaviourOf(text(item?.category), listOf('categories'));
     },
 
     /** The categories themselves, for the picker every item needs. */
-    categoryOptions() {
-      return listOf('categories').map((c) => [c.id, c.label || c.id]);
+    categoryOptions(): [string, string][] {
+      return listOf('categories').map((c): [string, string] => [text(c.id), text(c.label) || text(c.id)]);
     },
 
     /**
@@ -242,20 +274,20 @@ export function createDataDocument(rules = {}) {
      * Money is an item in a currency category now, so this is a view of the
      * item list rather than a list of its own.
      */
-    currencyOptions() {
+    currencyOptions(): [string, string][] {
       return listOf('items')
-        .filter((item) => behaviourOf(item.category, listOf('categories')) === 'currency')
-        .map((item) => [item.id, item.label || item.id]);
+        .filter((item) => behaviourOf(text(item.category), listOf('categories')) === 'currency')
+        .map((item): [string, string] => [text(item.id), text(item.label) || text(item.id)]);
     },
 
     /** Loot table ids, for the picker an archetype needs. */
-    lootTableOptions() {
-      return listOf('lootTables').map((t) => [t.id, t.label || t.id]);
+    lootTableOptions(): [string, string][] {
+      return listOf('lootTables').map((t): [string, string] => [text(t.id), text(t.label) || text(t.id)]);
     },
 
     /** Ability ids, for the picker an item needs to say what it grants. */
-    abilityOptions() {
-      return listOf('abilities').map((ability) => [ability.id, ability.label || ability.id]);
+    abilityOptions(): [string, string][] {
+      return listOf('abilities').map((ability): [string, string] => [text(ability.id), text(ability.label) || text(ability.id)]);
     },
 
     /** Visual effect ids, for anything that can name one. */
@@ -263,28 +295,28 @@ export function createDataDocument(rules = {}) {
      * The assets a picker may offer, narrowed to one kind: a mesh slot that
      * listed the textures too would be a list you have to read to use.
      */
-    assetOptions(kind) {
+    assetOptions(kind?: string): [string, string][] {
       return listOf('assets')
         .filter((asset) => !kind || asset.kind === kind)
-        .map((asset) => [asset.id, asset.label || asset.id]);
+        .map((asset): [string, string] => [text(asset.id), text(asset.label) || text(asset.id)]);
     },
 
-    propOptions() {
-      return listOf('props').map((prop) => [prop.id, prop.label || prop.id]);
+    propOptions(): [string, string][] {
+      return listOf('props').map((prop): [string, string] => [text(prop.id), text(prop.label) || text(prop.id)]);
     },
 
-    vfxOptions() {
-      return listOf('vfx').map((effect) => [effect.id, effect.label || effect.id]);
+    vfxOptions(): [string, string][] {
+      return listOf('vfx').map((effect): [string, string] => [text(effect.id), text(effect.label) || text(effect.id)]);
     },
 
     /** Item ids, for the picker a recipe needs to say what it produces. */
     /** The named surfaces, for the blocks and objects that wear one. */
-    surfaceOptions() {
-      return listOf('materials').map((one) => [one.id, one.label || one.id]);
+    surfaceOptions(): [string, string][] {
+      return listOf('materials').map((one): [string, string] => [text(one.id), text(one.label) || text(one.id)]);
     },
 
-    itemOptions() {
-      return listOf('items').map((item) => [item.id, item.label || item.id]);
+    itemOptions(): [string, string][] {
+      return listOf('items').map((item): [string, string] => [text(item.id), text(item.label) || text(item.id)]);
     },
 
     /**
@@ -295,14 +327,14 @@ export function createDataDocument(rules = {}) {
      * everything would bury the ore. Equipment is bought with materials, so
      * this is the list that gets offered.
      */
-    materialOptions() {
+    materialOptions(): [string, string][] {
       return listOf('items')
-        .filter((item) => behaviourOf(item.category, listOf('categories')) === 'material')
-        .map((item) => [item.id, item.label || item.id]);
+        .filter((item) => behaviourOf(text(item.category), listOf('categories')) === 'material')
+        .map((item): [string, string] => [text(item.id), text(item.label) || text(item.id)]);
     },
 
-    add(list) {
-      const stem = {
+    add(list: string) {
+      const stem: Record<string, string> = {
         attributes: 'attribute',
         effects: 'effect',
         abilities: 'ability',
@@ -317,15 +349,17 @@ export function createDataDocument(rules = {}) {
         materials: 'material',
         terrains: 'terrain',
         props: 'prop',
-      }[list];
-      const id = freshId(listOf(list), stem);
+      };
+      const make = makers[list];
+      if (!make) return null;
+      const id = freshId(listOf(list), stem[list] ?? list);
       history.checkpoint();
-      const entry = makers[list](id);
+      const entry = make(id) as RuleRecord;
       data()[list].push(entry);
       return { list, index: data()[list].length - 1 };
     },
 
-    remove(list, index) {
+    remove(list: string, index: number): boolean {
       if (!entryAt(list, index)) return false;
       history.checkpoint();
       data()[list].splice(index, 1);
@@ -336,19 +370,25 @@ export function createDataDocument(rules = {}) {
      * Patch one entry. `checkpointed` is false while a slider is being dragged,
      * so the whole drag is a single undo step.
      */
-    update(list, index, patch, checkpointed = true) {
+    update(
+      list: string,
+      index: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): RuleRecord | null {
       const entry = entryAt(list, index);
       if (!entry) return null;
       history.checkpoint(checkpointed);
       Object.assign(entry, patch);
       // Merged rather than replaced, so the record keeps its identity — the
       // panel and the undo snapshot both hold this object.
-      if (cleaners[list]) Object.assign(entry, cleaners[list](entry));
+      const clean = cleaners[list];
+      if (clean) Object.assign(entry, clean(entry));
       return entry;
     },
 
     /** Rename an entry, carrying every reference to it along. */
-    rename(list, index, nextId) {
+    rename(list: string, index: number, nextId: unknown): string | null {
       const entry = entryAt(list, index);
       if (!entry) return 'Nothing selected';
       const id = String(nextId ?? '').trim();
@@ -357,25 +397,25 @@ export function createDataDocument(rules = {}) {
       if (listOf(list).some((other) => other.id === id)) return `"${id}" is already taken`;
 
       history.checkpoint();
-      const from = entry.id;
+      const from = text(entry.id);
       entry.id = id;
 
       if (list === 'attributes') rewriteAttributeId(from, id);
 
       if (list === 'effects') {
         for (const archetype of listOf('archetypes')) {
-          archetype.grants = (archetype.grants ?? []).map((g) => (g === from ? id : g));
+          archetype.grants = texts(archetype.grants).map((g) => (g === from ? id : g));
         }
         for (const ability of listOf('abilities')) {
-          ability.effects = (ability.effects ?? []).map((entry) =>
-            entry?.effect === from ? { ...entry, effect: id } : entry,
+          ability.effects = arr(ability.effects).map((slot) =>
+            slot?.effect === from ? { ...slot, effect: id } : slot,
           );
         }
       }
 
       if (list === 'abilities') {
         for (const archetype of listOf('archetypes')) {
-          archetype.abilities = (archetype.abilities ?? []).map((a) => (a === from ? id : a));
+          archetype.abilities = texts(archetype.abilities).map((a) => (a === from ? id : a));
         }
         // A weapon names the ability it grants. Without this the weapon keeps
         // working and grants nothing, which is the worst way to find out.
@@ -386,7 +426,7 @@ export function createDataDocument(rules = {}) {
         // length and one press of it does nothing at all.
         for (const ability of listOf('abilities')) {
           if (ability.steps) {
-            ability.steps = ability.steps.map((step) => (step === from ? id : step));
+            ability.steps = texts(ability.steps).map((step) => (step === from ? id : step));
           }
         }
       }
@@ -408,8 +448,8 @@ export function createDataDocument(rules = {}) {
       // missed line turns a price into something unpayable and a drop into
       // nothing, silently.
       if (list === 'items') {
-        const chase = (refs) => {
-          for (const ref of refs ?? []) {
+        const chase = (refs: unknown): void => {
+          for (const ref of arr(refs)) {
             if (ref.id === from) ref.id = id;
           }
         };
@@ -438,7 +478,7 @@ export function createDataDocument(rules = {}) {
       // and a block or a prop names the material it wears. Left behind, the
       // record keeps working and comes up as an untextured box — which is the
       // worst way to find out an asset was renamed.
-      const wanted = { assets: 'asset', materials: 'material' }[list];
+      const wanted = ({ assets: 'asset', materials: 'material' } as Record<string, string>)[list];
       if (wanted) {
         for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
           for (const entry of listOf(name)) {
@@ -473,27 +513,34 @@ export function createDataDocument(rules = {}) {
      * because a blank line is dropped, and a row that did nothing until you
      * touched it would look broken in the other direction.
      */
-    addCost(list, index) {
+    addCost(list: string, index: number): void {
       const entry = entryAt(list, index);
       if (!entry) return;
       history.checkpoint();
       const taken = new Set(
-        (entry.costs ?? []).filter((cost) => cost.kind !== 'item').map((cost) => cost.id),
+        arr(entry.costs).filter((cost) => cost.kind !== 'item').map((cost) => text(cost.id)),
       );
       const currencies = currencyIds();
       const free = currencies.find((currencyId) => !taken.has(currencyId));
-      entry.costs = [...(entry.costs ?? []), defaultCost('currency', free ?? currencies[0] ?? '')];
+      entry.costs = [...arr(entry.costs), defaultCost('currency', free ?? currencies[0] ?? '')];
     },
 
-    removeCost(list, index, costIndex) {
+    removeCost(list: string, index: number, costIndex: number): void {
       const entry = entryAt(list, index);
-      if (!entry?.costs?.[costIndex]) return;
+      const costs = arr(entry?.costs);
+      if (!costs[costIndex]) return;
       history.checkpoint();
-      entry.costs.splice(costIndex, 1);
+      costs.splice(costIndex, 1);
     },
 
-    updateCost(list, index, costIndex, patch, checkpointed = true) {
-      const cost = entryAt(list, index)?.costs?.[costIndex];
+    updateCost(
+      list: string,
+      index: number,
+      costIndex: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): void {
+      const cost = arr(entryAt(list, index)?.costs)[costIndex];
       if (!cost) return;
       history.checkpoint(checkpointed);
       Object.assign(cost, patch);
@@ -501,7 +548,7 @@ export function createDataDocument(rules = {}) {
 
     // ------------------------------------------------------------ loot rolls
 
-    addLootRoll(index) {
+    addLootRoll(index: number): void {
       const table = entryAt('lootTables', index);
       if (!table) return;
       history.checkpoint();
@@ -509,18 +556,24 @@ export function createDataDocument(rules = {}) {
       // price two of them in the same currency are perfectly sensible — a
       // common handful and a rare windfall. The first currency will do.
       const first = currencyIds()[0] ?? '';
-      table.rolls = [...(table.rolls ?? []), defaultLootRoll('currency', first)];
+      table.rolls = [...arr(table.rolls), defaultLootRoll('currency', first)];
     },
 
-    removeLootRoll(index, rollIndex) {
+    removeLootRoll(index: number, rollIndex: number): void {
       const table = entryAt('lootTables', index);
-      if (!table?.rolls?.[rollIndex]) return;
+      const rolls = arr(table?.rolls);
+      if (!rolls[rollIndex]) return;
       history.checkpoint();
-      table.rolls.splice(rollIndex, 1);
+      rolls.splice(rollIndex, 1);
     },
 
-    updateLootRoll(index, rollIndex, patch, checkpointed = true) {
-      const roll = entryAt('lootTables', index)?.rolls?.[rollIndex];
+    updateLootRoll(
+      index: number,
+      rollIndex: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): void {
+      const roll = arr(entryAt('lootTables', index)?.rolls)[rollIndex];
       if (!roll) return;
       history.checkpoint(checkpointed);
       Object.assign(roll, patch);
@@ -528,89 +581,104 @@ export function createDataDocument(rules = {}) {
 
     // ------------------------------------------------------------- modifiers
 
-    addModifier(index) {
+    addModifier(index: number): void {
       const effect = entryAt('effects', index);
       if (!effect) return;
       history.checkpoint();
-      const first = listOf('attributes')[0]?.id ?? 'health';
-      effect.modifiers = [...(effect.modifiers ?? []), { ...defaultModifier(), attribute: first }];
+      const first = text(listOf('attributes')[0]?.id) || 'health';
+      effect.modifiers = [...arr(effect.modifiers), { ...defaultModifier(), attribute: first }];
     },
 
-    removeModifier(index, modIndex) {
+    removeModifier(index: number, modIndex: number): void {
       const effect = entryAt('effects', index);
-      if (!effect?.modifiers?.[modIndex]) return;
+      const modifiers = arr(effect?.modifiers);
+      if (!modifiers[modIndex]) return;
       history.checkpoint();
-      effect.modifiers.splice(modIndex, 1);
+      modifiers.splice(modIndex, 1);
     },
 
-    updateModifier(index, modIndex, patch, checkpointed = true) {
-      const mod = entryAt('effects', index)?.modifiers?.[modIndex];
+    updateModifier(
+      index: number,
+      modIndex: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): void {
+      const mod = arr(entryAt('effects', index)?.modifiers)[modIndex];
       if (!mod) return;
       history.checkpoint(checkpointed);
       Object.assign(mod, patch);
     },
 
-    updateMagnitude(index, modIndex, patch, checkpointed = true) {
-      const mod = entryAt('effects', index)?.modifiers?.[modIndex];
+    updateMagnitude(
+      index: number,
+      modIndex: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): void {
+      const mod = arr(entryAt('effects', index)?.modifiers)[modIndex];
       if (!mod) return;
       history.checkpoint(checkpointed);
-      mod.magnitude = { ...mod.magnitude, ...patch };
+      mod.magnitude = { ...obj(mod.magnitude), ...patch };
     },
 
     // ------------------------------------------------------------ executions
 
-    setExecution(index, execution) {
+    setExecution(index: number, execution: unknown): void {
       const effect = entryAt('effects', index);
       if (!effect) return;
       history.checkpoint();
       effect.execution = execution;
     },
 
-    updateExecution(index, patch, checkpointed = true) {
+    updateExecution(index: number, patch: RuleRecord, checkpointed = true): void {
       const effect = entryAt('effects', index);
       if (!effect?.execution) return;
       history.checkpoint(checkpointed);
-      effect.execution = { ...effect.execution, ...patch };
+      effect.execution = { ...obj(effect.execution), ...patch };
     },
 
-    updateExecutionMagnitude(index, patch, checkpointed = true) {
+    updateExecutionMagnitude(index: number, patch: RuleRecord, checkpointed = true): void {
       const effect = entryAt('effects', index);
       if (!effect?.execution) return;
       history.checkpoint(checkpointed);
-      effect.execution.magnitude = { ...effect.execution.magnitude, ...patch };
+      const execution = obj(effect.execution);
+      if (execution) execution.magnitude = { ...obj(execution.magnitude), ...patch };
     },
 
     // ------------------------------------------------------------- abilities
 
     /** The effects an ability hands to whatever it hits. */
-    addAbilityEffect(index, effectId) {
+    addAbilityEffect(index: number, effectId?: string): void {
       const ability = entryAt('abilities', index);
       if (!ability) return;
       history.checkpoint();
-      const effect = effectId ?? listOf('effects')[0]?.id ?? '';
-      ability.effects = [...(ability.effects ?? []), { effect, to: 'target' }];
+      const effect = effectId ?? text(listOf('effects')[0]?.id);
+      ability.effects = [...arr(ability.effects), { effect, to: 'target' }];
     },
 
-    setAbilityEffect(index, slot, effectId) {
+    setAbilityEffect(index: number, slot: number, effectId: string): void {
       const ability = entryAt('abilities', index);
-      if (!ability?.effects?.[slot]) return;
+      const effects = arr(ability?.effects);
+      if (!effects[slot]) return;
       history.checkpoint();
-      ability.effects[slot] = { ...ability.effects[slot], effect: effectId };
+      effects[slot] = { ...effects[slot], effect: effectId };
     },
 
     /** Whether this effect goes to what was hit, or back to the caster. */
-    setAbilityEffectTarget(index, slot, to) {
+    setAbilityEffectTarget(index: number, slot: number, to: string): void {
       const ability = entryAt('abilities', index);
-      if (!ability?.effects?.[slot]) return;
+      const effects = arr(ability?.effects);
+      if (!effects[slot]) return;
       history.checkpoint();
-      ability.effects[slot] = { ...ability.effects[slot], to: to === 'self' ? 'self' : 'target' };
+      effects[slot] = { ...effects[slot], to: to === 'self' ? 'self' : 'target' };
     },
 
-    removeAbilityEffect(index, slot) {
+    removeAbilityEffect(index: number, slot: number): void {
       const ability = entryAt('abilities', index);
-      if (!ability?.effects?.[slot]) return;
+      const effects = arr(ability?.effects);
+      if (!effects[slot]) return;
       history.checkpoint();
-      ability.effects.splice(slot, 1);
+      effects.splice(slot, 1);
     },
 
     // ----------------------------------------------------------------- items
@@ -620,19 +688,20 @@ export function createDataDocument(rules = {}) {
      * rather than on none: a line with no attribute rolls into nothing, and
      * would be a half-made row the author has to notice and finish.
      */
-    addItemStat(index) {
+    addItemStat(index: number): void {
       const item = entryAt('items', index);
       if (!item) return;
       history.checkpoint();
-      const first = listOf('attributes')[0]?.id ?? 'attackPower';
-      item.stats = [...(item.stats ?? []), defaultItemStat(first)];
+      const first = text(listOf('attributes')[0]?.id) || 'attackPower';
+      item.stats = [...arr(item.stats), defaultItemStat(first)];
     },
 
-    removeItemStat(index, statIndex) {
+    removeItemStat(index: number, statIndex: number): void {
       const item = entryAt('items', index);
-      if (!item?.stats?.[statIndex]) return;
+      const stats = arr(item?.stats);
+      if (!stats[statIndex]) return;
       history.checkpoint();
-      item.stats.splice(statIndex, 1);
+      stats.splice(statIndex, 1);
     },
 
     /**
@@ -641,8 +710,13 @@ export function createDataDocument(rules = {}) {
      * typing a new range into a row that already has one, because the moment
      * "least" passed the old "most" the fields would trade places under them.
      */
-    updateItemStat(index, statIndex, patch, checkpointed = true) {
-      const stat = entryAt('items', index)?.stats?.[statIndex];
+    updateItemStat(
+      index: number,
+      statIndex: number,
+      patch: RuleRecord,
+      checkpointed = true,
+    ): void {
+      const stat = arr(entryAt('items', index)?.stats)[statIndex];
       if (!stat) return;
       history.checkpoint(checkpointed);
       Object.assign(stat, patch);
@@ -659,59 +733,79 @@ export function createDataDocument(rules = {}) {
      * the sequence on a combo, so where a new one goes is a decision of its
      * own rather than something to guess at.
      */
-    addAbilityRef(list, index, key, abilityId) {
+    addAbilityRef(list: string, index: number, key: string, abilityId?: string): void {
       const entry = entryAt(list, index);
       if (!entry || !abilityId) return;
       history.checkpoint();
-      entry[key] = [...(entry[key] ?? []), abilityId];
+      entry[key] = [...arr(entry[key]), abilityId];
     },
 
     /** Swap which ability occupies a place, keeping the place's position. */
-    setAbilityRef(list, index, key, slot, abilityId, checkpointed = true) {
+    setAbilityRef(
+      list: string,
+      index: number,
+      key: string,
+      slot: number,
+      abilityId: string,
+      checkpointed = true,
+    ): void {
       const entry = entryAt(list, index);
-      if (!entry?.[key]?.length) return;
+      if (!entry || !arr(entry[key]).length) return;
       history.checkpoint(checkpointed);
-      entry[key] = entry[key].map((id, i) => (i === slot ? abilityId : id));
+      entry[key] = arr(entry[key]).map((id, i) => (i === slot ? abilityId : id));
     },
 
-    removeAbilityRef(list, index, key, slot) {
+    removeAbilityRef(list: string, index: number, key: string, slot: number): void {
       const entry = entryAt(list, index);
-      if (!entry?.[key]?.[slot]) return;
+      const refs = arr(entry?.[key]);
+      if (!refs[slot]) return;
       history.checkpoint();
-      entry[key].splice(slot, 1);
+      refs.splice(slot, 1);
     },
 
-    moveAbilityRef(list, index, key, slot, delta) {
-      const refs = entryAt(list, index)?.[key];
+    moveAbilityRef(
+      list: string,
+      index: number,
+      key: string,
+      slot: number,
+      delta: number,
+    ): void {
+      const refs = arr(entryAt(list, index)?.[key]);
       const next = slot + delta;
-      if (!refs || next < 0 || next >= refs.length) return;
+      if (!refs.length || next < 0 || next >= refs.length) return;
       history.checkpoint();
       [refs[slot], refs[next]] = [refs[next], refs[slot]];
     },
 
     /** Set one archetype's base value for one attribute. */
-    setArchetypeValue(index, attributeId, value, checkpointed = true) {
+    setArchetypeValue(
+      index: number,
+      attributeId: string,
+      value: unknown,
+      checkpointed = true,
+    ): void {
       const archetype = entryAt('archetypes', index);
       if (!archetype) return;
       history.checkpoint(checkpointed);
-      archetype.attributes = { ...archetype.attributes, [attributeId]: value };
+      archetype.attributes = { ...obj(archetype.attributes), [attributeId]: value };
     },
 
     /** Stop overriding an attribute — fall back to the attribute's own base. */
-    clearArchetypeValue(index, attributeId) {
+    clearArchetypeValue(index: number, attributeId: string): void {
       const archetype = entryAt('archetypes', index);
-      if (!archetype?.attributes || !(attributeId in archetype.attributes)) return;
+      const values = obj(archetype?.attributes);
+      if (!archetype || !values || !(attributeId in values)) return;
       history.checkpoint();
-      const next = { ...archetype.attributes };
+      const next = { ...values };
       delete next[attributeId];
       archetype.attributes = next;
     },
 
-    toggleGrant(index, effectId) {
+    toggleGrant(index: number, effectId: string): void {
       const archetype = entryAt('archetypes', index);
       if (!archetype) return;
       history.checkpoint();
-      const grants = new Set(archetype.grants ?? []);
+      const grants = new Set(texts(archetype.grants));
       if (grants.has(effectId)) grants.delete(effectId);
       else grants.add(effectId);
       archetype.grants = [...grants];
@@ -731,7 +825,7 @@ export function createDataDocument(rules = {}) {
     checkpoint: (checkpointed = true) => checkpointed && history.checkpoint(),
 
     /** Hear about every change to the rules. See history.ts. */
-    subscribe: (listener) => history.subscribe(listener),
+    subscribe: (listener: () => void) => history.subscribe(listener),
 
     /** How many times the rules have changed. See history.ts. */
     get revision() {
@@ -739,3 +833,6 @@ export function createDataDocument(rules = {}) {
     },
   };
 }
+
+/** Every rules list, open for editing, with one undo stack over all of them. */
+export type DataDocument = ReturnType<typeof createDataDocument>;

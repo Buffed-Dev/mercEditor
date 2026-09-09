@@ -14,13 +14,9 @@ import {
 import { Nested, type NestedDoc } from './subeditors/Nested';
 import { useEdit } from '../state/useEdit';
 import styles from './RecordDetail.module.css';
+import type { DataDocument } from '../dataDocument.ts';
 
-type RulesDoc = OptionSource & NestedDoc & {
-  list: (kind: string) => { id: string; label?: string }[];
-  update: (list: string, index: number, patch: Record<string, unknown>, checkpointed?: boolean) => void;
-  rename: (list: string, index: number, nextId: string) => unknown;
-  checkpoint: (checkpointed?: boolean) => void;
-};
+type RulesDoc = OptionSource & NestedDoc & DataDocument;
 
 /**
  * One record, edited.

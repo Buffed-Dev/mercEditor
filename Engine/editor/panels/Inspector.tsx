@@ -11,6 +11,8 @@ import { Section } from '../ui/Section';
 import { useEdit } from '../state/useEdit';
 import { useSelection } from '../state/selection';
 import styles from './Inspector.module.css';
+import type { DataDocument } from '../dataDocument.ts';
+import type { TerrainRecord } from './AssetShelves';
 
 /**
  * What the inspector is about is whatever is selected — and with nothing
@@ -30,7 +32,7 @@ export function Inspector({
 }: {
   doc: MapDocument | null;
   editor: MapEditor | null;
-  rules: RulesDocument | null;
+  rules: DataDocument | null;
   mapId: string;
   onPlaytest: () => void;
 }) {
@@ -59,7 +61,10 @@ export function Inspector({
    */
   const resolveOptions = (field: FieldSpec): readonly (readonly [string, string])[] => {
     const list = field.kind === 'vfx' ? 'vfx' : 'props';
-    return (rules?.list(list) ?? []).map((record) => [record.id, record.label ?? record.id]);
+    return (rules?.list(list) ?? []).map((record) => {
+      const id = String(record.id ?? '');
+      return [id, String(record.label ?? id)] as const;
+    });
   };
 
   if (selection && spec && entry) {
@@ -193,7 +198,10 @@ export function Inspector({
       })}
 
       {/* Anything wrong with the ground, before anything about arranging it. */}
-      <TerrainProblems doc={doc as never} terrains={rules?.list('terrains') ?? []} />
+      <TerrainProblems
+        doc={doc as never}
+        terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
+      />
 
       {/* The map's structure, after its look: which rectangles of it are
           pieces, and whether a run is assembled from them at all. */}
@@ -225,7 +233,7 @@ function write(
   doc.updateObject(selection.list, selection.index as number, { [key]: value }, checkpointed);
 }
 
-type RulesDocument = { list: (kind: string) => { id: string; label?: string }[] };
+
 
 type MapEditor = {
   invalidate: () => void;
