@@ -319,7 +319,16 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
     ring.position.y = 0.55;
     ring.parent = group;
 
-    return { def: portal, group, ring, disc, phase: Math.random() * Math.PI * 2 };
+    return {
+      def: portal,
+      group,
+      ring,
+      disc,
+      // Handed back as well as hung on the mesh: the level fades the portal
+      // every frame, and `mesh.material` is nullable for everything else.
+      discMaterial,
+      phase: Math.random() * Math.PI * 2,
+    };
   });
 
   // --- stations ----------------------------------------------------------

@@ -26,42 +26,18 @@
  * over FADE_IN rather than instantly, is what makes the appearance read as a
  * fade rather than a shape that was suddenly there.
  */
+import type { Decal, Decals } from './decals.ts';
+
 /** A colour a shape is mixed between. */
 type Rgb = { r: number; g: number; b: number };
 
-/**
- * The parts of a decal these views set.
- *
- * Structural rather than imported from ./decals, which owns the real thing:
- * a telegraph places a shape, colours it and fades it, and that is the whole
- * of what it needs to be handed.
- */
-export type DebugDecal = {
-  gx: number;
-  gy: number;
-  aim: number;
-  color: Rgb;
-  alpha: number;
-  edgeAlpha: number;
-};
-
-/** All these views ask of the decal registry. */
-export type DecalSink = {
-  add: (spec: {
-    gx: number;
-    gy: number;
-    aim: number;
-    range: number;
-    halfArc: number;
-    edge: number;
-  }) => DebugDecal;
-  remove: (decal: DebugDecal) => void;
-};
+/** The two things these views ask of the decal registry. */
+export type DecalSink = Pick<Decals, 'add' | 'remove'>;
 
 /** Where a telegraph is in its life. */
 type Phase = 'charging' | 'fading';
 
-type Shape = { decal: DebugDecal; phase: Phase; age: number; duration: number };
+type Shape = { decal: Decal; phase: Phase; age: number; duration: number };
 
 /** What a caller holds onto so it can move, fire or drop its telegraph. */
 export type Telegraph = {

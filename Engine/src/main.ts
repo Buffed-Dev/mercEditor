@@ -8,11 +8,11 @@ import { START_MAP } from './data/maps/index.ts';
 import { endRun } from './data/maps/generate.ts';
 import { SLOT_BINDINGS } from './data/abilities.ts';
 import { createRenderer } from './render/engine.ts';
-import { createLevel } from './render/level.js';
+import { createLevel } from './render/level.ts';
 import { CURRENCIES } from './data/currencies.ts';
 import { createCharacter } from './game/character.ts';
 import { LEVEL_H } from './data/dimensions.ts';
-import { DEFAULT_FRUSTUM, SCREEN_FORWARD, SCREEN_RIGHT } from './render/isoCamera.ts';
+import { SCREEN_FORWARD, SCREEN_RIGHT } from './render/isoCamera.ts';
 import { createHud } from './gui/hud.ts';
 import { createGroundLabels } from './gui/groundLabels.ts';
 import { createCharacterPanel } from './ui/character.ts';
@@ -21,6 +21,21 @@ import { createAbilitiesPanel } from './ui/abilities.ts';
 import { createHeldItemView } from './ui/heldItem.ts';
 import { createItemCursor } from './ui/itemCursor.ts';
 import { createInput } from './ui/input.ts';
+import type { Level } from './render/level.ts';
+
+/**
+ * A page element this build cannot run without.
+ *
+ * Every one of these is written into index.html beside the script tag that
+ * loads this file, so a missing one is a mismatch between the two rather than
+ * something to carry on without. Saying so here names it, instead of leaving a
+ * null to be written to several frames later.
+ */
+function required<T extends Element = HTMLElement>(selector: string): T {
+  const found = document.querySelector<T>(selector);
+  if (!found) throw new Error(`the page has no ${selector}`);
+  return found;
+}
 
 /**
  * The application: the renderer, the current level, and the wiring between
@@ -47,7 +62,7 @@ const READY_MS = 1500;
 
 // --------------------------------------------------------------- renderer
 
-const canvasHost = document.getElementById('game');
+const canvasHost = required('#game');
 const renderer = createRenderer(canvasHost);
 const { scene, camera } = renderer;
 
@@ -58,7 +73,7 @@ const hud = createHud(ui);
 
 // ------------------------------------------------------------------ level
 
-let level = null;
+let level: Level | null = null;
 let transitioning = false;
 
 /**
@@ -91,28 +106,30 @@ const cameraTarget = new Vector3();
  * so what the money is *called* comes from the same rules the bench is charging
  * by.
  */
-function purseLine() {
-  return level
+function purseLine(current: Level) {
+  return current
     .purse()
     .map(({ label, amount }) => `${amount} ${label}`)
     .join('   ');
 }
 
-function snapCamera() {
-  cameraTarget.set(level.pos.gx, level.height * LEVEL_H, level.pos.gy);
+function snapCamera(current: Level) {
+  cameraTarget.set(current.pos.gx, current.height * LEVEL_H, current.pos.gy);
   renderer.lookAt(cameraTarget.x, cameraTarget.y, cameraTarget.z);
 }
 
-function loadLevel(mapId, spawnName) {
+function loadLevel(mapId: string, spawnName?: string): Level {
   level?.destroy();
-  level = createLevel(scene, mapId, spawnName, {}, { character: hero, place });
-  level.debug.setEnabled(showDebug);
+  const next = createLevel(scene, mapId, spawnName, {}, { character: hero, place });
+  level = next;
+  next.debug.setEnabled(showDebug);
   boundSlots = '';
-  renderer.setAmbientOcclusion(level.env.aoStrength);
-  snapCamera();
+  renderer.setAmbientOcclusion(next.env.aoStrength);
+  snapCamera(next);
+  return next;
 }
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
  * Hold until the map is drawable, moving the bar to how much of it is.
@@ -141,7 +158,7 @@ async function untilReady() {
  * while the screen is opaque so the new level's first frame is never seen
  * half-built, and the camera snap is invisible.
  */
-async function behindCover(load) {
+async function behindCover(load: () => void) {
   if (transitioning) return;
   transitioning = true;
 
@@ -155,7 +172,7 @@ async function behindCover(load) {
   // the game does, and a cluster is assembled out of its parts at this moment
   // too. Both block, which is exactly why there is something over the screen.
   load();
-  loading.textContent = level.name;
+  loading.textContent = level?.name ?? '';
 
   // Behind it as well: a shader that is still compiling is a mesh that is not
   // drawn, and lifting the cover on top of that shows the map arriving in
@@ -168,21 +185,21 @@ async function behindCover(load) {
   transitioning = false;
 }
 
-async function goToMap(mapId, spawnName) {
+async function goToMap(mapId: string, spawnName?: string) {
   // A door leading into the place you are already standing in is the stair
   // down, not the way back: that ends this run and the next one is assembled
   // on the way through. Any other door leaves the dungeon where it is, so
   // coming back to it comes back to the same one.
-  if (!transitioning && mapId === level.id) endRun(mapId);
+  if (!transitioning && mapId === level?.id) endRun(mapId);
   await behindCover(() => loadLevel(mapId, spawnName));
 }
 
 // -------------------------------------------------------------------- ui
 
-const menu = document.getElementById('menu');
-const fade = document.getElementById('fade');
-const loading = document.getElementById('loading');
-const bar = document.querySelector('#bar > i');
+const menu = required('#menu');
+const fade = required('#fade');
+const loading = required('#loading');
+const bar = required('#bar > i');
 
 let playing = false;
 
@@ -193,7 +210,7 @@ let playing = false;
  * operations and decides what each press means. The panel reports raw presses
  * and this connects the two, so the only thing living here is the wiring.
  */
-const character = createCharacterPanel(document.getElementById('character'), {
+const character = createCharacterPanel(required('#character'), {
   onCellDown: (where, button) => itemCursor.cellDown(where, button),
   onCellUp: (where) => itemCursor.cellUp(where),
 });
@@ -202,7 +219,7 @@ const character = createCharacterPanel(document.getElementById('character'), {
  * The bench. Opened by clicking one, and closed by walking away from it —
  * which is also what stops it outliving the level it was opened in.
  */
-const crafting = createCraftingPanel(document.getElementById('crafting'), {
+const crafting = createCraftingPanel(required('#crafting'), {
   onCraft: (id) => {
     const result = level?.craft(id);
     if (!result || result.ok) return;
@@ -227,11 +244,11 @@ const crafting = createCraftingPanel(document.getElementById('crafting'), {
  * The abilities screen. Opened with K, and it decides nothing: a drop says
  * which ability landed on which key and the rules for that are in game/.
  */
-const abilities = createAbilitiesPanel(document.getElementById('abilities'), {
+const abilities = createAbilitiesPanel(required('#abilities'), {
   onAssign: (index, ability) => level?.assignSlot(index, ability),
 });
 
-const heldView = createHeldItemView(document.getElementById('held'));
+const heldView = createHeldItemView(required('#held'));
 
 /** Show what is being carried, and let the sheet know its cells are targets. */
 function syncHand() {
@@ -255,7 +272,7 @@ const itemCursor = createItemCursor(() => (playing ? level : null), {
  * the interact key finding the nearest one. Whatever a plate can do, the key
  * does, because there is only the one path.
  */
-function interactWith(id) {
+function interactWith(id: string | undefined) {
   if (!id) return;
   if (id.startsWith('station')) {
     crafting.setOpen(true);
@@ -316,7 +333,7 @@ const input = createInput({
     if (event.code === 'F3') {
       event.preventDefault();
       showDebug = !showDebug;
-      level.debug.setEnabled(showDebug);
+      level?.debug.setEnabled(showDebug);
     }
 
     if (!playing && ['Enter', 'Space'].includes(event.code)) startGame();
@@ -380,19 +397,19 @@ const aimPoint = new Vector3();
  * atan2(dx, dy) space the actors use. Falls back to the way the player is
  * already facing before the mouse has ever moved.
  */
-function aimHeading() {
-  if (!input.pointer.seen) return level.player.facing;
+function aimHeading(current: Level) {
+  if (!input.pointer.seen) return current.player.facing;
 
-  aimPlane.d = -level.height * LEVEL_H;
+  aimPlane.d = -current.height * LEVEL_H;
   const ray = scene.createPickingRay(scene.pointerX, scene.pointerY, Matrix.Identity(), camera);
   const distance = ray.intersectsPlane(aimPlane);
-  if (distance === null) return level.player.facing;
+  if (distance === null) return current.player.facing;
 
   aimPoint.copyFrom(ray.direction).scaleInPlace(distance).addInPlace(ray.origin);
 
-  const dx = aimPoint.x - level.pos.gx;
-  const dy = aimPoint.z - level.pos.gy;
-  if (Math.hypot(dx, dy) < 1e-4) return level.player.facing;
+  const dx = aimPoint.x - current.pos.gx;
+  const dy = aimPoint.z - current.pos.gy;
+  if (Math.hypot(dx, dy) < 1e-4) return current.player.facing;
   return Math.atan2(dx, dy);
 }
 
@@ -430,7 +447,7 @@ function showMenu() {
   menu.classList.remove('hidden');
 }
 
-document.getElementById('play').addEventListener('click', startGame);
+required('#play').addEventListener('click', startGame);
 
 // ------------------------------------------------------------------ loop
 
@@ -442,6 +459,10 @@ loadLevel(START_MAP, 'default');
 
 renderer.run(
   (dt) => {
+    // Nothing to draw until the first map is in. `loadLevel` runs below before
+    // the loop starts, so this only ever guards the type, not a real frame.
+    if (!level) return true;
+
     fpsAccum += dt;
     fpsFrames++;
     if (fpsAccum >= 0.25) {
@@ -459,7 +480,7 @@ renderer.run(
       let right = 0;
       // Where the keys point, kept only as the fallback for a mouse that has
       // never moved. Null when standing still, which is not a heading.
-      let walking = null;
+      let walking: number | null = null;
       if (input.held('KeyW')) forward += 1;
       if (input.held('KeyS')) forward -= 1;
       if (input.held('KeyD')) right += 1;
@@ -479,7 +500,7 @@ renderer.run(
 
       // Every held binding re-attempts its slot each frame; the ability's own
       // cooldown is what paces it, so holding a button attacks continuously.
-      const aim = aimHeading();
+      const aim = aimHeading(level);
 
       // The body follows the cursor rather than the keys: this is a mouse-aimed
       // game, and someone circling a target should keep looking at it instead
@@ -487,13 +508,15 @@ renderer.run(
       // there is nothing to look at but the walk.
       const look = input.pointer.seen ? aim : walking;
       if (look !== null) level.facePlayer(look, dt);
+      // Captured before the callback: a narrowed `let` widens again inside one.
+      const current = level;
       SLOT_BINDINGS.forEach((binding, slot) => {
         const held =
           binding.button === undefined
-            ? input.held(binding.code)
+            ? input.held(binding.code ?? '')
             : input.buttons.isDown(binding.button);
         // Space doubles as slot 0 so the game stays playable from the keyboard.
-        if (held || (slot === 0 && input.held('Space'))) level.useSlot(slot, aim);
+        if (held || (slot === 0 && input.held('Space'))) current.useSlot(slot, aim);
       });
     }
 
@@ -507,8 +530,14 @@ renderer.run(
         endRun();
         goToMap(START_MAP, 'default');
       } else {
+        // A portal names where it goes; a map file may put anything in the
+        // field, so only a name is followed.
         const portal = level.pendingPortal();
-        if (portal) goToMap(portal.to, portal.spawn);
+        const to = portal?.to;
+        const spawn = portal?.spawn;
+        if (typeof to === 'string') {
+          goToMap(to, typeof spawn === 'string' ? spawn : undefined);
+        }
       }
     }
 
@@ -561,7 +590,7 @@ renderer.run(
         `${level.name}   ` +
         // Ahead of the debug numbers on purpose: it is the one thing on this line
         // a player rather than a developer is reading.
-        `${purseLine()}   ` +
+        `${purseLine(level)}   ` +
         `tile ${Math.floor(level.pos.gx)}, ${Math.floor(level.pos.gy)}   ` +
         `height ${height.toFixed(2)}   fps ${fps}   ` +
         (chasers ? `${chasers} chasing   ` : '') +
@@ -576,7 +605,11 @@ renderer.run(
 );
 
 if (import.meta.env.DEV) {
-  window.merc = {
+  // Assigned through Object.assign rather than written onto `window`: this is
+  // a debugging handle that exists only in a dev build, and declaring it on
+  // the global Window would have every other file believe in it too.
+  Object.assign(window, {
+    merc: {
     // Which buttons the game thinks are down. Worth reaching from a console: it
     // is updated straight from the events, so it can be checked without the
     // frame loop running, which is exactly when input bugs are hard to pin.
@@ -595,7 +628,8 @@ if (import.meta.env.DEV) {
     get level() {
       return level;
     },
-    goToMap,
-    start: startGame,
-  };
+      goToMap,
+      start: startGame,
+    },
+  });
 }

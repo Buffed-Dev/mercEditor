@@ -70,6 +70,65 @@ import { createTrailViews } from './trail.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { VFX } from '../data/vfx.ts';
 import { createPlayer } from './player.ts';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Ability, AbilityInput } from '../data/abilities.ts';
+import type { ArchetypeInput } from '../data/archetypes.ts';
+import type { AttributeInput } from '../data/attributes.ts';
+import type { BaseLevelInput } from '../data/baseLevels.ts';
+import type { CategoryInput } from '../data/categories.ts';
+import type { Currency, ItemInput } from '../data/items.ts';
+import type { EffectInput } from '../data/effects.ts';
+import type { GameMap, Placed } from '../data/mapFormat.ts';
+import type { LootTableInput } from '../data/lootTables.ts';
+import type { RecipeInput } from '../data/recipes.ts';
+import type { VfxInput } from '../data/vfx.ts';
+import type { Actor } from '../game/actor.ts';
+import type { Cast } from '../game/abilities.ts';
+import type { Character } from '../game/character.ts';
+import type { Place } from '../game/crafting.ts';
+import type { ItemInstance } from '../game/items.ts';
+import type { Cell } from '../ui/itemCursor.ts';
+import type { Telegraph } from './debug.ts';
+import type { Plate } from './groundItems.ts';
+import type { VfxHandle } from './vfx.ts';
+
+/** Everything a level can be told to use instead of the shipped tables. */
+export type LevelRules = {
+  attributes?: readonly AttributeInput[];
+  effects?: readonly EffectInput[];
+  abilities?: readonly AbilityInput[];
+  archetypes?: readonly ArchetypeInput[];
+  items?: readonly ItemInput[];
+  recipes?: readonly RecipeInput[];
+  categories?: readonly CategoryInput[];
+  currencies?: readonly Currency[];
+  lootTables?: readonly LootTableInput[];
+  baseLevels?: readonly BaseLevelInput[];
+  vfx?: readonly VfxInput[];
+};
+
+/** What using an ability did, and to whom. */
+export type ActivateResult = {
+  ok: boolean;
+  reason: string;
+  hits: Actor[];
+  /** True when the ability has only begun winding up. */
+  casting?: boolean;
+};
+
+/**
+ * A telegraph, as the cast it is hung on describes it.
+ *
+ * `Cast` says what is done to one without naming the renderer's type, so the
+ * level speaks in the same terms -- a real Telegraph satisfies it.
+ */
+type Shown = NonNullable<Cast['telegraph']>;
+
+/** The nearest thing worth pressing a key at. */
+export type InteractTarget = { id: string; label: string; distance: number };
+
+/** A crafting bench within reach. */
+type NearStation = { id: string; def: { gx: number; gy: number; label?: unknown }; distance: number };
 
 /**
  * One loaded map: its World, its slice of the scene, the player and whatever
@@ -95,7 +154,15 @@ import { createPlayer } from './player.ts';
  * base's level sits in. Both are handed in, because a level is disposable and
  * neither of them is.
  */
-export function createLevel(scene, source, spawnName = 'default', rules = {}, { character, place } = {}) {
+export function createLevel(
+  scene: Scene,
+  source: string | GameMap,
+  spawnName = 'default',
+  rules: LevelRules = {},
+  // No default: a level with no character has nothing to read an inventory
+  // off, and the line below did so unconditionally. The one caller passes both.
+  { character, place }: { character: Character; place: Place },
+) {
   const {
     attributes = ATTRIBUTES,
     effects: effectDefs = EFFECTS,
@@ -168,7 +235,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   // are thrown one at a time and clean themselves up when they burn out.
   const vfx = createVfxRuntime(scene, vfxDefs);
   /** The ones still playing that belong to an actor — see `carryVfx`. */
-  const carried = [];
+  const carried: { handle: VfxHandle; at: () => Vector3 }[] = [];
   const projectileViews = createProjectileViews(scene, root, vfx);
   const groundViews = createGroundItemViews(scene, root, shadows);
   // Handed the decal registry rather than the scene: a telegraph is a shape
@@ -209,7 +276,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   // live here either. Read and written through these two, so nothing below
   // changed shape.
   const held = () => character.hand;
-  const hold = (item) => character.setHand(item);
+  const hold = (item: ItemInstance | null | undefined) => character.setHand(item);
 
   /**
    * The bench within reach, or null.
@@ -223,8 +290,8 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   /** Clear of the bench itself, so the plate is readable and clickable. */
   const STATION_PLATE_H = 1.3;
 
-  function stationNear() {
-    let best = null;
+  function stationNear(): NearStation | null {
+    let best: NearStation | null = null;
     (map.stations ?? []).forEach((def, index) => {
       const distance = Math.hypot(def.gx + 0.5 - pos.gx, def.gy + 0.5 - pos.gy);
       if (distance > STATION_REACH) return;
@@ -252,9 +319,9 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * outright: standing at one with a drop at your feet, the key takes what you
    * are standing on, which is what walking over to it said you wanted.
    */
-  function interactTarget() {
-    let best = null;
-    const offer = (id, label, distance) => {
+  function interactTarget(): InteractTarget | null {
+    let best: InteractTarget | null = null;
+    const offer = (id: string, label: string, distance: number) => {
       if (!best || distance < best.distance) best = { id, label, distance };
     };
 
@@ -264,12 +331,16 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
     }
 
     const station = stationNear();
-    if (station) offer(station.id, station.def.label || 'Crafting bench', station.distance);
+    if (station) offer(station.id, stationLabel(station), station.distance);
 
     return best;
   }
 
   /** Everything that can be hit, player included. */
+  /** What a bench is called. A map file may put anything in the field. */
+  const stationLabel = (station: NearStation) =>
+    (typeof station.def.label === 'string' && station.def.label) || 'Crafting bench';
+
   const actors = () => [player, ...monsters.map((monster) => monster.actor)];
 
   /** Clear out anything the last tick killed, meshes included. */
@@ -294,7 +365,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * The effects aimed at whatever was struck. Called once per victim, so a cone
    * that catches three monsters applies these three times.
    */
-  function landOnTarget(ability, caster, target) {
+  function landOnTarget(ability: Ability, caster: Actor, target: Actor): void {
     for (const { effect, to } of ability.effects) {
       if (to !== 'self') effects.apply(effect, target, caster);
     }
@@ -305,7 +376,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * off, hit or miss — otherwise a wide swing through a crowd would wind the
    * attacker once per monster, and a whiff would not wind them at all.
    */
-  function landOnSelf(ability, caster) {
+  function landOnSelf(ability: Ability, caster: Actor): void {
     for (const { effect, to } of ability.effects) {
       if (to === 'self') effects.apply(effect, caster, caster);
     }
@@ -318,13 +389,23 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    *
    * @returns {{ok: boolean, reason: string, hits: Array}}
    */
-  function activate(actor, abilityId, aim = actor.facing, { interrupt = false } = {}) {
+  function activate(
+    actor: Actor,
+    abilityId: string,
+    aim = actor.facing,
+    { interrupt = false } = {},
+  ): ActivateResult {
     const ability = abilities.get(abilityId);
 
     // A combo is not something that happens; it is a decision about which of
     // its steps happens, and then that step goes through everything below
     // exactly as it would in a slot of its own.
     if (ability?.target === 'combo') return activateCombo(ability, actor, aim, { interrupt });
+
+    // An id nobody recognises is answered as such rather than carried down the
+    // rest of this function. `canActivate` below says the same thing, but only
+    // after three reads of the ability that would already have thrown.
+    if (!ability) return { ok: false, reason: 'unknown', hits: [] };
 
     // A wind-up runs to the end, and while it does the caster is committed:
     // another timed ability has to wait. The exceptions are both deliberate.
@@ -355,7 +436,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
     // Dropped, not landed: the area goes away rather than flashing, because
     // nothing was ever tested inside it. An instant ability that does not
     // interrupt leaves the wind-up alone — it happened alongside it.
-    if (actor.cast && (!cutsIn || ability.interrupts)) endCast(actor).telegraph?.cancel();
+    if (actor.cast && (!cutsIn || ability.interrupts)) endCast(actor)?.telegraph?.cancel();
 
     payCost(ability, actor);
     beginCooldown(ability, actor);
@@ -392,7 +473,12 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * combo because a press bounced off the global cooldown would be
    * indistinguishable from the game dropping the input.
    */
-  function activateCombo(combo, actor, aim, opts) {
+  function activateCombo(
+    combo: Ability,
+    actor: Actor,
+    aim: number,
+    opts: { interrupt?: boolean },
+  ): ActivateResult {
     // A step still winding up owns the chain until it lands. Pressing a slot
     // again is normally allowed to interrupt what it is doing, and for one
     // ability that is right — you changed your mind. Inside a chain it is not:
@@ -434,7 +520,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   }
 
   /** A step of a combo has landed: move to the next, or close the chain. */
-  function landChainStep(actor, combo) {
+  function landChainStep(actor: Actor, combo: Ability): void {
     if (advanceChain(actor, combo)) beginCooldown(combo, actor);
   }
 
@@ -444,7 +530,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * cast starts. Nothing else has an area to show: a projectile is a body that
    * travels and a dash moves the caster, so neither has a wedge to stand in.
    */
-  function telegraph(ability, actor, aim) {
+  function telegraph(ability: Ability, actor: Actor, aim: number): Telegraph | null {
     if (ability.target !== 'melee') return null;
     return debug.telegraph({
       gx: actor.pos.gx,
@@ -464,7 +550,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * cast fixes its aim when it begins and fires on that, so a shape that turned
    * with the body would be pointing somewhere the swing is not going to test.
    */
-  function followTelegraph(cast, actor) {
+  function followTelegraph(cast: { telegraph?: Shown | null; aim: number }, actor: Actor): void {
     cast.telegraph?.place(actor.pos.gx, actor.pos.gy, cast.aim);
   }
 
@@ -481,7 +567,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * that reaches its own range is played on the caster, or the arc would be
    * drawn a range past where the arc is.
    */
-  function playVfx(ability, actor, aim) {
+  function playVfx(ability: Ability, actor: Actor, aim: number): void {
     if (!ability.vfx) return;
 
     // On the caster, and nowhere else. Where an effect actually sits is its own
@@ -513,7 +599,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * Dropped from the list as soon as its own runtime says it is finished, so
    * this never has to know what a flash is made of or how long it lasts.
    */
-  function carryVfx() {
+  function carryVfx(): void {
     for (let i = carried.length - 1; i >= 0; i--) {
       const one = carried[i];
       if (!one.handle.alive) carried.splice(i, 1);
@@ -522,7 +608,12 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   }
 
   /** @param {object|null} shown the wind-up's shape, if it had one */
-  function resolve(ability, actor, aim, shown = null) {
+  function resolve(
+    ability: Ability,
+    actor: Actor,
+    aim: number,
+    shown: Shown | null = null,
+  ): ActivateResult {
     landOnSelf(ability, actor);
     playVfx(ability, actor, aim);
 
@@ -565,7 +656,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * meaningful next to the name: "2/3" says you are partway through and
    * "Swipe" says what pressing now actually does.
    */
-  function comboStep(ability) {
+  function comboStep(ability: Ability) {
     if (ability.target !== 'combo' || !ability.steps.length) return null;
     const index = chainIndex(player, ability);
     const step = abilities.get(ability.steps[index]);
@@ -577,7 +668,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
   }
 
   /** Advance every wind-up, firing the ones that finish. */
-  function updateCasts(dt) {
+  function updateCasts(dt: number): void {
     for (const actor of actors()) {
       updateChain(actor, dt);
       updateCastSlow(actor, dt);
@@ -587,7 +678,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
 
       // A caster killed mid-wind-up drops it, slow and all.
       if (!actor.alive) {
-        endCast(actor).telegraph?.cancel();
+        endCast(actor)?.telegraph?.cancel();
         continue;
       }
 
@@ -599,8 +690,11 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
 
       // Ended before resolving, so the slow is already gone when the ability
       // lands and a dash or knockback would not fight it.
-      const { ability, aim, telegraph: shown, combo } = endCast(actor);
-      resolve(ability, actor, aim, shown);
+      // `endCast` hands back the same cast that was read above, which is
+      // already known to be there.
+      endCast(actor);
+      const { ability, aim, telegraph: shown, combo } = cast;
+      resolve(ability, actor, aim, shown ?? null);
       // Only a wind-up that ran out lands. One dropped — interrupted, or its
       // caster killed — leaves the chain where it was and lets the window
       // decide, which is the same thing that happens to a press that misses.
@@ -617,10 +711,10 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * for when everything nearby is taken, which is better than refusing to drop
    * and leaving the player unable to empty a full bag.
    */
-  function landingSpot(gx, gy) {
+  function landingSpot(gx: number, gy: number): { tx: number; ty: number } {
     const tx = Math.floor(gx);
     const ty = Math.floor(gy);
-    const free = (x, y) => !world.isWall(x, y) && !ground.occupied(x, y);
+    const free = (x: number, y: number) => !world.isWall(x, y) && !ground.occupied(x, y);
     return nearestFree(tx, ty, free) ?? { tx, ty };
   }
 
@@ -630,7 +724,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * The player's position travels with it so the view can arc it across rather
    * than have it appear already lying where it landed.
    */
-  function toss(item) {
+  function toss(item: ItemInstance | null | undefined) {
     const { tx, ty } = landingSpot(pos.gx, pos.gy);
     return ground.drop(item, tx, ty, { gx: pos.gx, gy: pos.gy }, elapsed);
   }
@@ -641,7 +735,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
    * What a table *pays* is decided in ../game/loot.js; this only knows where a
    * thing can land, which is the one part of it that needs the world.
    */
-  function dropLoot(tableId, from) {
+  function dropLoot(tableId: string | undefined, from: Placed) {
     if (!tableId) return [];
     // One pile per currency, each finding its own tile: landingSpot already
     // refuses a tile that is taken, so two piles cannot end up inside each
@@ -651,6 +745,15 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       return ground.drop(pile, tx, ty, { gx: from.gx, gy: from.gy }, elapsed);
     });
   }
+
+  /**
+   * How far off the floor the player is standing.
+   *
+   * A function rather than only a getter, so the frame below can ask without
+   * going through `this` -- which would make the returned type depend on
+   * itself before it is finished being described.
+   */
+  const heightNow = () => world.standAt(pos.gx, pos.gy);
 
   return {
     id: map.id,
@@ -680,7 +783,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * player's feet, so it is part of where they are.
      */
     get height() {
-      return world.standAt(pos.gx, pos.gy);
+      return heightNow();
     },
 
     get alive() {
@@ -698,7 +801,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * Put something from the bag on the floor at the player's feet.
      * @returns the drop, or null if that cell was empty.
      */
-    dropFromBag(index) {
+    dropFromBag(index: number) {
       const item = inventory.takeAt(index);
       if (!item) return null;
       return toss(item);
@@ -708,7 +811,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * The same, for something being worn — which also takes its modifiers off.
      * Dropping a sword on the floor must not leave you still swinging it.
      */
-    dropFromSlot(slotId) {
+    dropFromSlot(slotId: string) {
       const item = inventory.unequip(slotId);
       if (!item) return null;
       strip(player.attrs, item);
@@ -726,13 +829,13 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * alternative is deciding where the thing already held should go, which is
      * the player's choice to make and not this one's.
      */
-    takeFromBag(index) {
+    takeFromBag(index: number) {
       if (held()) return null;
       hold(takeFromBag(inventory, index));
       return held();
     },
 
-    takeFromSlot(slotId) {
+    takeFromSlot(slotId: string) {
       if (held()) return null;
       hold(takeFromSlot(player.attrs, inventory, slotId));
       syncLoadout();
@@ -743,14 +846,14 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * Put the held item down in a bag cell. Whatever was there comes back to
      * the cursor, so a swap leaves you holding what you displaced.
      */
-    placeInBag(index) {
+    placeInBag(index: number) {
       if (!held()) return { ok: false, reason: 'empty' };
       hold(placeInBag(inventory, index, held()));
       return { ok: true, reason: '' };
     },
 
     /** The same, onto the body — which is what puts its stats to work. */
-    placeInSlot(slotId) {
+    placeInSlot(slotId: string) {
       if (!held()) return { ok: false, reason: 'empty' };
       const result = placeInSlot(player.attrs, inventory, slotId, held());
       if (!result.ok) return result;
@@ -777,7 +880,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      *
      * @param {{kind: 'bag'|'slot', id: number|string}|null} origin
      */
-    returnHand(origin) {
+    returnHand(origin: Cell | null) {
       if (!held()) return { ok: false, reason: 'empty', to: null };
       const item = held();
 
@@ -828,14 +931,14 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * Nothing here decides what an item does — its stats are already modifiers,
      * so this is the same machinery a buff goes through.
      */
-    equipFromBag(index) {
+    equipFromBag(index: number) {
       const result = equipFromBag(player.attrs, inventory, index);
       syncLoadout();
       return result;
     },
 
     /** Take something off, back into the bag. */
-    unequipToBag(slotId) {
+    unequipToBag(slotId: string) {
       const result = unequipToBag(player.attrs, inventory, slotId);
       syncLoadout();
       return result;
@@ -850,7 +953,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      *
      * @returns {{ok: boolean, reason: string, item: object|null}}
      */
-    pickUp: (id) => collect(id, { ground, character }),
+    pickUp: (id: string) => collect(id, { ground, character }),
 
     /** What the interact key would act on, named, or null. */
     interactTarget,
@@ -864,7 +967,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * draws them — so a bench that arrives through this list needs none of that
      * built again. Drop ids and station ids cannot collide.
      */
-    groundAnchors() {
+    groundAnchors(): readonly Plate[] {
       const anchors = groundViews.anchors();
       const near = stationNear();
       if (!near) return anchors;
@@ -874,7 +977,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
         ...anchors,
         {
           id: near.id,
-          label: near.def.label || 'Crafting bench',
+          label: stationLabel(near),
           x,
           y: world.heightAt(x, z) * LEVEL_H + STATION_PLATE_H,
           z,
@@ -897,7 +1000,8 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       }),
 
     /** Bind one ability to one key. Dropping nothing on a key empties it. */
-    assignSlot: (index, ability) => assignSlot(character, index, ability),
+    assignSlot: (index: number, ability: string | null) =>
+      assignSlot(character, index, ability),
 
     /** What the player is carrying, named — for the status line. */
     purse: () => purseView(currencies, character),
@@ -910,7 +1014,8 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       craftingView({ recipes, items, categories, attributes, currencies, baseLevels, character, place }),
 
     /** Set the bench going. The refusals are in ../game/crafting.js, not here. */
-    craft: (recipeId) => beginCraft(recipeId, { recipes, items, categories, character, place }),
+    craft: (recipeId: string) =>
+      beginCraft(recipeId, { recipes, items, categories, character, place }),
 
     upgradeBase: () => upgradeBase({ character, place, baseLevels }),
 
@@ -966,7 +1071,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       };
     },
 
-    movePlayer(dirX, dirZ, step) {
+    movePlayer(dirX: number, dirZ: number, step: number): void {
       // A dash owns the body while it lasts. Steering during one would add the
       // walk on top of the dash and overshoot the range that was authored.
       if (player.dash) return;
@@ -978,7 +1083,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * the player looks where the cursor is, not where the keys point — the two
      * only agree when you happen to be walking at what you are aiming at.
      */
-    facePlayer(heading, dt) {
+    facePlayer(heading: number, dt: number): void {
       // Frozen for the same reason steering is: the dash was aimed once.
       if (player.dash) return;
       // Not straight to the heading: a wind-up in progress caps how fast the
@@ -988,7 +1093,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
     },
 
     /** Fire one of the player's ability slots. `aim` comes from the cursor. */
-    useSlot(slot, aim) {
+    useSlot(slot: number, aim: number): ActivateResult | null {
       const id = character.slots[slot];
       if (!id) return null;
       // The player is the one who may interrupt: pressing a different slot
@@ -1007,7 +1112,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * @param {boolean} simulate false while paused: props keep animating so the
      * menu is not frozen, but monsters and portals hold still.
      */
-    update(dt, simulate) {
+    update(dt: number, simulate: boolean): void {
       if (simulate) {
         tickActor(player, dt);
         for (const monster of monsters) tickActor(monster.actor, dt);
@@ -1055,7 +1160,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       // With the frame's dt, so the body climbs a step rather than hopping it.
       // The one at build time deliberately has none: it should start where it
       // stands, not fly in.
-      playerView.sync(pos.gx, pos.gy, this.height, dt);
+      playerView.sync(pos.gx, pos.gy, heightNow(), dt);
       monsterViews.sync(world);
       projectileViews.sync(projectiles.list, world);
 
@@ -1081,7 +1186,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
         // The torus is built lying flat, so it spins about the world's up axis.
         portal.ring.rotation.y += dt * 1.4;
         portal.ring.position.y = 0.55 + Math.sin(portal.phase * 2) * 0.06;
-        portal.disc.material.alpha = 0.45 + Math.sin(portal.phase * 3) * 0.12;
+        portal.discMaterial.alpha = 0.45 + Math.sin(portal.phase * 3) * 0.12;
       }
     },
 
@@ -1090,7 +1195,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
      * null. Re-arms once they walk off whatever they arrived next to.
      */
     pendingPortal() {
-      const here = this.world.portalAt(pos.gx, pos.gy);
+      const here = world.portalAt(pos.gx, pos.gy);
       if (!here) {
         portalArmed = true;
         return null;
@@ -1098,7 +1203,7 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
       return portalArmed ? here : null;
     },
 
-    destroy() {
+    destroy(): void {
       groundViews.dispose();
       trails.dispose();
       debug.dispose();
@@ -1110,3 +1215,6 @@ export function createLevel(scene, source, spawnName = 'default', rules = {}, { 
     },
   };
 }
+
+/** One map, running: its world, its actors, and everything drawn for them. */
+export type Level = ReturnType<typeof createLevel>;

@@ -13,7 +13,7 @@ type SlotView = { slot: Rectangle; cool: Rectangle; name: TextBlock; step: TextB
 
 /** One key of the bar, as the game reports it. */
 export type HudSlot = {
-  id?: string;
+  id?: string | null;
   label?: string;
   /** How much of the cooldown is left, 0 to 1. */
   fraction?: number;

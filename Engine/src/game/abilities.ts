@@ -8,6 +8,16 @@ export type Cast = {
   remaining: number;
   total: number;
   handle: AttrModifier | null;
+  /**
+   * The shape drawn on the ground while this winds up, if one was.
+   *
+   * Described by what is done to it rather than imported from `render/debug`:
+   * a cast is hung with one by the level, and `game/` does not reach into the
+   * renderer. Nothing in this file touches it.
+   */
+  telegraph?: { place: (gx: number, gy: number, aim: number) => void; fire: () => void; cancel: () => void } | null;
+  /** The combo this is a step of, when it is one. */
+  combo?: Ability | null;
 };
 
 /**
