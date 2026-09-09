@@ -59,7 +59,7 @@ export const rules = {
  * back the plain path. Found rather than listed, for the same reason the maps
  * below are.
  */
-let assetModules = {};
+let assetModules;
 try {
   assetModules = import.meta.glob('./assets/*', { eager: true, query: '?url', import: 'default' });
 } catch {
@@ -77,7 +77,7 @@ export const ASSET_URLS = Object.fromEntries(
  * The try/catch is for everything that is not Vite — `node --test`, say — where
  * `import.meta.glob` does not exist and an empty folder beats a hard crash.
  */
-let modules = {};
+let modules;
 try {
   modules = import.meta.glob('./maps/*.js', { eager: true });
 } catch {

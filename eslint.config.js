@@ -40,7 +40,18 @@ export default [
   ...ts.configs.recommended.map((config) => ({ ...config, files: ['**/*.ts', '**/*.tsx'] })),
   {
     files: ['**/*.ts', '**/*.tsx'],
-    rules: { 'no-unused-vars': 'off', '@typescript-eslint/no-unused-vars': unused },
+    rules: {
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': unused,
+      // Both are warnings in `recommended`, which means a stray `any` scrolls
+      // past in a hundred lines of output instead of failing the build. The
+      // whole TypeScript surface here is written without either, and the only
+      // way that stays true through the rest of the migration is if breaking
+      // it is an error. An escape hatch that costs a conversation is fine; one
+      // that costs nothing is not an invariant.
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/ban-ts-comment': 'error',
+    },
   },
   { files: ['**/*.cjs'], languageOptions: { sourceType: 'commonjs' } },
 ];

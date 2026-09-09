@@ -245,6 +245,6 @@ test('a map that says its clouds with a number is read as clouds switched on', (
   for (const key of ['lighting', 'ao', 'fog', 'clouds']) {
     assert.match(source, new RegExp(`\n    ${key}: (true|false),`), `${key} was written`);
   }
-  assert.match(source, /\n    cloudShade: 0.4,/);
-  assert.match(source, /\n    sky: 0x[0-9a-f]{6},/);
+  assert.match(source, /\n {4}cloudShade: 0.4,/);
+  assert.match(source, /\n {4}sky: 0x[0-9a-f]{6},/);
 });
