@@ -74,7 +74,14 @@ export type PropInput = Partial<Prop>;
  * Distinct from `Prop` because a map stores the position and may override the
  * lift, while everything else about the thing comes from the definition.
  */
-export type PlacedProp = { id?: string; gx: number; gy: number; lift?: number };
+export type PlacedProp = {
+  id?: string;
+  gx: number;
+  gy: number;
+  lift?: number;
+  /** Extra turn in degrees, on top of the definition's own. */
+  rot?: number;
+};
 
 /** Finds a definition by id. Passed in so the editor can ask about drafts. */
 export type PropLookup = (id: string) => Prop | null;

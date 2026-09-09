@@ -20,12 +20,11 @@ import type { Scene } from '@babylonjs/core/scene.js';
  */
 export type Shadows = { add: <T extends AbstractMesh>(mesh: T) => T };
 
-/** What placing a light needs to know about the ground under it. */
-export type Ground = {
-  cols: number;
-  rows: number;
-  heightAt: (gx: number, gy: number) => number;
-};
+/** How high the ground is at a point. Most views ask nothing else of it. */
+export type Heights = { heightAt: (gx: number, gy: number) => number };
+
+/** What placing a light needs: the height, and how far across the map is. */
+export type Ground = Heights & { cols: number; rows: number };
 
 /** The four kinds a map can declare. See data/lights.ts. */
 type AnyLight = HemisphericLight | DirectionalLight | SpotLight | PointLight;

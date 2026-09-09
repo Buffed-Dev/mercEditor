@@ -66,8 +66,8 @@ import { createDebugViews } from './debug.ts';
 import { createMonsterViews } from './monsters.ts';
 import { createProjectileViews } from './projectiles.ts';
 import { createGroundItemViews } from './groundItems.ts';
-import { createTrailViews } from './trail.js';
-import { createVfxRuntime } from './vfx.js';
+import { createTrailViews } from './trail.ts';
+import { createVfxRuntime } from './vfx.ts';
 import { VFX } from '../data/vfx.ts';
 import { createPlayer } from './player.ts';
 

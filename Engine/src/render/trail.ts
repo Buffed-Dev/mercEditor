@@ -8,6 +8,11 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.ts';
 import { BODY_LENGTH, BODY_RADIUS } from './player.ts';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
+import type { Actor } from '../game/actor.ts';
+import type { Placed } from '../data/mapFormat.ts';
+import type { Heights } from './lights.ts';
 
 /**
  * The spark trail a dash leaves behind.
@@ -63,7 +68,7 @@ const COLOR = Color3.FromInts(0x9f, 0xe4, 0xff);
 const SPARK_SIZE = 0.12;
 
 /** A soft round dot, so sparks are not visible squares. */
-function softDotTexture(scene) {
+function softDotTexture(scene: Scene): DynamicTexture {
   const size = 32;
   const texture = new DynamicTexture('spark', { width: size, height: size }, scene, false);
   const context = texture.getContext();
@@ -81,7 +86,7 @@ function softDotTexture(scene) {
   return texture;
 }
 
-export function createTrailViews(scene, root) {
+export function createTrailViews(scene: Scene, root: TransformNode) {
   const velocity = new Float32Array(MAX * 3);
   const age = new Float32Array(MAX);
   const life = new Float32Array(MAX);
@@ -117,7 +122,9 @@ export function createTrailViews(scene, root) {
   material.alphaMode = Constants.ALPHA_ADD;
   material.disableDepthWrite = true;
   material.backFaceCulling = false;
-  material.applyFog = false;
+  // See materials.ts: applyFog is a mesh property, so this only ever set a
+  // field nothing reads. fogEnabled is the one that gates it.
+  material.fogEnabled = false;
   mesh.material = material;
   // What carries the fade: without this the shader never reads the alpha the
   // particles are carrying.
@@ -133,12 +140,12 @@ export function createTrailViews(scene, root) {
   sps.setParticles();
 
   // Where each dashing actor last emitted. Cleared when its dash ends.
-  const lastMark = new Map();
+  const lastMark = new Map<Actor, Placed>();
   let bursts = 0;
 
   const spread = () => (Math.random() * 2 - 1) * SCATTER;
 
-  function emit(gx, gy, groundY) {
+  function emit(gx: number, gy: number, groundY: number): void {
     if (count >= MAX) return;
 
     const i = count++;
@@ -152,7 +159,9 @@ export function createTrailViews(scene, root) {
     );
     // White, so the emissive colour comes through untouched; the alpha is the
     // only part that moves.
-    particle.color.set(1, 1, 1, 1);
+    // Every SPS particle is given a colour when the system is built; the
+    // optional call is what says so without asserting it.
+    particle.color?.set(1, 1, 1, 1);
     particle.isVisible = true;
 
     velocity[p] = (Math.random() * 2 - 1) * DRIFT;
@@ -164,14 +173,16 @@ export function createTrailViews(scene, root) {
   }
 
   /** Move the last live particle into slot `i`, so the live ones stay packed. */
-  function recycle(i) {
+  function recycle(i: number): void {
     const last = --count;
     sps.particles[last].isVisible = false;
 
     if (i === last) return;
 
     sps.particles[i].position.copyFrom(sps.particles[last].position);
-    sps.particles[i].color.copyFrom(sps.particles[last].color);
+    const into = sps.particles[i].color;
+    const from = sps.particles[last].color;
+    if (into && from) into.copyFrom(from);
 
     const a = i * 3;
     const b = last * 3;
@@ -189,7 +200,7 @@ export function createTrailViews(scene, root) {
    *
    * @returns the advanced mark, or null when the step was too short to matter.
    */
-  function layAlong(world, last, gx, gy) {
+  function layAlong(world: Heights, last: Placed, gx: number, gy: number): Placed | null {
     const dx = gx - last.gx;
     const dy = gy - last.gy;
     const travelled = Math.hypot(dx, dy);
@@ -225,7 +236,7 @@ export function createTrailViews(scene, root) {
      * Emit for one actor. Safe to call every frame for everyone; it does
      * nothing for anyone who is not dashing.
      */
-    follow(actor, world) {
+    follow(actor: Actor, world: Heights): void {
       const { gx, gy } = actor.pos;
       const last = lastMark.get(actor);
 
@@ -252,7 +263,7 @@ export function createTrailViews(scene, root) {
       if (next) lastMark.set(actor, next);
     },
 
-    update(dt) {
+    update(dt: number): void {
       if (!count) return;
 
       const keep = DRAG ** dt; // frame-rate independent decay
@@ -275,13 +286,13 @@ export function createTrailViews(scene, root) {
         velocity[p + 2] *= keep;
 
         // Additive blending: an alpha of zero adds nothing, so this is the fade.
-        particle.color.a = 1 - age[i] / life[i];
+        if (particle.color) particle.color.a = 1 - age[i] / life[i];
       }
 
       sps.setParticles();
     },
 
-    dispose() {
+    dispose(): void {
       sps.dispose();
       material.dispose();
       texture.dispose();
@@ -290,3 +301,6 @@ export function createTrailViews(scene, root) {
     },
   };
 }
+
+/** The sparks trailing behind whatever is dashing. */
+export type TrailViews = ReturnType<typeof createTrailViews>;

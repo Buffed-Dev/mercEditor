@@ -18,7 +18,58 @@ import {
   modifiersOf,
   normalizeVfx,
   sheetFrames,
+  type Vfx,
+  type VfxEmitter,
+  type VfxInput,
+  type VfxModifier,
+  type VfxParticle,
+  type VfxSheet,
 } from '../data/vfx.ts';
+import type { ICanvasRenderingContext } from '@babylonjs/core/Engines/ICanvas.js';
+import type { IParticleEmitterType } from '@babylonjs/core/Particles/EmitterTypes/IParticleEmitterType.js';
+import type { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
+import type { Particle } from '@babylonjs/core/Particles/particle.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+
+/** Where an effect is played: a fixed point, or something that carries it. */
+export type VfxAnchor = Vector3 | TransformNode;
+
+/** What the blow an effect belongs to tells it about itself. */
+export type VfxShape = { aim?: number; arc?: number; range?: number };
+
+/**
+ * A running effect, whichever of the two machines is behind it.
+ *
+ * Particles and sprite sheets are built and torn down completely differently,
+ * but a caller only ever wants to carry one about, stop it and throw it away.
+ * `system` and `node` are here because the editor's preview reaches for them;
+ * one of the two is always null.
+ */
+export type VfxHandle = {
+  system: ParticleSystem | null;
+  node: TransformNode | Mesh | null;
+  readonly alive: boolean;
+  follow: (where: Vector3) => void;
+  stop: () => void;
+  dispose: () => void;
+};
+
+/** How an effect is played. */
+export type SpawnOptions = { shape?: VfxShape | null; looping?: boolean; forever?: boolean };
+
+/**
+ * Per-scene and per-system state that used to be stashed on the Babylon
+ * objects themselves as `__mercVfxSprites`, `__mercVfxGrading` and
+ * `__mercBurst`.
+ *
+ * WeakMaps rather than properties: the lifetime is identical -- an entry goes
+ * when its scene or system does -- and a scene is no longer quietly carrying
+ * fields that Babylon knows nothing about.
+ */
+const sprites = new WeakMap<Scene, Map<string, Texture>>();
+const gradings = new WeakMap<Scene, ImageProcessingConfiguration>();
+const bursts = new WeakMap<ParticleSystem, number>();
 
 /**
  * Turning a VFX definition into a running particle system.
@@ -53,12 +104,12 @@ const DEG = Math.PI / 180;
  * all — a handful of shapes are cheaper to paint than to ship, and there is no
  * request to wait for before the first frame.
  */
-function draw(shape, ctx, size) {
+function draw(shape: string, ctx: ICanvasRenderingContext, size: number): void {
   const half = size / 2;
   ctx.fillStyle = '#fff';
   ctx.strokeStyle = '#fff';
 
-  const radial = (stops) => {
+  const radial = (stops: readonly [number, number][]): void => {
     const gradient = ctx.createRadialGradient(half, half, 0, half, half, half);
     for (const [at, alpha] of stops) gradient.addColorStop(at, `rgba(255,255,255,${alpha})`);
     ctx.fillStyle = gradient;
@@ -132,15 +183,19 @@ function draw(shape, ctx, size) {
  * everything that asks for the same one. Keyed by the picture when there is one
  * and by the shape name when there is not.
  */
-function sprite(scene, particle) {
+function sprite(scene: Scene, particle: VfxParticle): Texture {
   const key = particle.shape === 'sprite' && particle.image ? particle.image : `shape:${particle.shape}`;
-  const cache = (scene.__mercVfxSprites ??= new Map());
+  let cache = sprites.get(scene);
+  if (!cache) {
+    cache = new Map<string, Texture>();
+    sprites.set(scene, cache);
+  }
   const held = cache.get(key);
   // A texture can outlive its GPU side — a scene torn down and rebuilt, say —
   // and a dead one draws nothing at all, silently.
   if (held && held.isReady()) return held;
 
-  let texture;
+  let texture: Texture;
   if (particle.shape === 'sprite' && particle.image) {
     // The fourth argument is `invertY`, and it is true — Babylon's own default
     // — so a picture arrives the way up it was drawn.
@@ -149,9 +204,12 @@ function sprite(scene, particle) {
     // 128 rather than 64: the glow shape is mostly a long smooth falloff, and
     // at half this the halo bands visibly once a particle is drawn large.
     const size = 128;
-    texture = new DynamicTexture(`vfx:${particle.shape}`, size, scene, false);
-    draw(particle.shape, texture.getContext(), size);
-    texture.update();
+    // Held as a DynamicTexture rather than through `texture`, which is the
+    // wider type: only this one has a canvas to draw the shape onto.
+    const drawn = new DynamicTexture(`vfx:${particle.shape}`, size, scene, false);
+    draw(particle.shape, drawn.getContext(), size);
+    drawn.update();
+    texture = drawn;
   }
   texture.hasAlpha = true;
 
@@ -165,14 +223,19 @@ function sprite(scene, particle) {
  * map with tone mapping on grades every effect in it; handing it one of its own
  * at the defaults is how it opts out.
  */
-function plainGrading(scene) {
-  return (scene.__mercVfxGrading ??= new ImageProcessingConfiguration());
+function plainGrading(scene: Scene): ImageProcessingConfiguration {
+  let found = gradings.get(scene);
+  if (!found) {
+    found = new ImageProcessingConfiguration();
+    gradings.set(scene, found);
+  }
+  return found;
 }
 
 // ------------------------------------------------------------- the shape
 
 /** Where particles are born, and which way they set off. */
-function useEmitterShape(system, emitter) {
+function useEmitterShape(system: ParticleSystem, emitter: VfxEmitter): IParticleEmitterType {
   const radius = Math.max(emitter.radius, 0.001);
   const jitter = emitter.spread / 180;
 
@@ -224,7 +287,21 @@ function useEmitterShape(system, emitter) {
  */
 const CURVE_STOPS = 8;
 
-function rampGradients(system, particle, overTime) {
+/**
+ * What a missing colour or ramp end reads as.
+ *
+ * `defaultModifier` fills every field a modifier's kind declares, so these
+ * only stand in for a record that was hand-written without them: white and
+ * unity, which together mean "leave it as it is".
+ */
+const WHITE = 0xffffff;
+const UNCHANGED = 1;
+
+function rampGradients(
+  system: ParticleSystem,
+  particle: VfxParticle,
+  overTime: VfxModifier | null,
+): void {
   const born = colorOf(particle.color);
   const gain = particle.glow > 0 ? particle.glow : 1;
 
@@ -232,8 +309,8 @@ function rampGradients(system, particle, overTime) {
   const scaleTo = overTime?.scaleTo ?? 1;
   const fadeFrom = overTime?.fadeFrom ?? 1;
   const fadeTo = overTime?.fadeTo ?? 1;
-  const colorFrom = overTime ? colorOf(overTime.colorFrom) : born;
-  const colorTo = overTime ? colorOf(overTime.colorTo) : born;
+  const colorFrom = overTime ? colorOf(overTime.colorFrom ?? WHITE) : born;
+  const colorTo = overTime ? colorOf(overTime.colorTo ?? WHITE) : born;
 
   for (let i = 0; i < CURVE_STOPS; i++) {
     const at = i / (CURVE_STOPS - 1);
@@ -259,7 +336,7 @@ function rampGradients(system, particle, overTime) {
  * never what anyone wanted — least of all on a cone or a cylinder, where you
  * are looking through the near face at the far one on purpose.
  */
-function sheetMesh(scene, sheet) {
+function sheetMesh(scene: Scene, sheet: VfxSheet): Mesh {
   switch (sheet.shape) {
     case 'disc':
       return MeshBuilder.CreateDisc('vfxSheet', { radius: sheet.radius, tessellation: 48 }, scene);
@@ -302,7 +379,7 @@ function sheetMesh(scene, sheet) {
  * bottom-first. A single-row strip comes out the same either way, which is
  * exactly why that mistake survives until somebody loads a 5x5.
  */
-function buildSheet(scene, def, anchor) {
+function buildSheet(scene: Scene, def: Vfx, anchor: VfxAnchor) {
   const sheet = def.sheet;
   const { columns, rows, first, count } = sheetFrames(sheet);
 
@@ -325,7 +402,9 @@ function buildSheet(scene, def, anchor) {
   material.alpha = sheet.opacity;
   // Added to the frame or laid over it, the same choice a particle's glow is.
   material.alphaMode = sheet.glow ? Constants.ALPHA_ADD : Constants.ALPHA_COMBINE;
-  material.applyFog = false;
+  // See materials.ts: applyFog belongs to a mesh, so this only ever set a
+  // field nothing reads. fogEnabled is the one that gates it.
+  material.fogEnabled = false;
   // A flipbook is light, not a surface. Left writing depth it hides whatever is
   // behind it and takes a bite out of the contact shading — the plane reads as
   // a pane of glass laid over the scene, which is exactly what it is not.
@@ -333,8 +412,13 @@ function buildSheet(scene, def, anchor) {
   mesh.receiveShadows = false;
   if (sheet.raw) material.imageProcessingConfiguration = plainGrading(scene);
 
+  // Held here rather than read back off `material.emissiveTexture`, which
+  // Babylon types as a BaseTexture -- and the offsets a flipbook writes live
+  // on Texture. One fewer property read per frame, too.
+  let sheetTexture: Texture | null = null;
   if (sheet.image) {
     const texture = new Texture(sheet.image, scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+    sheetTexture = texture;
     texture.hasAlpha = true;
     // Clamped, so a cell never bleeds the one beside it at its edge.
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;
@@ -346,8 +430,8 @@ function buildSheet(scene, def, anchor) {
   }
   mesh.material = material;
 
-  const showFrame = (at) => {
-    const texture = material.emissiveTexture;
+  const showFrame = (at: number): void => {
+    const texture = sheetTexture;
     if (!texture) return;
     // Wrapped inside the range and then counted from its start, so a clip that
     // begins part way down a sheet loops on itself rather than on the sheet.
@@ -366,12 +450,25 @@ function buildSheet(scene, def, anchor) {
  * The middle of the effect, in world space, whether it is pinned to a place or
  * riding on something that moves.
  */
-function originOf(system, into) {
+function originOf(system: ParticleSystem, into: Vector3): Vector3 {
   const emitter = system.emitter;
   if (!emitter) return into.setAll(0);
-  if (emitter.getAbsolutePosition) return into.copyFrom(emitter.getAbsolutePosition());
-  return into.copyFrom(emitter);
+  // `instanceof` rather than probing for getAbsolutePosition: an emitter is a
+  // point or a node, and this is already how the rest of the file asks.
+  return emitter instanceof Vector3
+    ? into.copyFrom(emitter)
+    : into.copyFrom(emitter.getAbsolutePosition());
 }
+
+/**
+ * A particle carrying how far off the swing's edge it was born.
+ *
+ * A WeakMap would be the tidy answer everywhere else in this file, but this is
+ * written once per particle and read once per particle per frame, on a system
+ * that recycles them -- so the field goes on the particle, and the cast is
+ * confined to the two lines that touch it.
+ */
+type BladeParticle = Particle & { _mercBlade?: number };
 
 /**
  * Put a slash's particles on the blade the moment they are born.
@@ -387,13 +484,25 @@ function originOf(system, into) {
  * particle becomes how far off the blade it sits, which makes the emitter's
  * radius the blade's thickness — but the angle and the distance are the swing's.
  */
-function bladeBirth(system, spread, slash, aim, half, reach) {
+function bladeBirth(
+  system: ParticleSystem,
+  spread: number,
+  slash: VfxModifier,
+  aim: number,
+  half: number,
+  reach: number,
+): void {
   const type = system.particleEmitterType;
   const inner = type.startPositionFunction.bind(type);
   // Age zero is the near edge of the swing, wherever that is.
   const start = aim - (slash.flip ? -1 : 1) * half;
 
-  type.startPositionFunction = (worldMatrix, out, particle, isLocal) => {
+  type.startPositionFunction = (
+    worldMatrix: Matrix,
+    out: Vector3,
+    particle: Particle,
+    isLocal: boolean,
+  ) => {
     inner(worldMatrix, out, particle, isLocal);
 
     // The emitter's own place, which is the middle to swing around. A local
@@ -402,7 +511,7 @@ function bladeBirth(system, spread, slash, aim, half, reach) {
     const oz = isLocal ? 0 : worldMatrix.m[14];
 
     const off = Math.hypot(out.x - ox, out.z - oz) - spread * 0.5;
-    particle._mercBlade = off;
+    (particle as BladeParticle)._mercBlade = off;
 
     const away = Math.max(0, reach + off);
     out.x = ox + Math.sin(start) * away;
@@ -422,7 +531,13 @@ function bladeBirth(system, spread, slash, aim, half, reach) {
  * so a movement that writes the first moves it and one that writes the second
  * bends its path — which is the difference between Circular and Arc.
  */
-function applyMovements(scene, system, movements, emitter, shape) {
+function applyMovements(
+  scene: Scene,
+  system: ParticleSystem,
+  movements: readonly VfxModifier[],
+  emitter: VfxEmitter,
+  shape: VfxShape | null,
+): void {
   if (!movements.length) return;
 
   const base = system.updateFunction;
@@ -439,7 +554,7 @@ function applyMovements(scene, system, movements, emitter, shape) {
   const slash = movements.find((move) => move.type === 'slash');
   if (slash) bladeBirth(system, emitter.radius, slash, aim, half, reach);
 
-  system.updateFunction = (particles) => {
+  system.updateFunction = (particles: Particle[]) => {
     base(particles);
 
     // Real seconds. Babylon's own step is scaled by `updateSpeed`, which is a
@@ -470,7 +585,7 @@ function applyMovements(scene, system, movements, emitter, shape) {
             // How far off the blade this one sits, written when it was born.
             // Never re-measured: this writes the position it reads, so taking
             // it again would compound and the blade would march outward.
-            const away = Math.max(0, reach + (particle._mercBlade ?? 0));
+            const away = Math.max(0, reach + ((particle as BladeParticle)._mercBlade ?? 0));
             at.x = origin.x + Math.sin(angle) * away;
             at.z = origin.z + Math.cos(angle) * away;
             break;
@@ -537,7 +652,11 @@ function applyMovements(scene, system, movements, emitter, shape) {
  * point cannot be moved without moving every particle already thrown from it,
  * and particles are meant to be left behind.
  */
-function driveEmitter(scene, host, part) {
+function driveEmitter(
+  scene: Scene,
+  host: TransformNode,
+  part: VfxEmitter | VfxSheet,
+): (() => void) | null {
   const moves = modifiersOf(part, 'movement');
   const overTime = modifierOf(part, 'overTime');
   // A transform is not in this list on purpose: it is set once when the node is
@@ -580,8 +699,9 @@ function driveEmitter(scene, host, part) {
 
     if (overTime) {
       const scale =
-        overTime.scaleFrom +
-        (overTime.scaleTo - overTime.scaleFrom) * curveAt(overTime.scaleCurve, along);
+        (overTime.scaleFrom ?? UNCHANGED) +
+        ((overTime.scaleTo ?? UNCHANGED) - (overTime.scaleFrom ?? UNCHANGED)) *
+          curveAt(overTime.scaleCurve, along);
       host.scaling.setAll(Math.max(0, scale));
     }
   });
@@ -600,7 +720,13 @@ function driveEmitter(scene, host, part) {
  * effects get a node. One with neither is pinned straight to a point and costs
  * nothing at all.
  */
-function anchorFor(scene, def, at, part, aim = 0) {
+function anchorFor(
+  scene: Scene,
+  def: Vfx,
+  at: VfxAnchor,
+  part: VfxEmitter | VfxSheet,
+  aim = 0,
+): { anchor: VfxAnchor; host: TransformNode | null; offset: Vector3 } {
   const transform = modifierOf(part, 'transform');
   const needsNode =
     modifiersOf(part, 'movement').length > 0 || modifierOf(part, 'overTime') || transform || aim;
@@ -619,16 +745,26 @@ function anchorFor(scene, def, at, part, aim = 0) {
     // forward along the map — the whole point of aiming it.
     const cos = Math.cos(aim);
     const sin = Math.sin(aim);
-    offset.set(
-      transform.posX * cos + transform.posZ * sin,
-      transform.posY,
-      transform.posZ * cos - transform.posX * sin,
+    const posX = transform.posX ?? 0;
+    const posY = transform.posY ?? 0;
+    const posZ = transform.posZ ?? 0;
+    offset.set(posX * cos + posZ * sin, posY, posZ * cos - posX * sin);
+    host.rotation.set(
+      (transform.rotX ?? 0) * DEG,
+      aim + (transform.rotY ?? 0) * DEG,
+      (transform.rotZ ?? 0) * DEG,
     );
-    host.rotation.set(transform.rotX * DEG, aim + transform.rotY * DEG, transform.rotZ * DEG);
-    host.scaling.set(transform.scaleX, transform.scaleY, transform.scaleZ);
+    host.scaling.set(
+      transform.scaleX ?? UNCHANGED,
+      transform.scaleY ?? UNCHANGED,
+      transform.scaleZ ?? UNCHANGED,
+    );
   }
 
-  host.position.copyFrom(at).addInPlace(offset);
+  // A node anchor is read for where it stands right now. `copyFrom` used to
+  // be handed the node itself, which has no x/y/z -- so attaching an effect
+  // that needed a host of its own put it at NaN and it was never seen.
+  host.position.copyFrom(at instanceof Vector3 ? at : at.absolutePosition).addInPlace(offset);
   // Handed back rather than left implicit in the position, because following
   // something means moving the anchor — and an offset that only existed as
   // part of the first position is an offset the first move throws away.
@@ -648,14 +784,24 @@ function anchorFor(scene, def, at, part, aim = 0) {
  *   stop and let go. The two kinds have almost nothing in common underneath, so
  *   this is what everything above them talks to instead.
  */
-export function spawnVfx(scene, raw, at, { shape = null, looping = false, forever = false } = {}) {
+export function spawnVfx(
+  scene: Scene,
+  raw: VfxInput,
+  at: VfxAnchor,
+  { shape = null, looping = false, forever = false }: SpawnOptions = {},
+): VfxHandle {
   const def = normalizeVfx(raw);
   return def.kind === 'sheet'
     ? spawnSheet(scene, def, at, { shape, looping, forever })
     : spawnParticles(scene, def, at, { shape, looping, forever });
 }
 
-function spawnParticles(scene, def, at, { shape, looping, forever }) {
+function spawnParticles(
+  scene: Scene,
+  def: Vfx,
+  at: VfxAnchor,
+  { shape, looping, forever }: SpawnOptions,
+): VfxHandle {
   // Only a point is lifted. An effect hung on something that moves is already
   // wherever that thing put it, and raising it as well would float it.
   const lift = at instanceof Vector3 ? new Vector3(0, def.emitter.lift, 0) : Vector3.Zero();
@@ -674,7 +820,8 @@ function spawnParticles(scene, def, at, { shape, looping, forever }) {
       ? def.emitter.duration
       : def.emitter.duration || def.particle.life;
   system.start();
-  if (system.__mercBurst) system.manualEmitCount = system.__mercBurst;
+  const burst = bursts.get(system);
+  if (burst) system.manualEmitCount = burst;
 
   const stop = host ? driveEmitter(scene, host, def.emitter) : null;
 
@@ -691,15 +838,15 @@ function spawnParticles(scene, def, at, { shape, looping, forever }) {
      * lift, and its transform's own offset. Following something means the
      * effect goes with it, not that it forgets where it was standing.
      */
-    follow(where) {
+    follow(where: Vector3): void {
       const to = where.add(carry);
       if (host) host.position.copyFrom(to);
       else system.emitter = to;
     },
-    stop() {
+    stop(): void {
       system.stop();
     },
-    dispose() {
+    dispose(): void {
       stop?.();
       // False, so the sprite every effect shares survives.
       system.dispose(false);
@@ -716,7 +863,12 @@ function spawnParticles(scene, def, at, { shape, looping, forever }) {
  * a flipbook has. A looping one thrown by an ability still stops, because
  * otherwise every swing would leave a fire burning where it landed.
  */
-function spawnSheet(scene, def, at, { shape, looping, forever }) {
+function spawnSheet(
+  scene: Scene,
+  def: Vfx,
+  at: VfxAnchor,
+  { shape, looping, forever }: SpawnOptions,
+): VfxHandle {
   const sheet = def.sheet;
   const lift = at instanceof Vector3 ? new Vector3(0, sheet.lift, 0) : Vector3.Zero();
   const where = at instanceof Vector3 ? at.add(lift) : at;
@@ -749,15 +901,17 @@ function spawnSheet(scene, def, at, { shape, looping, forever }) {
     const overTime = modifierOf(sheet, 'overTime');
     if (overTime) {
       const along = lasts > 0 ? Math.min(1, age / lasts) : (age / Math.max(run, 0.001)) % 1;
-      const scale =
-        overTime.scaleFrom + (overTime.scaleTo - overTime.scaleFrom) * curveAt(overTime.scaleCurve, along);
+      const scaleFrom = overTime.scaleFrom ?? UNCHANGED;
+      const scaleTo = overTime.scaleTo ?? UNCHANGED;
+      const scale = scaleFrom + (scaleTo - scaleFrom) * curveAt(overTime.scaleCurve, along);
       mesh.scaling.setAll(Math.max(0, scale));
-      const fade =
-        overTime.fadeFrom + (overTime.fadeTo - overTime.fadeFrom) * curveAt(overTime.fadeCurve, along);
+      const fadeFrom = overTime.fadeFrom ?? UNCHANGED;
+      const fadeTo = overTime.fadeTo ?? UNCHANGED;
+      const fade = fadeFrom + (fadeTo - fadeFrom) * curveAt(overTime.fadeCurve, along);
       material.alpha = Math.max(0, fade) * sheet.opacity;
       material.emissiveColor = Color3.Lerp(
-        colorOf(overTime.colorFrom),
-        colorOf(overTime.colorTo),
+        colorOf(overTime.colorFrom ?? WHITE),
+        colorOf(overTime.colorTo ?? WHITE),
         curveAt(overTime.colorCurve, along),
       );
     }
@@ -771,13 +925,13 @@ function spawnSheet(scene, def, at, { shape, looping, forever }) {
     get alive() {
       return alive;
     },
-    follow(where) {
+    follow(where: Vector3): void {
       (host ?? mesh).position.copyFrom(where.add(carry));
     },
-    stop() {
+    stop(): void {
       alive = false;
     },
-    dispose() {
+    dispose(): void {
       scene.onBeforeRenderObservable.remove(observer);
       stop?.();
       material.dispose(false, false);
@@ -795,7 +949,12 @@ function spawnSheet(scene, def, at, { shape, looping, forever }) {
  * @param shape what the ability doing this decided — its aim, its arc and its
  *   range. Only the slash movement reads it, and only it needs to.
  */
-export function buildVfx(scene, raw, anchor, shape = null) {
+export function buildVfx(
+  scene: Scene,
+  raw: VfxInput,
+  anchor: VfxAnchor,
+  shape: VfxShape | null = null,
+): ParticleSystem {
   const def = normalizeVfx(raw);
   const { emitter, particle } = def;
 
@@ -805,7 +964,11 @@ export function buildVfx(scene, raw, anchor, shape = null) {
   const system = new ParticleSystem(`vfx:${def.id}`, capacity, scene);
 
   system.particleTexture = sprite(scene, particle);
-  system.emitter = anchor;
+  // Babylon declares this as `AbstractMesh | Vector3`, but all a system ever
+  // asks its emitter for is a world matrix, and the hosts `anchorFor` builds
+  // are plain TransformNodes. The narrowing is in the declaration, not the
+  // runtime -- this is the one place that has to say so.
+  system.emitter = anchor as AbstractMesh | Vector3;
   // Stretched along the way it is going, which needs a direction rather than a
   // square facing the camera. Everything else is an ordinary billboard.
   if (particle.shape === 'streak') system.billboardMode = ParticleSystem.BILLBOARDMODE_STRETCHED;
@@ -830,10 +993,10 @@ export function buildVfx(scene, raw, anchor, shape = null) {
   // it — so particles differ without any of them losing their curve.
   const random = modifierOf(particle, 'randomize');
   if (random) {
-    const size = random.varySize / 100;
+    const size = (random.varySize ?? 0) / 100;
     system.minScaleX = system.minScaleY = Math.max(0, 1 - size);
     system.maxScaleX = system.maxScaleY = 1 + size;
-    const spread = (random.varyPosition / 100) * Math.max(emitter.radius, 0.1);
+    const spread = ((random.varyPosition ?? 0) / 100) * Math.max(emitter.radius, 0.1);
     if (spread > 0) {
       system.minEmitBox = new Vector3(-spread, -spread, -spread);
       system.maxEmitBox = new Vector3(spread, spread, spread);
@@ -854,7 +1017,7 @@ export function buildVfx(scene, raw, anchor, shape = null) {
   // to place its particles as they are born.
   applyMovements(scene, system, modifiersOf(particle, 'movement'), emitter, shape);
 
-  system.__mercBurst = burst;
+  bursts.set(system, burst);
   return system;
 }
 
@@ -863,11 +1026,11 @@ export function buildVfx(scene, raw, anchor, shape = null) {
  *
  * @param defs the vfx rule list — the editor passes its unsaved one.
  */
-export function createVfxRuntime(scene, defs = VFX) {
-  const byId = new Map(defs.map((def) => [def.id, def]));
-  const running = new Set();
+export function createVfxRuntime(scene: Scene, defs: readonly VfxInput[] = VFX) {
+  const byId = new Map<string, VfxInput>(defs.map((def) => [def.id ?? '', def]));
+  const running = new Set<VfxHandle>();
 
-  const track = (handle) => {
+  const track = (handle: VfxHandle): VfxHandle => {
     running.add(handle);
     return handle;
   };
@@ -886,24 +1049,33 @@ export function createVfxRuntime(scene, defs = VFX) {
   });
 
   return {
-    has: (id) => byId.has(id),
+    has: (id: string): boolean => byId.has(id),
 
     /** Throw one at a place, once. Null for an id nothing defines. */
-    play(id, x, y, z, shape = null) {
+    play(
+      id: string,
+      x: number,
+      y: number,
+      z: number,
+      shape: VfxShape | null = null,
+    ): VfxHandle | null {
       const def = byId.get(id);
       return def ? track(spawnVfx(scene, def, new Vector3(x, y, z), { shape })) : null;
     },
 
     /** Start one that stays. `emitter` is a Vector3 or a node to follow. */
-    attach(id, emitter, shape = null) {
+    attach(id: string, emitter: VfxAnchor, shape: VfxShape | null = null): VfxHandle | null {
       const def = byId.get(id);
       return def ? track(spawnVfx(scene, def, emitter, { shape, looping: true })) : null;
     },
 
-    dispose() {
+    dispose(): void {
       scene.onAfterRenderObservable.remove(sweep);
       for (const handle of [...running]) handle.dispose();
       running.clear();
     },
   };
 }
+
+/** Every effect currently playing in one scene. */
+export type VfxRuntime = ReturnType<typeof createVfxRuntime>;

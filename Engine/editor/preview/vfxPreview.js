@@ -1,7 +1,7 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { spawnVfx } from '../../src/render/vfx.js';
+import { spawnVfx } from '../../src/render/vfx.ts';
 import { unlit } from '../../src/render/materials.ts';
 
 /**

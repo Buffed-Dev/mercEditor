@@ -8,13 +8,13 @@ import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { createLights } from './lights.ts';
-import { createDecals } from './decals.js';
+import { createDecals } from './decals.ts';
 import { colorOf, surface, unlit } from './materials.ts';
 import { LEVEL_H, WALL_H } from '../data/dimensions.ts';
 import { normalizeEnv } from '../data/mapFormat.ts';
 import { applyFog } from './fog.ts';
-import { createVfxRuntime } from './vfx.js';
-import { createPropRuntime } from './props.js';
+import { createVfxRuntime } from './vfx.ts';
+import { createPropRuntime } from './props.ts';
 import { createTerrainLayer } from './terrainLayer.ts';
 import { VFX } from '../data/vfx.ts';
 

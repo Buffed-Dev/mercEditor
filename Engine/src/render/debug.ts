@@ -109,7 +109,7 @@ function mixInto(target: Rgb, a: Rgb, b: Rgb, t: number): void {
 const EDGE_WIDTH = 0.09;
 
 /**
- * @param {ReturnType<import('./decals.js').createDecals>} decals the registry
+ * @param {ReturnType<import('./decals.ts').createDecals>} decals the registry
  *   the terrain materials read from. Telegraphs are written into it and drawn
  *   by the ground; nothing is added to the scene.
  */

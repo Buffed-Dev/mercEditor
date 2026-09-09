@@ -8,6 +8,7 @@ import { unlit } from './materials.ts';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { Shot } from '../game/projectiles.ts';
+import type { Heights } from './lights.ts';
 
 /**
  * The trail a shot drags behind it.
@@ -19,9 +20,6 @@ type TrailHandle = { follow: (where: Vector3) => void; stop: () => void; dispose
 
 /** All a projectile asks of the effects system. */
 export type VfxAttacher = { attach: (id: string, node: TransformNode) => TrailHandle | null };
-
-/** What the ground is, to something flying over it. */
-type Overflown = { heightAt: (gx: number, gy: number) => number };
 
 /** One pooled shot: its node, the instance drawn at it, and its trail. */
 type Entry = { node: TransformNode; mesh: InstancedMesh; trail: TrailHandle | null };
@@ -99,7 +97,7 @@ export function createProjectileViews(
 
   return {
     /** Match the meshes to whatever is currently in flight. */
-    sync(shots: readonly Shot[], world: Overflown): void {
+    sync(shots: readonly Shot[], world: Heights): void {
       const seen = new Set<number>();
 
       for (const shot of shots) {

@@ -7,12 +7,46 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 // Side-effect only: this is what teaches the loader above to read a .glb.
 import '@babylonjs/loaders/glTF/index.js';
-import { ASSETS, assetById, assetFrames, assetUrl } from '../data/assets.ts';
-import { materialById, normalizeMaterial } from '../data/materials.ts';
-import { PROPS, propById } from '../data/props.ts';
+import { ASSETS, assetById, assetFrames, assetUrl, type Asset } from '../data/assets.ts';
+import {
+  materialById,
+  normalizeMaterial,
+  type Material,
+  type MaterialInput,
+} from '../data/materials.ts';
+import { PROPS, propById, type PlacedProp, type Prop } from '../data/props.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { applyMaterial, colorOf, materialFrom, materialKey, surface } from './materials.ts';
 import { keep, keepModel } from './sceneCache.ts';
+import { pickOf, tagPick } from './pick.ts';
+import type { Observer } from '@babylonjs/core/Misc/observable.js';
+import type { Node } from '@babylonjs/core/node.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { Surface } from './materials.ts';
+import type { Heights, Shadows } from './lights.ts';
+
+/** A sprite sheet being played on a plane. */
+type Playing = {
+  plane: Mesh;
+  show: (at: number) => void;
+  count: number;
+  fps: number;
+  loop: boolean;
+};
+
+/** One playing sheet, and how far through it is. */
+type Flipbook = Playing & { at: number };
+
+/** One prop standing on the map. */
+export type Placement = {
+  def: Prop;
+  node: TransformNode;
+  entry: PlacedProp;
+  /** Set when the prop is drawn as a sprite sheet rather than a model. */
+  sheet?: Playing;
+  /** Set once the model has finished loading, which may be after placement. */
+  body?: Node;
+};
 
 /**
  * The objects a map stands on its tiles: a model from the game's assets folder,
@@ -39,26 +73,36 @@ const DEG = Math.PI / 180;
  *   names one because it is a tool over several; the game itself never does —
  *   its files came through the bundler and carry hashed names.
  */
-export function createPropRuntime(scene, propDefs, assetDefs, game = '', materialDefs) {
+export function createPropRuntime(
+  scene: Scene,
+  propDefs?: readonly Prop[] | null,
+  assetDefs?: readonly Asset[] | null,
+  game = '',
+  materialDefs?: readonly MaterialInput[] | null,
+) {
   const props = propDefs ?? PROPS;
   const assets = assetDefs ?? ASSETS;
 
-  const propOf = propDefs ? (id) => props.find((p) => p.id === id) ?? null : propById;
-  const assetOf = assetDefs ? (id) => assets.find((a) => a.id === id) ?? null : assetById;
+  const propOf = propDefs
+    ? (id: string): Prop | null => props.find((p) => p.id === id) ?? null
+    : propById;
+  const assetOf = assetDefs
+    ? (id: string): Asset | null => assets.find((a) => a.id === id) ?? null
+    : assetById;
 
   /** The named surfaces, normalized so every field is there to read. */
-  const materialOf = (id) => {
+  const materialOf = (id: string): Material | null => {
     const found = materialDefs ? materialDefs.find((one) => one.id === id) : materialById(id);
     return found ? normalizeMaterial(found) : null;
   };
 
   /** Which object wears which material, worked out once per map. */
-  const materials = new Map();
-  const owned = [];
-  const placed = [];
+  const materials = new Map<string, Surface | null>();
+  const owned: { dispose: () => void }[] = [];
+  const placed: Placement[] = [];
   /** The sheets that are playing, and one observer stepping all of them. */
-  const flipbooks = [];
-  let clock = null;
+  const flipbooks: Flipbook[] = [];
+  let clock: Observer<Scene> | null = null;
   let alive = true;
 
   /**
@@ -67,7 +111,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
    * playing while the tab was in the background would come back having burned
    * through however many minutes of frames.
    */
-  function startClock() {
+  function startClock(): void {
     if (clock) return;
     clock = scene.onBeforeRenderObservable.add(() => {
       const dt = scene.getEngine().getDeltaTime() / 1000;
@@ -94,7 +138,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
    * `use` is called straight away for a file that has already landed, which is
    * every rebuild after the first.
    */
-  function model(asset, use) {
+  function model(asset: Asset, use: (holder: TransformNode | null) => void): void {
     const url = assetUrl(asset, game);
     if (!url) {
       use(null);
@@ -125,8 +169,10 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
    * already say — a texture, or a tint that is not white. Otherwise the glTF's
    * materials are left alone, which is the point of exporting them with it.
    */
-  function materialFor(def) {
-    if (materials.has(def.id)) return materials.get(def.id);
+  function materialFor(def: Prop): Surface | null {
+    // `has` then `get` rather than `get` alone: null is a real answer here --
+    // a prop with neither texture nor tint keeps whatever its model came with.
+    if (materials.has(def.id)) return materials.get(def.id) ?? null;
 
     // A named surface wins outright: it carries its own picture, tint, tiling
     // and everything about how the light hits it, so the object's own texture
@@ -136,7 +182,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
       // Kept per scene like the model, and what the material *says* written on
       // afterwards: the shader is the expensive half and it does not change
       // with a tint, so tuning a material shows on the map without a reload.
-      const textureUrl = (id) => {
+      const textureUrl = (id: string): string => {
         const picture = assetOf(id);
         return picture ? assetUrl(picture, game) : '';
       };
@@ -165,7 +211,9 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
 
     const url = textureAsset ? assetUrl(textureAsset, game) : '';
     material.albedoTexture = null;
-    if (url) {
+    // The extra check is redundant at runtime -- a url can only be non-empty
+    // if there was an asset to ask -- and is what lets the reads below see it.
+    if (textureAsset && url) {
       // invertY off, because this is worn over a model's own UVs and those came
       // out of a glTF, which puts v=0 at the *top* of the picture where
       // Babylon's own meshes put it at the bottom. Babylon's glTF loader
@@ -207,7 +255,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
    * Unlike a model this is built at once: a picture needs no parsing, and the
    * plane can stand there and be re-proportioned when the file lands.
    */
-  function sheetBody(def, sheet, node) {
+  function sheetBody(def: Prop, sheet: Asset, node: TransformNode): Playing | null {
     const url = assetUrl(sheet, game);
     if (!url) return null;
 
@@ -219,7 +267,10 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
     plane.parent = node;
     plane.position.y = 0.5;
     plane.isPickable = true;
-    plane.metadata = node.metadata;
+    // Carries the group's tag onto the plane, so a pick on the drawn quad
+    // answers with the prop rather than with nothing.
+    const tag = pickOf(node);
+    if (tag) tagPick(plane, tag);
     // Around Y only: a sprite that stands up should keep standing as the view
     // turns, where BILLBOARDMODE_ALL would tip it back to face a raised camera.
     if (def.billboard !== false) plane.billboardMode = Mesh.BILLBOARDMODE_Y;
@@ -261,7 +312,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
 
     owned.push(material, texture);
 
-    const show = (at) => {
+    const show = (at: number): void => {
       const frame = first + (((at % count) + count) % count);
       texture.uOffset = (frame % columns) / columns;
       texture.vOffset = 1 - (Math.floor(frame / columns) + 1) / rows;
@@ -278,8 +329,14 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
    * built synchronously and the caller has a list to fill in. The model drops
    * into that node when it arrives.
    */
-  function place(entry, index, world, root, shadows) {
-    const def = propOf(entry.id);
+  function place(
+    entry: PlacedProp,
+    index: number,
+    world: Heights,
+    root: TransformNode,
+    shadows?: Shadows | null,
+  ): Placement | null {
+    const def = propOf(entry.id ?? '');
     if (!def) return null;
 
     const x = entry.gx + 0.5;
@@ -294,9 +351,9 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
     node.scaling.setAll(def.scale ?? 1);
     // What the editor clicks on. Every mesh under here inherits it by walking
     // up, the same way a torch's parts do.
-    node.metadata = { pick: { list: 'props', index } };
+    tagPick(node, { list: 'props', index });
 
-    const record = { def, node, entry };
+    const record: Placement = { def, node, entry };
     placed.push(record);
 
     // A model if it names one, a sprite sheet otherwise. Both is a model: the
@@ -341,7 +398,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
       for (const mesh of body.getChildMeshes()) {
         if (material) mesh.material = material;
         mesh.receiveShadows = true;
-        mesh.metadata = { pick: { list: 'props', index } };
+          tagPick(mesh, { list: 'props', index });
         if (def.shadow !== false) shadows?.add(mesh);
       }
       record.body = body;
@@ -355,7 +412,7 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
     get placed() {
       return placed;
     },
-    dispose() {
+    dispose(): void {
       alive = false;
       // Before the meshes: an observer left on the scene would step textures
       // that are being disposed underneath it.
@@ -375,3 +432,6 @@ export function createPropRuntime(scene, propDefs, assetDefs, game = '', materia
     },
   };
 }
+
+/** Every prop on the current map, and the meshes drawn for them. */
+export type PropRuntime = ReturnType<typeof createPropRuntime>;

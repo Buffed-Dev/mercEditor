@@ -5,7 +5,7 @@ import { SETTLE_SECONDS, type Drop } from '../game/ground.ts';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import type { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import type { Scene } from '@babylonjs/core/scene.js';
-import type { Ground, Shadows } from './lights.ts';
+import type { Heights, Shadows } from './lights.ts';
 
 /** Where a drop was thrown from, and when. See `flightFor`. */
 type Flight = { born: number; gx: number; gy: number; y: number; still: boolean };
@@ -98,7 +98,7 @@ export function createGroundItemViews(scene: Scene, root: TransformNode, shadows
    * and should not grow one: a drop is a thing on a tile, and how long it has
    * been drawn is a fact about drawing it.
    */
-  function flightFor(drop: Drop, world: Ground, elapsed: number): Flight {
+  function flightFor(drop: Drop, world: Heights, elapsed: number): Flight {
     const found = flights.get(drop.id);
     if (found) return found;
 
@@ -124,7 +124,7 @@ export function createGroundItemViews(scene: Scene, root: TransformNode, shadows
      * list is the truth, and a drop that is picked up during a frame should not
      * depend on two places agreeing about it.
      */
-    sync(drops: readonly Drop[], world: Ground, elapsed: number): void {
+    sync(drops: readonly Drop[], world: Heights, elapsed: number): void {
       const live = new Set<string>();
 
       plates.length = 0;

@@ -1,6 +1,48 @@
 import { PBRCustomMaterial } from '@babylonjs/materials/custom/pbrCustomMaterial.js';
 import { colorOf } from './materials.ts';
 import { angleBetween } from '../game/abilities.ts';
+import type { Effect } from '@babylonjs/core/Materials/effect.js';
+import type { Scene } from '@babylonjs/core/scene.js';
+
+/** A colour, as the shader wants it. */
+type Rgb = { r: number; g: number; b: number };
+
+/**
+ * One shape painted onto the ground.
+ *
+ * A wedge in front of a point: `range` how far it reaches, `halfArc` how wide,
+ * `aim` which way. Everything past `edge` is how it is drawn rather than what
+ * shape it is, and is written by whoever owns the decal -- see ./debug.ts.
+ */
+export type Decal = {
+  gx: number;
+  gy: number;
+  aim: number;
+  range: number;
+  halfArc: number;
+  edge: number;
+  alpha: number;
+  edgeAlpha: number;
+  color: Rgb;
+};
+
+/** The moving overcast the ground shader mixes in. */
+type Clouds = { strength: number; grain: number; speed: number; dx: number; dy: number };
+
+/** Everything the shader is handed each bind, in the layout it expects. */
+type Packed = {
+  count: number;
+  shape: Float32Array;
+  style: Float32Array;
+  color: Float32Array;
+  clouds: Clouds & { drift: { x: number; y: number } };
+};
+
+/** One scene's ground material, and where it reads its decals from. */
+type Slot = { material: PBRCustomMaterial; source: (() => Packed) | null };
+
+/** How a paintable surface is coloured. */
+type SurfaceOptions = { color?: number; roughness?: number; metallic?: number };
 
 /**
  * Shapes painted onto the ground by the ground itself.
@@ -40,7 +82,7 @@ export const MAX_DECALS = 8;
  * they are the same rule — checked against `coneHits` over a grid of sample
  * points in the tests.
  */
-export function decalCovers(decal, x, z) {
+export function decalCovers(decal: Decal, x: number, z: number): boolean {
   const dx = x - decal.gx;
   const dz = z - decal.gy;
   const distance = Math.hypot(dx, dz);
@@ -69,7 +111,7 @@ export function decalCovers(decal, x, z) {
  * be antialiased against its own screen-space gradient — sharper than geometry,
  * and identical at any zoom.
  */
-const blend = (max) => /* glsl */ `
+const blend = (max: number) => /* glsl */ `
 
 // Cloud shadows, before the decals so a telegraph stays legible on top of one.
 //
@@ -130,7 +172,7 @@ for ( int i = 0; i < ${max}; i ++ ) {
  * the ground lives in its vertex colours. The only thing that changes is which
  * registry it reads, which is what `source` is for.
  */
-const shared = new WeakMap();
+const shared = new WeakMap<Scene, Slot>();
 
 /**
  * The registry. One per map: the shapes it holds are flushed into the uniforms
@@ -143,7 +185,7 @@ export function createDecals(max = MAX_DECALS) {
   const colorData = new Float32Array(max * 3);
   let count = 0;
 
-  const active = [];
+  const active: Decal[] = [];
 
   /**
    * The map's weather. Here rather than in a file of its own because this is
@@ -151,13 +193,13 @@ export function createDecals(max = MAX_DECALS) {
    * kind of thing as a telegraph: a shape tested against the world position,
    * costing no geometry and no CPU.
    */
-  let clouds = { strength: 0, grain: 1 / 14, speed: 0, dx: 0, dy: 0 };
+  let clouds: Clouds = { strength: 0, grain: 1 / 14, speed: 0, dx: 0, dy: 0 };
   const drift = { x: 0, y: 0 };
 
   /** The scene-wide slot this registry writes into while its map is on screen. */
-  let slot = null;
+  let slot: Slot | null = null;
 
-  const packed = () => {
+  const packed = (): Packed => {
     // Read off the clock rather than accumulated, so the sky does not lurch
     // when a frame is slow and does not stop while the tab is in the
     // background — it is weather, and weather is not simulated here.
@@ -175,19 +217,23 @@ export function createDecals(max = MAX_DECALS) {
    * is why the wall material, an ordinary PBRMaterial, can never have a
    * telegraph smear up it: there is no test in its shader to get wrong.
    */
-  function build(name, scene, { color = 0xffffff, roughness = 0.9, metallic = 0 } = {}) {
+  function build(
+    name: string,
+    scene: Scene,
+    { color = 0xffffff, roughness = 0.9, metallic = 0 }: SurfaceOptions = {},
+  ): PBRCustomMaterial {
     const material = new PBRCustomMaterial(name, scene);
     material.albedoColor = colorOf(color);
     material.roughness = roughness;
     material.metallic = metallic;
     material.environmentIntensity = 0;
 
-    material.AddUniform('cloudSettings', 'vec2');
-    material.AddUniform('cloudDrift', 'vec2');
-    material.AddUniform('decalCount', 'int');
-    material.AddUniform(`decalShape[${max}]`, 'vec4');
-    material.AddUniform(`decalStyle[${max}]`, 'vec4');
-    material.AddUniform(`decalColor[${max}]`, 'vec3');
+    material.AddUniform('cloudSettings', 'vec2', undefined);
+    material.AddUniform('cloudDrift', 'vec2', undefined);
+    material.AddUniform('decalCount', 'int', undefined);
+    material.AddUniform(`decalShape[${max}]`, 'vec4', undefined);
+    material.AddUniform(`decalStyle[${max}]`, 'vec4', undefined);
+    material.AddUniform(`decalColor[${max}]`, 'vec3', undefined);
 
     material.Fragment_Definitions(`
 /**
@@ -222,18 +268,47 @@ blend.y
   }
 
   /** Feed one material the registry's arrays, every time it is drawn. */
-  function bindTo(material, source) {
+  /**
+   * Babylon declares the array uniform setters as taking `number[]`, but they
+   * end in `gl.uniformNfv`, which is what a Float32Array is for. Saying so
+   * once here beats copying three buffers into plain arrays on every bind.
+   */
+  const asFloats = (buffer: Float32Array) => buffer as unknown as number[];
+
+  function bindTo(material: PBRCustomMaterial, source: () => Packed | null | undefined): void {
     material.onBindObservable.add(() => {
-      const effect = material.getEffect();
+      const effect: Effect | null = material.getEffect();
       const from = source();
       if (!effect || !from) return;
       effect.setFloat2('cloudSettings', from.clouds.strength, from.clouds.grain);
       effect.setFloat2('cloudDrift', from.clouds.drift.x, from.clouds.drift.y);
       effect.setInt('decalCount', from.count);
-      effect.setArray4('decalShape', from.shape);
-      effect.setArray4('decalStyle', from.style);
-      effect.setArray3('decalColor', from.color);
+      effect.setArray4('decalShape', asFloats(from.shape));
+      effect.setArray4('decalStyle', asFloats(from.style));
+      effect.setArray3('decalColor', asFloats(from.color));
     });
+  }
+
+  /**
+   * The one ground material a scene shares, made on first ask.
+   *
+   * Hoisted out of the object below because `paintable` needs it too, and
+   * reaching it through `this` would make the returned type depend on itself.
+   */
+  function ensureShared(name: string, scene: Scene, options: SurfaceOptions = {}): Slot {
+    let found = shared.get(scene);
+    if (!found) {
+      const material = build(name, scene, options);
+      found = { material, source: null };
+      // Closes over the module's `slot` rather than over `found`, exactly as
+      // before: `use()` re-points that one variable, and the ground material
+      // is meant to follow it.
+      bindTo(material, () => slot?.source?.());
+      shared.set(scene, found);
+    }
+    slot = found;
+    found.source = packed;
+    return found;
   }
 
   return {
@@ -272,20 +347,8 @@ blend.y
      * The settings of the first caller are the ones that stick; every map asks
      * for the same ones.
      */
-    material(name, scene, { color = 0xffffff, roughness = 0.9, metallic = 0 } = {}) {
-      slot = shared.get(scene);
-
-      if (!slot) {
-        const material = build(name, scene, { color, roughness, metallic });
-        slot = { material, source: null };
-
-        bindTo(material, () => slot.source?.());
-
-        shared.set(scene, slot);
-      }
-
-      slot.source = packed;
-      return slot.material;
+    material(name: string, scene: Scene, options: SurfaceOptions = {}): PBRCustomMaterial {
+      return ensureShared(name, scene, options).material;
     },
 
     /**
@@ -301,11 +364,14 @@ blend.y
      * Owned by the caller: it is built per map and disposed with it, unlike the
      * ground's, which outlives every map.
      */
-    paintable(name, scene, { color = 0xffffff, roughness = 0.9, metallic = 0 } = {}) {
+    paintable(
+      name: string,
+      scene: Scene,
+      { color = 0xffffff, roughness = 0.9, metallic = 0 }: SurfaceOptions = {},
+    ): PBRCustomMaterial {
       // The scene's slot has to exist first: it is what the bound uniforms are
       // read out of, and the ground is not guaranteed to have asked yet.
-      if (!shared.get(scene)) this.material(`${name}:ground`, scene);
-      const here = shared.get(scene);
+      const here = shared.get(scene) ?? ensureShared(`${name}:ground`, scene);
 
       const material = build(name, scene, { color, roughness, metallic });
       bindTo(material, () => here.source?.());
@@ -319,7 +385,7 @@ blend.y
      * the editor, say — has to point it at this registry again, or the ground
      * would still be painting the shapes of a map that is no longer on screen.
      */
-    use() {
+    use(): void {
       if (slot) slot.source = packed;
     },
 
@@ -332,7 +398,12 @@ blend.y
      * happens. A strength of 0 switches the whole thing off in the shader, so a
      * map without weather pays for a compare and nothing else.
      */
-    setClouds({ strength = 0, scale = 14, speed = 0, angle = 45 } = {}) {
+    setClouds({
+      strength = 0,
+      scale = 14,
+      speed = 0,
+      angle = 45,
+    }: { strength?: number; scale?: number; speed?: number; angle?: number } = {}): void {
       const heading = (angle * Math.PI) / 180;
       clouds = {
         strength: Math.max(0, strength),
@@ -347,8 +418,15 @@ blend.y
      * Start drawing a shape. The returned object is live: move it, recolour it
      * and change its alpha in place, and the next `sync` picks it up.
      */
-    add({ gx = 0, gy = 0, aim = 0, range = 1, halfArc = Math.PI, edge = 0.09 }) {
-      const decal = {
+    add({
+      gx = 0,
+      gy = 0,
+      aim = 0,
+      range = 1,
+      halfArc = Math.PI,
+      edge = 0.09,
+    }: Partial<Omit<Decal, 'alpha' | 'edgeAlpha' | 'color'>>): Decal {
+      const decal: Decal = {
         gx,
         gy,
         aim,
@@ -365,13 +443,13 @@ blend.y
       return decal;
     },
 
-    remove(decal) {
+    remove(decal: Decal): boolean {
       const at = active.indexOf(decal);
       if (at >= 0) active.splice(at, 1);
       return at >= 0;
     },
 
-    clear() {
+    clear(): void {
       active.length = 0;
       count = 0;
     },
@@ -384,7 +462,7 @@ blend.y
      * cannot draw this frame is one nobody will miss, and silently shifting
      * which shapes are visible would be worse than the cap.
      */
-    sync() {
+    sync(): number {
       count = Math.min(active.length, max);
       for (let i = 0; i < count; i++) {
         const decal = active[i];
@@ -396,3 +474,6 @@ blend.y
     },
   };
 }
+
+/** The shapes painted on the ground, and the material that reads them. */
+export type Decals = ReturnType<typeof createDecals>;

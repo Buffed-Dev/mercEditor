@@ -6,7 +6,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { unlit } from '../../src/render/materials.ts';
-import { createPropRuntime } from '../../src/render/props.js';
+import { createPropRuntime } from '../../src/render/props.ts';
 import { createTerrainLayer } from '../../src/render/terrainLayer.ts';
 import { createGrid, idx } from '../../src/data/terrain/grid.ts';
 import { DEFAULT_ENV } from '../../src/data/mapFormat.ts';

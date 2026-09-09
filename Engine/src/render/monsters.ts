@@ -8,7 +8,7 @@ import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import type { Scene } from '@babylonjs/core/scene.js';
-import type { Ground, Shadows } from './lights.ts';
+import type { Heights, Shadows } from './lights.ts';
 
 /** The two bars that make up one monster's health readout. */
 type Bar = { group: TransformNode; fill: InstancedMesh };
@@ -180,7 +180,7 @@ export function createMonsterViews(
     views,
 
     /** Put each mesh where its monster now is, on top of the surface. */
-    sync(world: Ground): void {
+    sync(world: Heights): void {
       for (const { monster, group, eyeMaterial, bar, barY } of views) {
         const { gx, gy } = monster.pos;
         const ground = world.heightAt(gx, gy) * LEVEL_H;
