@@ -7,6 +7,10 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { BILLBOARD } from '../../src/render/isoCamera.ts';
 import { normalizeMaterial } from '../../src/data/materials.ts';
 import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.ts';
+import type { Surface, UrlOf } from '../../src/render/materials.ts';
+import type { MaterialInput } from '../../src/data/materials.ts';
+import type { Light } from '@babylonjs/core/Lights/light.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
 /**
  * A named surface, and the same surface being drawn.
@@ -30,14 +34,14 @@ import { applyMaterial, materialFrom, materialKey } from '../../src/render/mater
  * keeping, and the panel around it is the part being replaced.
  */
 export function createMaterialPreview() {
-  let scene = null;
-  let lamps = [];
-  let body = null;
-  let material = null;
+  let scene: Scene | null = null;
+  let lamps: Light[] = [];
+  let body: Mesh | null = null;
+  let material: Surface | null = null;
   let materialFor = '';
 
   /** Drop the shape. The material outlives it — see `draw`. */
-  function clear() {
+  function clear(): void {
     body?.dispose(false, false);
     body = null;
   }
@@ -51,20 +55,20 @@ export function createMaterialPreview() {
       return scene;
     },
 
-    mount(made) {
+    mount(made: Scene): void {
       scene = made;
       // Two lights: a fill so nothing is unreadable, and a key so a curved
       // surface has a bright side and a dark one. A material under one flat
       // light is a material you cannot judge.
-      const fill = new HemisphericLight('matFill', new Vector3(0.2, 1, 0.1), scene);
+      const fill = new HemisphericLight('matFill', new Vector3(0.2, 1, 0.1), made);
       fill.intensity = 0.7;
       fill.groundColor = new Color3(0.18, 0.2, 0.26);
-      const key = new DirectionalLight('matKey', new Vector3(-0.6, -1, 0.55), scene);
+      const key = new DirectionalLight('matKey', new Vector3(-0.6, -1, 0.55), made);
       key.intensity = 1.6;
       lamps = [fill, key];
     },
 
-    unmount() {
+    unmount(): void {
       clear();
       material?.dispose(true, false);
       material = null;
@@ -82,9 +86,13 @@ export function createMaterialPreview() {
      *   is 'box', 'sphere' or 'plane'; `urlOf` resolves a texture asset id to a
      *   url the server will serve.
      */
-    draw(record, context = {}) {
+    draw(
+      record: MaterialInput | null | undefined,
+      context: { shape?: string; urlOf?: UrlOf } = {},
+    ): void {
       const { shape = 'box', urlOf = () => '' } = context;
-      if (!scene || !record) return clear();
+      const stage = scene;
+      if (!stage || !record) return clear();
       clear();
       const def = normalizeMaterial(record);
 
@@ -92,7 +100,7 @@ export function createMaterialPreview() {
       // is the only scale a tiling factor can be judged against.
       body =
         shape === 'sphere'
-          ? MeshBuilder.CreateSphere('matBody', { diameter: 1.6, segments: 48 }, scene)
+          ? MeshBuilder.CreateSphere('matBody', { diameter: 1.6, segments: 48 }, stage)
           : shape === 'plane'
             ? MeshBuilder.CreatePlane(
                 'matBody',
@@ -100,9 +108,9 @@ export function createMaterialPreview() {
                 // question the preview should not be able to get wrong: a
                 // material that culls its back faces would show nothing at all.
                 { size: 1.8, sideOrientation: Mesh.DOUBLESIDE },
-                scene,
+                stage,
               )
-            : MeshBuilder.CreateBox('matBody', { size: 1.3 }, scene);
+            : MeshBuilder.CreateBox('matBody', { size: 1.3 }, stage);
 
       // The plane is turned to face the camera rather than left lying in the
       // world: a picture is looked at straight on, not at the map's angle. The
@@ -117,14 +125,17 @@ export function createMaterialPreview() {
       // leaves the shader alone — which is why that one is what the key turns
       // on.
       const key = materialKey(def);
-      if (key !== materialFor) {
+      if (key !== materialFor || !material) {
         material?.dispose(true, false);
-        material = materialFrom(def, scene, urlOf);
+        material = materialFrom(def, stage, urlOf);
         materialFor = key;
       } else {
-        applyMaterial(def, material, scene, urlOf);
+        applyMaterial(def, material, stage, urlOf);
       }
       body.material = material;
     },
   };
 }
+
+/** One material on a body you can turn, for the rules editor. */
+export type MaterialPreview = ReturnType<typeof createMaterialPreview>;

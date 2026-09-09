@@ -1,7 +1,10 @@
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { spawnVfx } from '../../src/render/vfx.ts';
+import { burstOf, spawnVfx } from '../../src/render/vfx.ts';
+import type { VfxHandle } from '../../src/render/vfx.ts';
+import type { VfxInput } from '../../src/data/vfx.ts';
+import type { Scene } from '@babylonjs/core/scene.js';
 import { unlit } from '../../src/render/materials.ts';
 
 /**
@@ -21,9 +24,22 @@ import { unlit } from '../../src/render/materials.ts';
 const STAGE = new Vector3(0, 0, 0);
 
 export function createVfxPreview() {
-  let scene = null;
-  let stage = null;
-  let playing = null;
+  let scene: Scene | null = null;
+  let stage: TransformNode | null = null;
+  let playing: VfxHandle | null = null;
+
+  /**
+   * Play the record from scratch.
+   *
+   * Hoisted out of the object so `again` can fall back to it without going
+   * through `this`, which would make the returned type depend on itself.
+   */
+  function draw(record: VfxInput | null | undefined): void {
+    playing?.dispose();
+    playing = null;
+    if (!scene || !stage || !record) return;
+    playing = spawnVfx(scene, record, STAGE, { forever: true });
+  }
 
   return {
     /** About six tiles across — an effect is only a couple wide. */
@@ -33,32 +49,33 @@ export function createVfxPreview() {
       return scene;
     },
 
-    mount(made) {
+    mount(made: Scene): void {
       scene = made;
-      stage = new TransformNode('vfxStage', scene);
+      const ground = new TransformNode('vfxStage', made);
+      stage = ground;
       stage.position.copyFrom(STAGE);
 
       // A disc rather than a square: the effect is round, the camera is fixed,
       // and a corner in the background is one more thing to read.
-      const disc = MeshBuilder.CreateDisc('vfxGround', { radius: 2.2, tessellation: 48 }, scene);
-      disc.material = unlit('vfxGround', scene, { color: 0x161c28 });
+      const disc = MeshBuilder.CreateDisc('vfxGround', { radius: 2.2, tessellation: 48 }, made);
+      disc.material = unlit('vfxGround', made, { color: 0x161c28 });
       disc.rotation.x = Math.PI / 2;
       disc.position.y = 0.002;
       disc.isPickable = false;
-      disc.parent = stage;
+      disc.parent = ground;
 
       const ring = MeshBuilder.CreateTorus(
         'vfxRing',
         { diameter: 2, thickness: 0.02, tessellation: 64 },
-        scene,
+        made,
       );
-      ring.material = unlit('vfxRing', scene, { color: 0x3b4a63 });
+      ring.material = unlit('vfxRing', made, { color: 0x3b4a63 });
       ring.position.y = 0.004;
       ring.isPickable = false;
-      ring.parent = stage;
+      ring.parent = ground;
     },
 
-    unmount() {
+    unmount(): void {
       playing?.dispose();
       playing = null;
       stage?.dispose(false, true);
@@ -73,22 +90,21 @@ export function createVfxPreview() {
      * one-shot that played once when the panel opened would leave you tuning
      * numbers against a still image.
      */
-    draw(record) {
-      playing?.dispose();
-      playing = null;
-      if (!scene || !stage || !record) return;
-      playing = spawnVfx(scene, record, STAGE, { forever: true });
-    },
+    draw,
 
     /**
      * Play it again. A burst can simply be thrown a second time; anything else
      * — a steady emitter, a sheet part way through its frames — is easier to
      * start over than to rewind.
      */
-    again(record) {
+    again(record: VfxInput | null | undefined): void {
       const system = playing?.system;
-      if (system?.__mercBurst) system.manualEmitCount = system.__mercBurst;
-      else this.draw(record);
+      const burst = system ? burstOf(system) : undefined;
+      if (system && burst) system.manualEmitCount = burst;
+      else draw(record);
     },
   };
 }
+
+/** One effect on its own little stage, for the rules editor. */
+export type VfxPreview = ReturnType<typeof createVfxPreview>;

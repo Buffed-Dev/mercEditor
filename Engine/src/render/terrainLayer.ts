@@ -287,3 +287,6 @@ export function createTerrainLayer(
     },
   };
 }
+
+/** The ground of one map, as instanced blocks. */
+export type TerrainLayer = ReturnType<typeof createTerrainLayer>;

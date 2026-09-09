@@ -1026,6 +1026,15 @@ export function buildVfx(
  *
  * @param defs the vfx rule list — the editor passes its unsaved one.
  */
+/**
+ * How many particles a burst effect releases at once, if it is one.
+ *
+ * The count lives in a WeakMap keyed by the system rather than on the system
+ * itself; the editor's preview replays a burst without rebuilding it, and this
+ * is how it asks.
+ */
+export const burstOf = (system: ParticleSystem): number | undefined => bursts.get(system);
+
 export function createVfxRuntime(scene: Scene, defs: readonly VfxInput[] = VFX) {
   const byId = new Map<string, VfxInput>(defs.map((def) => [def.id ?? '', def]));
   const running = new Set<VfxHandle>();

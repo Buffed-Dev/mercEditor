@@ -1,10 +1,11 @@
+import type { Scene } from '@babylonjs/core/scene.js';
 import { useEffect, useRef, useState } from 'react';
 import { createPreviewStage } from '../previewStage.ts';
 
 export type Preview = {
   /** How wide a view it opens on, in world units. */
   frustum: number;
-  mount: (scene: unknown) => void;
+  mount: (scene: Scene) => void;
   unmount: () => void;
 };
 
@@ -30,7 +31,7 @@ export function usePreviewStage(preview: Preview | null) {
 
     const stage = createPreviewStage({
       frustum: preview.frustum,
-      onMount: (scene: unknown) => {
+      onMount: (scene) => {
         preview.mount(scene);
         setReady(true);
       },
