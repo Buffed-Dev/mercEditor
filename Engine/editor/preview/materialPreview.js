@@ -4,9 +4,9 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { BILLBOARD } from '../../src/render/isoCamera.js';
+import { BILLBOARD } from '../../src/render/isoCamera.ts';
 import { normalizeMaterial } from '../../src/data/materials.ts';
-import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.js';
+import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.ts';
 
 /**
  * A named surface, and the same surface being drawn.

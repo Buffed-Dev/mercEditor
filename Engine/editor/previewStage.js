@@ -4,7 +4,7 @@ import { Camera } from '@babylonjs/core/Cameras/camera.js';
 import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import { Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { CAMERA_OFFSET } from '../src/render/isoCamera.js';
+import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
 
 /**
  * A canvas of one's own, for the previews that open over the map.

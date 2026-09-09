@@ -9,7 +9,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
-import { colorOf } from './materials.js';
+import { colorOf } from './materials.ts';
 import {
   SLASH_FALLBACK,
   VFX,

@@ -3,7 +3,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { SETTLE_SECONDS } from '../game/ground.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { surface } from './materials.js';
+import { surface } from './materials.ts';
 
 /**
  * The meshes for whatever game/ground.js says is lying around.

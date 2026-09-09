@@ -4,7 +4,7 @@ import '@babylonjs/core/Meshes/instancedMesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { unlit } from './materials.js';
+import { unlit } from './materials.ts';
 
 /**
  * Meshes for the shots game/projectiles.js is simulating.

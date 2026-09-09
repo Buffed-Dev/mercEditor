@@ -11,8 +11,8 @@ import { ASSETS, assetById, assetFrames, assetUrl } from '../data/assets.ts';
 import { materialById, normalizeMaterial } from '../data/materials.ts';
 import { PROPS, propById } from '../data/props.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { applyMaterial, colorOf, materialFrom, materialKey, surface } from './materials.js';
-import { keep, keepModel } from './sceneCache.js';
+import { applyMaterial, colorOf, materialFrom, materialKey, surface } from './materials.ts';
+import { keep, keepModel } from './sceneCache.ts';
 
 /**
  * The objects a map stands on its tiles: a model from the game's assets folder,

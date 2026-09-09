@@ -23,9 +23,22 @@
  * closing a scene does not keep them alive.
  */
 
-const caches = new WeakMap();
+import type { Node } from '@babylonjs/core/node.js';
+import type { Scene } from '@babylonjs/core/scene.js';
 
-function cacheFor(scene) {
+/**
+ * One cached thing, and how far along it is.
+ *
+ * `node` is `unknown` because a scene's cache holds whatever was asked for --
+ * a texture here, a material there, a loaded model somewhere else. That is
+ * also why `keep` casts on the way out: a lookup keyed by a string cannot
+ * carry the type of what was put in, and the caller is the one that knows.
+ */
+type Entry = { done: boolean; node: unknown; pending: Promise<unknown> | null };
+
+const caches = new WeakMap<Scene, Map<string, Entry>>();
+
+function cacheFor(scene: Scene): Map<string, Entry> {
   let cache = caches.get(scene);
   if (!cache) {
     cache = new Map();
@@ -45,10 +58,13 @@ function cacheFor(scene) {
  *   kept here
  * @param {() => any} make builds it. Called at most once per key.
  */
-export function keep(scene, key, make) {
+export function keep<T>(scene: Scene, key: string, make: () => T): T {
   const cache = cacheFor(scene);
-  if (!cache.has(key)) cache.set(key, { done: true, node: make() });
-  return cache.get(key).node;
+  const found = cache.get(key);
+  if (found) return found.node as T;
+  const node = make();
+  cache.set(key, { done: true, node, pending: null });
+  return node;
 }
 
 /**
@@ -61,19 +77,24 @@ export function keep(scene, key, make) {
  * @param {(node: any) => void} use given the model, or null if it failed to
  *   load. Called synchronously when the model is already there.
  */
-export function keepModel(scene, key, make, use) {
+export function keepModel<T extends Node>(
+  scene: Scene,
+  key: string,
+  make: () => T | null | Promise<T | null>,
+  use: (node: T | null) => void,
+): void {
   const cache = cacheFor(scene);
   const found = cache.get(key);
   if (found) {
-    if (found.done) use(found.node);
-    else found.pending.then(use);
+    if (found.done) use(found.node as T | null);
+    else found.pending?.then((node) => use(node as T | null));
     return;
   }
 
-  const record = { done: false, node: null, pending: null };
+  const record: Entry = { done: false, node: null, pending: null };
   record.pending = Promise.resolve()
     .then(make)
-    .then((node) => {
+    .then((node): T | null => {
       // Parked out of the tree and switched off: a template exists to be
       // cloned, and one that was drawn would be a model standing at the origin
       // of every map from now on.
@@ -83,7 +104,7 @@ export function keepModel(scene, key, make, use) {
       }
       record.node = node ?? null;
       record.done = true;
-      return record.node;
+      return node ?? null;
     })
     .catch((error) => {
       console.warn(`[models] could not load ${key}: ${error?.message ?? error}`);
@@ -91,5 +112,5 @@ export function keepModel(scene, key, make, use) {
       return null;
     });
   cache.set(key, record);
-  record.pending.then(use);
+  record.pending.then((node) => use(node as T | null));
 }

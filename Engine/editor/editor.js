@@ -10,10 +10,10 @@ import { Plane } from '@babylonjs/core/Maths/math.plane.js';
 // Side-effect only: this is what adds `createPickingRay` to Scene.
 import '@babylonjs/core/Culling/ray.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
-import { CAMERA_OFFSET } from '../src/render/isoCamera.js';
+import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
 import { buildMapView } from '../src/render/mapView.js';
 import { LEVEL_H } from '../src/data/dimensions.ts';
-import { colorOf, unlit } from '../src/render/materials.js';
+import { colorOf, unlit } from '../src/render/materials.ts';
 import { normalizeLight } from '../src/data/lights.ts';
 
 import { MONSTER_KINDS } from '../src/game/monsters.ts';

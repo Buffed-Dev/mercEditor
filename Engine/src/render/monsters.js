@@ -5,8 +5,8 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { MONSTER_KINDS } from '../game/monsters.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { BILLBOARD } from './isoCamera.js';
-import { colorOf, surface, unlit } from './materials.js';
+import { BILLBOARD } from './isoCamera.ts';
+import { colorOf, surface, unlit } from './materials.ts';
 
 /** Health bar geometry, in world units. */
 const BAR_WIDTH = 0.62;

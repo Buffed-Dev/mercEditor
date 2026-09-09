@@ -2,7 +2,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { PLAYER_RADIUS } from '../game/world.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { surface } from './materials.js';
+import { surface } from './materials.ts';
 
 // The first two are exported so the dash trail can leave afterimages of the
 // same silhouette rather than guessing at a capsule that nearly matches.

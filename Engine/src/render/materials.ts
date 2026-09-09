@@ -2,7 +2,21 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
-import { keep } from './sceneCache.js';
+import { keep } from './sceneCache.ts';
+import type { Scene } from '@babylonjs/core/scene.js';
+import type { MaterialInput } from '../data/materials.ts';
+
+/**
+ * A material this module knows how to write onto.
+ *
+ * The two are not interchangeable and are not meant to be: a flat material is
+ * a StandardMaterial with its lighting switched off, and a lit one is a
+ * PBRMaterial. Which one a definition gets is decided once, by `materialFrom`.
+ */
+export type Surface = PBRMaterial | StandardMaterial;
+
+/** Turns an asset id into somewhere it can be fetched from. */
+export type UrlOf = (id: string) => string;
 
 /**
  * The two kinds of material this game has, so no module has to decide again.
@@ -12,14 +26,18 @@ import { keep } from './sceneCache.js';
  * conversion should happen in exactly one place.
  */
 
-export const colorOf = (hex) =>
+export const colorOf = (hex: number): Color3 =>
   new Color3(((hex >> 16) & 0xff) / 255, ((hex >> 8) & 0xff) / 255, (hex & 0xff) / 255);
 
 /**
  * A lit surface: floors, walls, bodies. Metallic/roughness, so the art
  * direction can reach for a metal look without a second kind of material.
  */
-export function surface(name, scene, { color = 0xffffff, roughness = 0.8, metallic = 0 } = {}) {
+export function surface(
+  name: string,
+  scene: Scene,
+  { color = 0xffffff, roughness = 0.8, metallic = 0 } = {},
+): PBRMaterial {
   const material = new PBRMaterial(name, scene);
   material.albedoColor = colorOf(color);
   material.roughness = roughness;
@@ -38,7 +56,11 @@ export function surface(name, scene, { color = 0xffffff, roughness = 0.8, metall
  * Babylon has no unlit material as such — this is the idiom: all the colour on
  * emissive, lighting switched off.
  */
-export function unlit(name, scene, { color = 0xffffff, alpha = 1 } = {}) {
+export function unlit(
+  name: string,
+  scene: Scene,
+  { color = 0xffffff, alpha = 1 } = {},
+): StandardMaterial {
   const material = new StandardMaterial(name, scene);
   material.disableLighting = true;
   material.emissiveColor = colorOf(color);
@@ -47,7 +69,10 @@ export function unlit(name, scene, { color = 0xffffff, alpha = 1 } = {}) {
   if (alpha < 1) material.alpha = alpha;
   // A read-out that fogged out with distance would be unreadable exactly when
   // the camera is furthest from what it describes.
-  material.applyFog = false;
+  // `fogEnabled`, not `applyFog`: the latter is a property of a *mesh*, so
+  // setting it here only ever added a field to the material that Babylon does
+  // not read, and flat materials have been fogged all along.
+  material.fogEnabled = false;
   return material;
 }
 
@@ -70,7 +95,8 @@ export function unlit(name, scene, { color = 0xffffff, alpha = 1 } = {}) {
  */
 
 /** What identifies the material a scene should keep, given what it is made of. */
-export const materialKey = (def) => `material:named:${def.id}:${def.unlit ? 'flat' : 'lit'}`;
+export const materialKey = (def: MaterialInput): string =>
+  `material:named:${def.id}:${def.unlit ? 'flat' : 'lit'}`;
 
 /**
  * The picture a material lays over a surface.
@@ -79,7 +105,12 @@ export const materialKey = (def) => `material:named:${def.id}:${def.unlit ? 'fla
  * file: the same file tiled twice over is a different texture object, and two
  * materials sharing one would each keep overwriting the other's tiling.
  */
-function pictureFor(def, id, scene, urlOf) {
+function pictureFor(
+  def: MaterialInput,
+  id: string | undefined,
+  scene: Scene,
+  urlOf: UrlOf,
+): Texture | null {
   const url = id ? urlOf(id) : '';
   if (!url) return null;
   const u = def.uScale ?? 1;
@@ -109,10 +140,20 @@ function pictureFor(def, id, scene, urlOf) {
  * @param scene the scene both belong to
  * @param {(id: string) => string} urlOf where a texture asset's file lives
  */
-export function applyMaterial(def, material, scene, urlOf) {
+export function applyMaterial<T extends Surface>(
+  def: MaterialInput,
+  material: T,
+  scene: Scene,
+  urlOf: UrlOf,
+): T {
   const picture = pictureFor(def, def.texture, scene, urlOf);
 
-  if (def.unlit) {
+  // Asked of the material rather than re-read off `def.unlit`, which is the
+  // same question: `materialKey` folds the flag into the cache key and
+  // `materialFrom` builds to match it, so the two cannot drift apart. It is
+  // also the only form of the question the compiler can act on -- the two
+  // branches below write to fields the other class does not have.
+  if (material instanceof StandardMaterial) {
     // An unlit material *adds* its emissive colour to its emissive texture, so
     // a white tint over a picture is a white surface. Under a picture the tint
     // is the picture's own multiplier, which is what `diffuse` is for once the
@@ -148,9 +189,9 @@ export function applyMaterial(def, material, scene, urlOf) {
 }
 
 /** A material record, made and filled in. See `applyMaterial` for the split. */
-export function materialFrom(def, scene, urlOf) {
+export function materialFrom(def: MaterialInput, scene: Scene, urlOf: UrlOf): Surface {
   const material = def.unlit
-    ? unlit(def.id, scene, {})
-    : surface(def.id, scene, { color: 0xffffff });
+    ? unlit(def.id ?? '', scene, {})
+    : surface(def.id ?? '', scene, { color: 0xffffff });
   return applyMaterial(def, material, scene, urlOf);
 }

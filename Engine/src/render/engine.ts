@@ -5,7 +5,7 @@ import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { SSAO2RenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline.js';
-import { CAMERA_OFFSET, DEFAULT_FRUSTUM } from './isoCamera.js';
+import { CAMERA_OFFSET, DEFAULT_FRUSTUM } from './isoCamera.ts';
 
 /**
  * Babylon's Engine, the one Scene, the isometric camera and the render loop.
@@ -48,7 +48,7 @@ const AO = {
  * @param {HTMLElement} host the element the canvas fills. The map editor docks
  *   it between its panels, so this is not always the window.
  */
-export function createRenderer(host) {
+export function createRenderer(host: HTMLElement) {
   const canvas = document.createElement('canvas');
   canvas.style.display = 'block';
   canvas.style.width = '100%';
@@ -99,7 +99,14 @@ export function createRenderer(host) {
   resize();
 
   const ao = new SSAO2RenderingPipeline('ao', scene, { ssaoRatio: 1, blurRatio: 1 }, [camera]);
-  Object.assign(ao, AO);
+  // Assigned field by field rather than through `Object.assign`, which will
+  // happily carry a misspelled setting into a pipeline that ignores it.
+  ao.radius = AO.radius;
+  ao.base = AO.base;
+  ao.samples = AO.samples;
+  ao.expensiveBlur = AO.expensiveBlur;
+  ao.bilateralSamples = AO.bilateralSamples;
+  ao.textureSamples = AO.textureSamples;
 
   return {
     engine,
@@ -108,7 +115,7 @@ export function createRenderer(host) {
     canvas,
 
     /** How many world units are visible vertically. The editor drives the zoom. */
-    setFrustum(next) {
+    setFrustum(next: number): void {
       frustum = next;
       resize();
     },
@@ -122,7 +129,7 @@ export function createRenderer(host) {
      * Waiting behind the transition's black screen is what makes a map arrive
      * whole.
      */
-    whenReady() {
+    whenReady(): Promise<void> {
       // Render targets included: the shadow maps have shaders of their own, and
       // a map whose casters are still compiling comes up without its shadows.
       return scene.whenReadyAsync(true);
@@ -137,7 +144,7 @@ export function createRenderer(host) {
      * *starts* a compile, so polling this brings the wait forward instead of
      * only watching it.
      */
-    progress() {
+    progress(): number {
       const meshes = scene.meshes;
       if (!meshes.length) return 1;
       let ready = 0;
@@ -152,12 +159,12 @@ export function createRenderer(host) {
      * built once and outlives every level — so a map cannot set this the way it
      * sets its own sky. Whoever loads the map passes it on.
      */
-    setAmbientOcclusion(strength) {
+    setAmbientOcclusion(strength: number | undefined): void {
       ao.totalStrength = Math.max(0, strength ?? 0);
     },
 
     /** Move the viewpoint, keeping the isometric offset. */
-    lookAt(x, y, z) {
+    lookAt(x: number, y: number, z: number): void {
       target.set(x, y, z);
       camera.position.copyFrom(target).addInPlace(CAMERA_OFFSET);
       camera.setTarget(target);
@@ -173,7 +180,14 @@ export function createRenderer(host) {
      * end the game outright, leaving the window frozen on its last picture with
      * nothing on screen to say why.
      */
-    run(step, onError) {
+    run(
+      // `void` as well as boolean: only a step that means to skip the frame
+      // says so, and the rest return nothing.
+      step: (dt: number) => boolean | void,
+      // `unknown` because this only forwards it. Under `strict` a caught value
+      // is unknown, and pretending otherwise here would be a guess.
+      onError?: (error: unknown) => void,
+    ): void {
       let last = performance.now();
       engine.runRenderLoop(() => {
         const now = performance.now();
@@ -196,7 +210,7 @@ export function createRenderer(host) {
      * into a canvas nobody can see, holding a WebGL context the browser only
      * grants a handful of.
      */
-    dispose() {
+    dispose(): void {
       engine.stopRenderLoop();
       observer.disconnect();
       window.removeEventListener('resize', resize);
@@ -207,3 +221,6 @@ export function createRenderer(host) {
     },
   };
 }
+
+/** A canvas, a scene, and the loop that draws it. */
+export type Renderer = ReturnType<typeof createRenderer>;

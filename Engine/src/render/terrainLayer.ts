@@ -6,8 +6,16 @@ import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import { surface, materialFrom, applyMaterial, materialKey, colorOf } from './materials.js';
-import { keep } from './sceneCache.js';
+import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import {
+  surface,
+  materialFrom,
+  applyMaterial,
+  materialKey,
+  colorOf,
+  type Surface,
+} from './materials.ts';
+import { keep } from './sceneCache.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { assetById, assetUrl } from '../data/assets.ts';
 import { materialById } from '../data/materials.ts';
@@ -80,7 +88,11 @@ export function createTerrainLayer(
   env: { soilColor: number; floorColor: number },
   content: Content = {},
   shadows: Shadows | null = null,
-  decals: { paintable(name: string, scene: unknown, options?: object): unknown } | null = null,
+  // A paintable ground is a PBRCustomMaterial, which is a PBRMaterial: saying
+  // so is what lets the tint below be written without asking first.
+  decals: {
+    paintable(name: string, scene: unknown, options?: object): PBRMaterial;
+  } | null = null,
 ) {
   const root = new TransformNode('terrain', scene);
   const owned: { dispose(): void }[] = [];
@@ -103,7 +115,7 @@ export function createTerrainLayer(
 
   let templates = buildTemplates(normalizeRim(world.map?.terrainRim), LEVEL_H);
   const buckets = new Map<string, Bucket>();
-  const materials = new Map<string, unknown>();
+  const materials = new Map<string, Surface>();
 
   // --- materials ----------------------------------------------------------
 
@@ -125,20 +137,24 @@ export function createTerrainLayer(
     const named = id ? materialOf(id) : null;
     const tint = terrain?.tint ?? (tier === 'top' ? env.floorColor : env.soilColor);
 
-    let material: { albedoColor?: unknown; dispose(): void };
+    let material: Surface;
     if (tier === 'sub' && named) {
       // Stack blocks are the one place a plain shared material is right, so
       // they go through the scene cache and are not owned here.
       material = keep(scene, materialKey(named), () => materialFrom(named, scene, urlOf));
       applyMaterial(named, material, scene, urlOf);
     } else {
-      material =
+      // Both arms are lit materials -- `paintable` builds a PBRCustomMaterial
+      // and `surface` a PBRMaterial -- so the tint has somewhere to go without
+      // asking first whether this one has an albedo.
+      const lit =
         tier === 'top' && decals
-          ? (decals.paintable(`terrain:${cacheKey}`, scene, { roughness: 0.9 }) as typeof material)
+          ? decals.paintable(`terrain:${cacheKey}`, scene, { roughness: 0.9 })
           : surface(`terrain:${cacheKey}`, scene, { color: tint, roughness: 0.9 });
-      owned.push(material);
-      if (named) applyMaterial({ ...named, unlit: false }, material, scene, urlOf);
-      else if (material.albedoColor !== undefined) material.albedoColor = colorOf(tint);
+      owned.push(lit);
+      if (named) applyMaterial({ ...named, unlit: false }, lit, scene, urlOf);
+      else lit.albedoColor = colorOf(tint);
+      material = lit;
     }
 
     materials.set(cacheKey, material);
@@ -162,7 +178,7 @@ export function createTerrainLayer(
     vertexData.indices = data.indices;
     vertexData.applyToMesh(mesh, false);
 
-    mesh.material = materialFor(kind, tier, shapeOf(at).rot) as never;
+    mesh.material = materialFor(kind, tier, shapeOf(at).rot);
     mesh.receiveShadows = true;
     mesh.isPickable = true;
     // Without this a pick reports the mesh but not which instance, and the

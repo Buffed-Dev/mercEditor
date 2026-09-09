@@ -5,7 +5,7 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
-import { unlit } from '../../src/render/materials.js';
+import { unlit } from '../../src/render/materials.ts';
 import { createPropRuntime } from '../../src/render/props.js';
 import { createTerrainLayer } from '../../src/render/terrainLayer.ts';
 import { createGrid, idx } from '../../src/data/terrain/grid.ts';

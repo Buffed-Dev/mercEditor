@@ -1,7 +1,7 @@
 import { Effect } from '@babylonjs/core/Materials/effect.js';
 import { PostProcess } from '@babylonjs/core/PostProcesses/postProcess.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { CAMERA_OFFSET, SCREEN_RIGHT } from './isoCamera.js';
+import { CAMERA_OFFSET, SCREEN_RIGHT } from './isoCamera.ts';
 
 /**
  * Fog rolling in off the edges of the map.

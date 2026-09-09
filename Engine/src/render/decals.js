@@ -1,5 +1,5 @@
 import { PBRCustomMaterial } from '@babylonjs/materials/custom/pbrCustomMaterial.js';
-import { colorOf } from './materials.js';
+import { colorOf } from './materials.ts';
 import { angleBetween } from '../game/abilities.ts';
 
 /**

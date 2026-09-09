@@ -26,6 +26,51 @@
  * over FADE_IN rather than instantly, is what makes the appearance read as a
  * fade rather than a shape that was suddenly there.
  */
+/** A colour a shape is mixed between. */
+type Rgb = { r: number; g: number; b: number };
+
+/**
+ * The parts of a decal these views set.
+ *
+ * Structural rather than imported from ./decals, which owns the real thing:
+ * a telegraph places a shape, colours it and fades it, and that is the whole
+ * of what it needs to be handed.
+ */
+export type DebugDecal = {
+  gx: number;
+  gy: number;
+  aim: number;
+  color: Rgb;
+  alpha: number;
+  edgeAlpha: number;
+};
+
+/** All these views ask of the decal registry. */
+export type DecalSink = {
+  add: (spec: {
+    gx: number;
+    gy: number;
+    aim: number;
+    range: number;
+    halfArc: number;
+    edge: number;
+  }) => DebugDecal;
+  remove: (decal: DebugDecal) => void;
+};
+
+/** Where a telegraph is in its life. */
+type Phase = 'charging' | 'fading';
+
+type Shape = { decal: DebugDecal; phase: Phase; age: number; duration: number };
+
+/** What a caller holds onto so it can move, fire or drop its telegraph. */
+export type Telegraph = {
+  place: (gx: number, gy: number, aim: number) => void;
+  fire: () => void;
+  cancel: () => void;
+  done: boolean;
+};
+
 const CHARGE_FROM = 0;
 const CHARGE_TO = 0.5;
 
@@ -43,11 +88,11 @@ const WHITE_HOLD = 0.12;
 // Plain floats: a decal's colour goes straight into a uniform array, and the
 // fade below is a lerp between these two by hand. Nothing here needs a colour
 // class, and the registry deliberately does not hand out one.
-const AREA_COLOR = { r: 0.788, g: 0.071, b: 0.071 }; // #c91212
-const FLASH_COLOR = { r: 1, g: 1, b: 1 };
+const AREA_COLOR: Rgb = { r: 0.788, g: 0.071, b: 0.071 }; // #c91212
+const FLASH_COLOR: Rgb = { r: 1, g: 1, b: 1 };
 
 /** Write `a` blended `t` of the way toward `b` into `target`, in place. */
-function mixInto(target, a, b, t) {
+function mixInto(target: Rgb, a: Rgb, b: Rgb, t: number): void {
   target.r = a.r + (b.r - a.r) * t;
   target.g = a.g + (b.g - a.g) * t;
   target.b = a.b + (b.b - a.b) * t;
@@ -68,17 +113,17 @@ const EDGE_WIDTH = 0.09;
  *   the terrain materials read from. Telegraphs are written into it and drawn
  *   by the ground; nothing is added to the scene.
  */
-export function createDebugViews(decals) {
-  const shapes = [];
+export function createDebugViews(decals: DecalSink) {
+  const shapes: Shape[] = [];
   let enabled = true;
 
   /** The border is always the stronger of the two, until both are solid. */
-  function setOpacity(shape, value) {
+  function setOpacity(shape: Shape, value: number): void {
     shape.decal.alpha = value;
     shape.decal.edgeAlpha = Math.min(1, value * EDGE_RATIO);
   }
 
-  function drop(shape) {
+  function drop(shape: Shape): void {
     decals.remove(shape.decal);
     const at = shapes.indexOf(shape);
     if (at >= 0) shapes.splice(at, 1);
@@ -94,7 +139,7 @@ export function createDebugViews(decals) {
       return shapes.length;
     },
 
-    setEnabled(on) {
+    setEnabled(on: boolean): void {
       enabled = on;
       if (!on) {
         for (const shape of shapes) decals.remove(shape.decal);
@@ -110,7 +155,21 @@ export function createDebugViews(decals) {
      *
      * @returns a handle, or null when debug shapes are off
      */
-    telegraph({ gx, gy, aim, range, arc, castTime = 0 }) {
+    telegraph({
+      gx,
+      gy,
+      aim,
+      range,
+      arc,
+      castTime = 0,
+    }: {
+      gx: number;
+      gy: number;
+      aim: number;
+      range: number;
+      arc?: number;
+      castTime?: number;
+    }): Telegraph | null {
       if (!enabled) return null;
 
       const decal = decals.add({
@@ -125,19 +184,19 @@ export function createDebugViews(decals) {
       });
       Object.assign(decal.color, AREA_COLOR);
 
-      const shape = { decal, phase: 'charging', age: 0, duration: castTime };
+      const shape: Shape = { decal, phase: 'charging', age: 0, duration: castTime };
       // Starts at nothing when there is a wind-up to fade in across, and solid
       // when there is not — an instant ability is fired in the same frame.
       setOpacity(shape, castTime > 0 ? 0 : CHARGE_TO);
       shapes.push(shape);
 
-      const handle = {
+      const handle: Telegraph = {
         /**
          * Follow the caster. A wind-up does not pin an actor in place, and the
          * hit test runs from wherever it ends up — so a telegraph left behind
          * at the starting position would be showing the wrong wedge.
          */
-        place(nextGx, nextGy, nextAim) {
+        place(nextGx: number, nextGy: number, nextAim: number): void {
           if (handle.done) return;
           decal.gx = nextGx;
           decal.gy = nextGy;
@@ -145,7 +204,7 @@ export function createDebugViews(decals) {
         },
 
         /** The wind-up finished and the ability landed. */
-        fire() {
+        fire(): void {
           if (handle.done) return;
           shape.phase = 'fading';
           shape.age = 0;
@@ -157,7 +216,7 @@ export function createDebugViews(decals) {
         },
 
         /** The wind-up was dropped. Nothing happened, so nothing is shown. */
-        cancel() {
+        cancel(): void {
           if (handle.done) return;
           drop(shape);
           handle.done = true;
@@ -169,7 +228,7 @@ export function createDebugViews(decals) {
       return handle;
     },
 
-    update(dt) {
+    update(dt: number): void {
       for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
         shape.age += dt;
@@ -202,9 +261,12 @@ export function createDebugViews(decals) {
       }
     },
 
-    dispose() {
+    dispose(): void {
       for (const shape of shapes) decals.remove(shape.decal);
       shapes.length = 0;
     },
   };
 }
+
+/** The telegraphs currently on screen. */
+export type DebugViews = ReturnType<typeof createDebugViews>;

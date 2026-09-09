@@ -9,7 +9,7 @@ import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { createLights } from './lights.js';
 import { createDecals } from './decals.js';
-import { colorOf, surface, unlit } from './materials.js';
+import { colorOf, surface, unlit } from './materials.ts';
 import { LEVEL_H, WALL_H } from '../data/dimensions.ts';
 import { normalizeEnv } from '../data/mapFormat.ts';
 import { applyFog } from './fog.js';
