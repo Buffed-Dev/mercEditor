@@ -1,5 +1,61 @@
 import { LIGHT_FIELDS, LIGHT_TYPES, normalizeLight } from '../src/data/lights.ts';
 import { CHUNK_ROLES } from '../src/data/maps/chunks.ts';
+import type { LightInput } from '../src/data/lights.ts';
+import type { FieldSpec } from './fields/types.ts';
+import type { Selection } from './state/selection.ts';
+
+/**
+ * One entry of a map's object lists, while the editor holds it.
+ *
+ * Deliberately a loose record. This module's whole job is to describe data it
+ * did not write -- a map file may carry fields the editor has never heard of,
+ * and saving must not drop them -- so every field it does read goes through
+ * one of the two readers below rather than being promised a type.
+ */
+export type ObjectEntry = Record<string, unknown>;
+
+/** A field read as text, which is what every `describe` wants. */
+const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** A field read as a number, or the default the panel shows for it. */
+const num = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+/**
+ * How one object list is edited.
+ *
+ * `fields` is a fixed set; `fieldsFor` is for a list whose fields depend on the
+ * entry -- a light shows the settings its own kind has. `keyed` marks a list
+ * addressed by name rather than by position, which only spawns are.
+ */
+export type ListSpec = {
+  label: string;
+  keyed?: boolean;
+  fields?: FieldSpec[];
+  fieldsFor?: (entry: ObjectEntry) => FieldSpec[];
+  describe: (entry: ObjectEntry, key?: string) => string;
+};
+
+/** One row of the object tree. */
+export type ObjectRow = {
+  list: string;
+  key?: string;
+  index?: number;
+  entry: ObjectEntry;
+  label: string;
+};
+
+/**
+ * The monster kinds, hoisted out of the table below.
+ *
+ * `describe` used to read them back out of `OBJECT_LISTS.monsters.fields[0]`,
+ * which made the table refer to itself while it was still being described.
+ */
+const MONSTER_KINDS = [
+  ['grunt', 'Grunt'],
+  ['brute', 'Brute'],
+  ['vase', 'Vase'],
+] as const;
 
 /**
  * What each kind of map object exposes to the inspector. The panel renders
@@ -16,7 +72,7 @@ const FACES = [
   ['+y', '+y (toward camera)'],
   ['-x', '-x (behind wall)'],
   ['-y', '-y (behind wall)'],
-];
+] as const;
 
 /**
  * @typedef {import('./fields/types.ts').FieldSpec} FieldSpec
@@ -31,12 +87,14 @@ const FACES = [
  */
 
 /** @type {Record<string, ObjectListSpec>} */
-export const OBJECT_LISTS = {
+export const OBJECT_LISTS: Record<string, ListSpec> = {
   lights: {
     label: 'Light',
     /** Lights vary by type, so their fields are looked up per entry. */
-    fieldsFor(entry) {
-      const light = normalizeLight(entry);
+    fieldsFor(entry: ObjectEntry): FieldSpec[] {
+      // `normalizeLight` is what decides what a loose record amounts to, which
+      // is exactly why the record can be handed to it unchecked.
+      const light = normalizeLight(entry as LightInput);
       return [
         {
           key: 'type',
@@ -44,14 +102,17 @@ export const OBJECT_LISTS = {
           label: 'Type',
           options: Object.entries(LIGHT_TYPES).map(([id, spec]) => [id, spec.label]),
         },
-        ...LIGHT_TYPES[light.type].fields.map((key) => {
+        ...LIGHT_TYPES[light.type].fields.map((key): FieldSpec => {
           const field = LIGHT_FIELDS[key];
-          return field.kind === 'number' ? { key, ...field, kind: 'range' } : { key, ...field };
+          // A number reads better as a slider here than as a typed-in figure.
+          return field.kind === 'number'
+            ? ({ key, ...field, kind: 'range' } as FieldSpec)
+            : ({ key, ...field } as FieldSpec);
         }),
       ];
     },
-    describe(entry) {
-      const light = normalizeLight(entry);
+    describe(entry: ObjectEntry): string {
+      const light = normalizeLight(entry as LightInput);
       return `${LIGHT_TYPES[light.type].label} light`;
     },
   },
@@ -62,7 +123,7 @@ export const OBJECT_LISTS = {
     // rules document — so the panel fills them in, the way it does for the
     // attribute pickers next door.
     fields: [{ key: 'id', kind: 'vfx', label: 'Effect' }],
-    describe: (entry) => entry.id || 'No effect',
+    describe: (entry) => text(entry.id) || 'No effect',
   },
 
   props: {
@@ -78,7 +139,7 @@ export const OBJECT_LISTS = {
       { key: 'rot', kind: 'range', label: 'Turn (deg)', min: 0, max: 345, step: 15 },
       { key: 'lift', kind: 'range', label: 'Lift', min: -2, max: 8, step: 0.05 },
     ],
-    describe: (entry) => entry.id || 'No object',
+    describe: (entry) => text(entry.id) || 'No object',
   },
 
   portals: {
@@ -89,7 +150,7 @@ export const OBJECT_LISTS = {
       { key: 'label', kind: 'text', label: 'Label' },
       { key: 'color', kind: 'color', label: 'Colour' },
     ],
-    describe: (entry) => `Portal to ${entry.to || '(nowhere)'}`,
+    describe: (entry) => `Portal to ${text(entry.to) || '(nowhere)'}`,
   },
 
   monsters: {
@@ -99,17 +160,12 @@ export const OBJECT_LISTS = {
         key: 'kind',
         kind: 'select',
         label: 'Kind',
-        options: [
-          ['grunt', 'Grunt'],
-          ['brute', 'Brute'],
-          ['vase', 'Vase'],
-        ],
+        options: MONSTER_KINDS,
       },
     ],
     // Read off the picker rather than spelled out again: a kind added there and
     // not here would show up in the list as the wrong thing.
-    describe: (entry) =>
-      OBJECT_LISTS.monsters.fields[0].options.find(([id]) => id === entry.kind)?.[1] ?? 'Grunt',
+    describe: (entry) => MONSTER_KINDS.find(([id]) => id === text(entry.kind))?.[1] ?? 'Grunt',
   },
 
   torches: {
@@ -118,7 +174,7 @@ export const OBJECT_LISTS = {
       { key: 'face', kind: 'select', label: 'Mounted facing', options: FACES },
       { key: 'radius', kind: 'range', label: 'Radius', min: 1, max: 20, step: 0.5 },
     ],
-    describe: (entry) => `Torch ${entry.face}`,
+    describe: (entry) => `Torch ${text(entry.face)}`,
   },
 
   chunks: {
@@ -130,15 +186,15 @@ export const OBJECT_LISTS = {
       { key: 'h', kind: 'range', label: 'Height', min: 1, max: 40, step: 1 },
     ],
     describe: (entry) =>
-      `${Math.round(entry.w ?? 8)}×${Math.round(entry.h ?? 8)} ${
-        CHUNK_ROLES.find(([id]) => id === (entry.role ?? ''))?.[1]?.toLowerCase() ?? 'filler'
+      `${Math.round(num(entry.w, 8))}×${Math.round(num(entry.h, 8))} ${
+        CHUNK_ROLES.find(([id]) => id === text(entry.role))?.[1]?.toLowerCase() ?? 'filler'
       }`,
   },
 
   stations: {
     label: 'Station',
     fields: [{ key: 'label', kind: 'text', label: 'Name' }],
-    describe: (entry) => entry.label || 'Crafting bench',
+    describe: (entry) => text(entry.label) || 'Crafting bench',
   },
 
   doors: {
@@ -156,7 +212,7 @@ export const OBJECT_LISTS = {
       { key: 'stack', kind: 'range', label: 'Blocks high', min: 1, max: 8, step: 1 },
     ],
     describe: (entry) => {
-      const stack = Math.max(1, Math.round(entry.stack ?? 1));
+      const stack = Math.max(1, Math.round(num(entry.stack, 1)));
       return stack > 1 ? `Wall x${stack}` : 'Wall';
     },
   },
@@ -165,7 +221,7 @@ export const OBJECT_LISTS = {
     label: 'Spawn',
     keyed: true, // addressed by name, not by index
     fields: [{ key: 'name', kind: 'text', label: 'Name' }],
-    describe: (entry, key) => `Spawn "${key}"`,
+    describe: (_entry, key) => `Spawn "${key ?? ''}"`,
   },
 };
 
@@ -191,22 +247,37 @@ export const LIST_ORDER = [
   'spawns',
 ];
 
-export function fieldsFor(list, entry) {
+export function fieldsFor(list: string, entry: ObjectEntry): FieldSpec[] {
   const spec = OBJECT_LISTS[list];
-  return spec.fieldsFor ? spec.fieldsFor(entry) : spec.fields;
+  if (!spec) return [];
+  return spec.fieldsFor ? spec.fieldsFor(entry) : (spec.fields ?? []);
 }
 
+/**
+ * A map's object lists, reached by name.
+ *
+ * The lists are read by a name worked out at runtime, which an object type
+ * cannot be indexed by. One cast here beats ten near-identical branches.
+ */
+const listsOf = (map: Record<string, unknown>) =>
+  map as Record<string, readonly ObjectEntry[] | Record<string, ObjectEntry> | undefined>;
+
 /** Every object on the map, flattened into rows the panel can list. */
-export function objectRows(map) {
-  const rows = [];
+export function objectRows(map: Record<string, unknown>): ObjectRow[] {
+  const lists = listsOf(map);
+  const rows: ObjectRow[] = [];
   for (const list of LIST_ORDER) {
     const spec = OBJECT_LISTS[list];
+    if (!spec) continue;
+    const held = lists[list];
     if (spec.keyed) {
-      for (const [key, entry] of Object.entries(map[list] ?? {})) {
+      const byName = (held ?? {}) as Record<string, ObjectEntry>;
+      for (const [key, entry] of Object.entries(byName)) {
         rows.push({ list, key, entry, label: spec.describe(entry, key) });
       }
     } else {
-      (map[list] ?? []).forEach((entry, index) => {
+      const byIndex = (held ?? []) as readonly ObjectEntry[];
+      byIndex.forEach((entry, index) => {
         rows.push({ list, index, entry, label: spec.describe(entry) });
       });
     }
@@ -215,12 +286,16 @@ export function objectRows(map) {
 }
 
 /** Does a selection still point at something that exists? */
-export function resolveSelection(map, selection) {
+export function resolveSelection(
+  map: Record<string, unknown>,
+  selection: Selection,
+): (NonNullable<Selection> & { entry: ObjectEntry; spec: ListSpec }) | null {
   if (!selection) return null;
   const spec = OBJECT_LISTS[selection.list];
   if (!spec) return null;
+  const held = listsOf(map)[selection.list];
   const entry = spec.keyed
-    ? (map[selection.list] ?? {})[selection.key]
-    : (map[selection.list] ?? [])[selection.index];
+    ? ((held ?? {}) as Record<string, ObjectEntry>)[selection.key ?? '']
+    : ((held ?? []) as readonly ObjectEntry[])[selection.index ?? -1];
   return entry ? { ...selection, entry, spec } : null;
 }

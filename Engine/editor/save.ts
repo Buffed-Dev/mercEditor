@@ -1,8 +1,8 @@
 import { registerMap } from '../src/data/maps/index.ts';
-import type { GameMap } from '../src/data/mapFormat.ts';
+import type { EditorMap } from './serialize.ts';
 import type { Terrain } from '../src/data/terrains.ts';
 import type { RuleKind } from './serializeData.ts';
-import { serializeMap } from './serialize.js';
+import { serializeMap } from './serialize.ts';
 import { serializeAllRules } from './serializeData.ts';
 
 /**
@@ -30,7 +30,7 @@ export const terrainCharOf =
  */
 export async function writeMap(
   game: string,
-  map: GameMap,
+  map: EditorMap,
   terrains: readonly Terrain[],
 ): Promise<string> {
   const response = await fetch('/__maps', {

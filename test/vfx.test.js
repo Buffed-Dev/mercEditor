@@ -15,7 +15,7 @@ import {
 import { DEFAULT_ENV, normalizeEnv } from '../Engine/src/data/mapFormat.ts';
 import { abilityFields, normalizeAbility } from '../Engine/src/data/abilities.ts';
 import { serializeRules } from '../Engine/editor/serializeData.ts';
-import { serializeMap } from '../Engine/editor/serialize.js';
+import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
 /**

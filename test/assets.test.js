@@ -17,7 +17,7 @@ import {
 } from '../Engine/src/data/props.ts';
 import { safeFileName } from '../Engine/editor/uploadAsset.ts';
 import { serializeRules } from '../Engine/editor/serializeData.ts';
-import { serializeMap } from '../Engine/editor/serialize.js';
+import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
 /**

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { serializeMap } from '../Engine/editor/serialize.js';
+import { serializeMap } from '../Engine/editor/serialize.ts';
 import { gridOf, mapDoc } from './helpers/terrainFixtures.ts';
 
 /**

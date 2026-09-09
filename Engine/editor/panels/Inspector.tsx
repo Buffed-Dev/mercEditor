@@ -1,5 +1,5 @@
 import { normalizeRim, rimOf } from '../../src/data/terrain/profile.ts';
-import { OBJECT_LISTS, fieldsFor } from '../schema.js';
+import { OBJECT_LISTS, fieldsFor } from '../schema.ts';
 import { ENV_GROUPS } from '../envGroups.ts';
 import { Field } from '../fields/Field';
 import { FieldList } from '../fields/FieldList';

@@ -25,7 +25,7 @@ import {
   IconSun,
   IconTargetArrow,
 } from '@tabler/icons-react';
-import { objectRows } from '../schema.js';
+import { objectRows } from '../schema.ts';
 import { DropdownMenu, MenuItem, MenuSeparator } from '../ui/Menu';
 import { say } from '../state/status';
 import { rowId, useSelection, type Selection } from '../state/selection';

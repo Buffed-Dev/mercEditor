@@ -8,10 +8,40 @@
 import { encodeTerrain } from '../src/data/terrain/codec.ts';
 import { quote } from './literal.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
+import type { GameMap } from '../src/data/mapFormat.ts';
+import type { TerrainGrid } from '../src/data/terrain/grid.ts';
 
-const hex = (value) => `0x${(value ?? 0).toString(16).padStart(6, '0')}`;
+/**
+ * A map as the editor holds it.
+ *
+ * The one difference from what a file holds is `terrain`: the editor has the
+ * live grid, and writing a file is exactly the step that turns it back into
+ * rows. Anything with only rows has nothing to serialize.
+ */
+export type EditorMap = Omit<GameMap, 'terrain'> & { terrain: TerrainGrid };
 
-const constName = (id) => id.replace(/[^a-z0-9]+/gi, '_').toUpperCase();
+/**
+ * One thing a map places, as this file reads it.
+ *
+ * Loose on purpose: a map file may carry fields the editor has never heard of,
+ * and what is written back has to include them. Every field read below goes
+ * through `text` or `num` rather than being promised a type.
+ */
+type Entry = Record<string, unknown>;
+
+/** A field read as a number, or what to write when it is not one. */
+const num = (value: unknown, fallback = 0): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+/** A map's lists, reached by name. See schema.ts for the same shape. */
+const listOf = (map: Record<string, unknown>, name: string): Entry[] => {
+  const held = map[name];
+  return Array.isArray(held) ? (held as Entry[]) : [];
+};
+
+const hex = (value: unknown) => `0x${num(value).toString(16).padStart(6, '0')}`;
+
+const constName = (id: string) => id.replace(/[^a-z0-9]+/gi, '_').toUpperCase();
 
 /**
  * Which folder of the object list a thing sits in, if any.
@@ -21,14 +51,18 @@ const constName = (id) => id.replace(/[^a-z0-9]+/gi, '_').toUpperCase();
  * points at a thing that is gone. It means nothing to the game — nothing reads
  * it but the editor's own list — which is why it is written only when set.
  */
-const grp = (entry) => (entry.group ? `, group: ${quote(entry.group)}` : '');
+const grp = (entry: Entry) => (entry.group ? `, group: ${quote(entry.group)}` : '');
 
-function listBody(entries, format, indent = '    ') {
+function listBody(
+  entries: readonly Entry[],
+  format: (entry: Entry) => string,
+  indent = '    ',
+): string | null {
   if (!entries.length) return null;
   return entries.map((entry) => `${indent}${format(entry)},`).join('\n');
 }
 
-function block(label, body) {
+function block(label: string, body: string | null): string {
   return body === null ? `  ${label}: [],` : `  ${label}: [\n${body}\n  ],`;
 }
 
@@ -37,112 +71,126 @@ function block(label, body) {
  * @param {(id: string) => string} [charOf] a terrain id to its two-character
  *   grid key. The editor answers from the terrain records being edited.
  */
-export function serializeMap(map, charOf = () => '') {
+export function serializeMap(
+  map: EditorMap,
+  charOf: (id: string) => string = () => '',
+): string {
+  // The lists are reached by name, which an object type cannot be indexed by.
+  const lists = map as unknown as Record<string, unknown>;
   // The two grids, read out of the live typed arrays. Printed one above the
   // other because they are read together: one says how tall a column is, the
   // other what it is made of and whether it is there.
-  const grid = encodeTerrain(map.terrain, map.terrainIds ?? [], charOf);
+  const grid = encodeTerrain(map.terrain, (lists.terrainIds as string[] | undefined) ?? [], charOf);
   const height = grid.height.map((row) => `    '${row}',`).join('\n');
   const terrain = grid.terrain.map((row) => `    '${row}',`).join('\n');
   const keys = Object.entries(grid.terrainKeys)
     .map(([key, id]) => `${quote(key)}: ${quote(id)}`)
     .join(', ');
 
-  const spawnEntries = Object.entries(map.spawns ?? {}).map(
-    ([key, s]) => `    ${quote(key)}: { gx: ${s.gx}, gy: ${s.gy}${grp(s)} },`,
+  const spawnEntries = Object.entries((map.spawns ?? {}) as Record<string, Entry>).map(
+    ([key, s]) => `    ${quote(key)}: { gx: ${num(s.gx)}, gy: ${num(s.gy)}${grp(s)} },`,
   );
   const spawns = spawnEntries.length
     ? `  spawns: {\n${spawnEntries.join('\n')}\n  },`
     : '  spawns: {},';
 
   const portals = listBody(
-    map.portals ?? [],
+    listOf(lists, 'portals'),
     (p) =>
-      `{ gx: ${p.gx}, gy: ${p.gy}, to: ${quote(p.to)}, spawn: ${quote(p.spawn)}, ` +
+      `{ gx: ${num(p.gx)}, gy: ${num(p.gy)}, to: ${quote(p.to)}, spawn: ${quote(p.spawn)}, ` +
       `color: ${hex(p.color)}, label: ${quote(p.label ?? p.to)}${grp(p)} }`,
   );
 
   // A wall of one block writes no stack, so the common case stays short.
-  const walls = listBody(map.walls ?? [], (w) => {
-    const stack = Math.max(1, Math.round(w.stack ?? 1));
+  const walls = listBody(listOf(lists, 'walls'), (w) => {
+    const stack = Math.max(1, Math.round(num(w.stack, 1)));
     return stack > 1
-      ? `{ gx: ${w.gx}, gy: ${w.gy}, stack: ${stack}${grp(w)} }`
-      : `{ gx: ${w.gx}, gy: ${w.gy}${grp(w)} }`;
+      ? `{ gx: ${num(w.gx)}, gy: ${num(w.gy)}, stack: ${stack}${grp(w)} }`
+      : `{ gx: ${num(w.gx)}, gy: ${num(w.gy)}${grp(w)} }`;
   });
 
-  const doors = listBody(map.doors ?? [], (d) => `{ gx: ${d.gx}, gy: ${d.gy}${grp(d)} }`);
+  const doors = listBody(
+    listOf(lists, 'doors'),
+    (d) => `{ gx: ${num(d.gx)}, gy: ${num(d.gy)}${grp(d)} }`,
+  );
 
   // What makes this file a piece of a place rather than a place. Written only
   // when it is set, so an ordinary map's file is untouched by clusters
   // existing at all.
   const part = [
-    map.startZ ? `  startZ: ${+Number(map.startZ).toFixed(3)},` : null,
+    map.startZ ? `  startZ: ${+num(map.startZ).toFixed(3)},` : null,
     // Only when it is not the ordinary one block, so a map that never thought
     // about it does not carry an answer to a question nobody asked.
     map.stepHeight !== undefined && map.stepHeight !== 1
-      ? `  stepHeight: ${+Number(map.stepHeight).toFixed(3)},`
+      ? `  stepHeight: ${+num(map.stepHeight).toFixed(3)},`
       : null,
     map.generated ? '  generated: true,' : null,
-    map.chunkCount ? `  chunkCount: ${Math.round(map.chunkCount)},` : null,
+    map.chunkCount ? `  chunkCount: ${Math.round(num(map.chunkCount))},` : null,
   ]
     .filter(Boolean)
     .join('\n');
 
   const monsters = listBody(
-    map.monsters ?? [],
-    (m) => `{ gx: ${m.gx}, gy: ${m.gy}, kind: ${quote(m.kind)}${grp(m)} }`,
+    listOf(lists, 'monsters'),
+    (m) => `{ gx: ${num(m.gx)}, gy: ${num(m.gy)}, kind: ${quote(m.kind)}${grp(m)} }`,
   );
 
   const torches = listBody(
-    map.torches ?? [],
-    (t) => `{ gx: ${t.gx}, gy: ${t.gy}, face: ${quote(t.face)}, radius: ${t.radius ?? 5}${grp(t)} }`,
+    listOf(lists, 'torches'),
+    (t) =>
+      `{ gx: ${num(t.gx)}, gy: ${num(t.gy)}, face: ${quote(t.face)}, ` +
+      `radius: ${num(t.radius, 5)}${grp(t)} }`,
   );
 
   // The rectangles a generated map is cut into. Written even when the map is
   // not generated: the toggle is a switch, and turning it off must not throw
   // away the layout so that turning it back on finds nothing.
-  const chunks = listBody(map.chunks ?? [], (c) => {
+  const chunks = listBody(listOf(lists, 'chunks'), (c) => {
     const role = c.role ? `, role: ${quote(c.role)}` : '';
-    const size = `w: ${Math.round(c.w)}, h: ${Math.round(c.h)}`;
-    return `{ gx: ${c.gx}, gy: ${c.gy}, ${size}, name: ${quote(c.name)}${role}${grp(c)} }`;
+    const size = `w: ${Math.round(num(c.w, 8))}, h: ${Math.round(num(c.h, 8))}`;
+    return `{ gx: ${num(c.gx)}, gy: ${num(c.gy)}, ${size}, name: ${quote(c.name)}${role}${grp(c)} }`;
   });
 
   const stations = listBody(
-    map.stations ?? [],
+    listOf(lists, 'stations'),
     (station) =>
-      `{ gx: ${station.gx}, gy: ${station.gy}, ` +
+      `{ gx: ${num(station.gx)}, gy: ${num(station.gy)}, ` +
       `label: ${quote(station.label ?? 'Crafting bench')}${grp(station)} }`,
   );
 
   // Lights carry different fields per type, so write whatever the light
   // actually has rather than a fixed column order.
-  const lights = listBody(map.lights ?? [], (light) => {
+  const lights = listBody(listOf(lists, 'lights'), (light) => {
     const fields = Object.entries(light)
       .filter(([key]) => key !== 'type')
       .map(([key, value]) => {
         if (key.endsWith('Color') || key === 'color') return `${key}: ${hex(value)}`;
         // Every other field of a light is a number or a flag; the group is the
         // one string, and an unquoted one would be a reference to nothing.
-        return `${key}: ${typeof value === 'string' ? quote(value) : value}`;
+        return `${key}: ${typeof value === 'string' ? quote(value) : String(value)}`;
       });
     return `{ type: ${quote(light.type)}, ${fields.join(', ')} }`;
   });
 
   // A placed object is a tile and which definition stands on it. Its turn is
   // written only when it has one, so the ordinary case stays one short line.
-  const placed = listBody(map.props ?? [], (entry) => {
-    const turn = Math.round(entry.rot ?? 0);
+  const placed = listBody(listOf(lists, 'props'), (entry) => {
+    const turn = Math.round(num(entry.rot));
     const rot = turn ? `, rot: ${turn}` : '';
     // Likewise the height it stands at, so the ordinary object on the ground
     // stays one short line.
-    const raise = Number(entry.lift ?? 0);
+    const raise = num(entry.lift);
     const lift = raise ? `, lift: ${+raise.toFixed(3)}` : '';
-    return `{ gx: ${entry.gx}, gy: ${entry.gy}, id: ${quote(entry.id ?? '')}${rot}${lift}${grp(entry)} }`;
+    return (
+      `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, ` +
+      `id: ${quote(entry.id ?? '')}${rot}${lift}${grp(entry)} }`
+    );
   });
 
   const effects = listBody(
-    map.vfx ?? [],
-    (entry) => `{ gx: ${entry.gx}, gy: ${entry.gy}, id: ${quote(entry.id ?? '')}${grp(entry)} }`,
+    listOf(lists, 'vfx'),
+    (entry) =>
+      `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, id: ${quote(entry.id ?? '')}${grp(entry)} }`,
   );
 
   // Written from the table that defines what an env *is*, rather than from a
@@ -151,12 +199,12 @@ export function serializeMap(map, charOf = () => '') {
   const env = normalizeEnv(map.env);
   const envLines = Object.keys(DEFAULT_ENV)
     .map((key) => {
-      const value = env[key];
+      const value = (env as Record<string, unknown>)[key];
       if (typeof value === 'boolean') return `    ${key}: ${value},`;
       // Colours read as colours: nobody looking at a map file wants to work out
       // what 14077368 was supposed to be.
       const colour = key === 'sky' || key.endsWith('Color');
-      return `    ${key}: ${colour ? hex(value) : value},`;
+      return `    ${key}: ${colour ? hex(value) : String(value)},`;
     })
     .join('\n');
 

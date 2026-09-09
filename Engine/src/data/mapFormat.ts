@@ -130,6 +130,7 @@ export type MapObject = Placed & {
 
 import type { ChunkInput } from './maps/chunks.ts';
 import type { LightInput } from './lights.ts';
+import type { TerrainGrid } from './terrain/grid.ts';
 import type { RimRing } from './terrain/profile.ts';
 
 /** A wall, which stacks. */
@@ -166,7 +167,14 @@ export type MapList = (typeof MAP_LISTS)[number];
 export type GameMap = {
   id: string;
   name?: string;
-  terrain?: readonly string[];
+  /**
+   * The ground, in one of its two spellings.
+   *
+   * A map file writes rows of characters; the editor holds the live grid it
+   * decoded them into and hands that back. `decodeTerrain` is the one place
+   * that reads either, which is why both are allowed to be called `terrain`.
+   */
+  terrain?: readonly string[] | TerrainGrid;
   terrainKeys?: Record<string, string>;
   terrainRim?: readonly RimRing[];
   rows?: readonly string[];
