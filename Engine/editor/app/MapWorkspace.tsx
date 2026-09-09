@@ -84,20 +84,39 @@ export function MapWorkspace() {
   const stage = useStage(host, content);
   const editor = stage?.editor ?? null;
 
+  /**
+   * Open a map by name, whoever asked.
+   *
+   * The one place that decides what opening a map involves: the hidden-object
+   * set belongs to the map that was open, so it goes with it, and a name the
+   * registry does not have opens nothing rather than handing `undefined` to a
+   * document. Every id reaching here comes from `mapIds()` today — this is what
+   * keeps that from being something the caller has to know.
+   */
+  const openMap = useCallback(
+    (id: string) => {
+      const map = MAPS[id];
+      if (!editor || !map) return;
+      clearHidden();
+      editor.open(map);
+    },
+    [editor, clearHidden],
+  );
+
   // The map is opened only once the registry is the opened game's, rather than
   // the one this page happened to be built against.
   useEffect(() => {
     if (!editor || !game) return;
-    // Nothing about the last map still applies to this one.
-    clearHidden();
-    editor.open(MAPS[START_MAP] ?? Object.values(MAPS)[0]);
+    // The same fallback as before: the first map the registry was given, not
+    // the first alphabetically -- `mapIds` sorts, and this is not a list.
+    openMap(START_MAP in MAPS ? START_MAP : (Object.keys(MAPS)[0] ?? ''));
     // Framed again on the next frame. `open` frames as it builds, but at that
     // moment the panels may not have taken their stored widths yet — and the
     // camera is fitted to the shape of the viewport, so a map framed against
     // the wrong shape comes up pointing at the middle of nowhere.
     const pending = requestAnimationFrame(() => editor.frameAll());
     return () => cancelAnimationFrame(pending);
-  }, [editor, game, clearHidden]);
+  }, [editor, game, openMap]);
 
   // A handle on the running editor, for the console. The workspace this
   // replaced published the same one, and it is the only way to ask the scene a
@@ -218,10 +237,7 @@ export function MapWorkspace() {
           gameLabel={game?.label ?? gameId}
           mapId={doc?.map.id}
           maps={mapIds().map((id: string) => ({ id, label: MAPS[id]?.name ?? id }))}
-          onOpenMap={(id) => {
-            clearHidden();
-            editor?.open(MAPS[id]);
-          }}
+          onOpenMap={openMap}
           onNewMap={onNewMap}
           canUndo={Boolean(doc?.canUndo)}
           canRedo={Boolean(doc?.canRedo)}
@@ -258,7 +274,7 @@ export function MapWorkspace() {
           {leftTab === 'maps' && (
             <MapList
               current={doc?.map.id}
-              onOpen={(id) => editor?.open(MAPS[id])}
+              onOpen={openMap}
               onNew={onNewMap}
             />
           )}
