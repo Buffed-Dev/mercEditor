@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Popover } from '@base-ui/react/popover';
-import { RPG_GLYPHS } from '../rpgGlyphs.js';
+import { RPG_GLYPHS } from '../rpgGlyphs.ts';
 import styles from './IconPicker.module.css';
 
 /**

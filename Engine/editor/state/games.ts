@@ -1,6 +1,6 @@
-import { listGames, loadGame, servedGame } from '../games.js';
+import { listGames, loadGame, servedGame } from '../games.ts';
 
-export type GameSummary = { id: string; label?: string };
+export type { GameSummary } from '../games.ts';
 
 export { listGames, loadGame, servedGame };
 

@@ -2,18 +2,22 @@
  * RPG Awesome's glyph table: 494 fantasy and game icons, name to codepoint.
  *
  * Generated from node_modules/rpg-awesome/css/rpg-awesome.min.css by
- * scripts/genRpgGlyphs.cjs. Bumping the package means regenerating it — the
+ * scripts/genRpgGlyphs.ts. Bumping the package means regenerating it — the
  * codepoints are private-use and are not stable across major versions.
  *
- * The whole set is declared rather than the handful the editor happens to use,
- * the way ./icons.js does: here the point is that an author can pick any of
- * them, so there is no "used" subset to know in advance.
+ * The whole set is declared rather than the handful the editor happens to use:
+ * the point is that an author can pick any of them, so there is no "used"
+ * subset to know in advance.
+ *
+ * Typed as a plain lookup rather than `as const`: five hundred literal keys
+ * would be five hundred types for the checker to carry, and every reader here
+ * asks with a name it was given rather than one it wrote down.
  *
  * RPG Awesome is CC BY 3.0 (Daniela Howe, Ivan Montiel); the glyphs derive from
  * game-icons.net.
  */
 
-export const RPG_GLYPHS = {
+export const RPG_GLYPHS: Record<string, string> = {
   'acid': 'e900',
   'acorn': 'e901',
   'alien-fire': 'e902',

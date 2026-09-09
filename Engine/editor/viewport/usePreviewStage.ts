@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPreviewStage } from '../previewStage.js';
+import { createPreviewStage } from '../previewStage.ts';
 
 export type Preview = {
   /** How wide a view it opens on, in world units. */

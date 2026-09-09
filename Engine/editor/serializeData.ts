@@ -1,4 +1,4 @@
-import { literal } from './literal.js';
+import { literal } from './literal.ts';
 
 /**
  * Write the rules back out as the modules in a game's rules/ folder.
@@ -9,6 +9,8 @@ import { literal } from './literal.js';
  * have to understand them. Here it only has to print an array.
  */
 
+/** One rules file: the constant it declares, and what to say above it. */
+type RuleFile = { constant: string; title: string; note: string };
 const RULE_FILES = {
   attributes: {
     constant: 'ATTRIBUTES',
@@ -80,17 +82,20 @@ const RULE_FILES = {
     title: 'Crafting recipes',
     note: 'Each spends currency and rolls one item definition; the shape is in ../recipes.js.',
   },
-};
+} satisfies Record<string, RuleFile>;
 
-export const RULE_KINDS = Object.keys(RULE_FILES);
+/** Which rules files there are. */
+export type RuleKind = keyof typeof RULE_FILES;
+
+export const RULE_KINDS = Object.keys(RULE_FILES) as RuleKind[];
 
 /** kind -> the constant its module exports, for anything reading one back. */
-export const RULE_CONSTANTS = Object.fromEntries(
+export const RULE_CONSTANTS: Record<string, string> = Object.fromEntries(
   RULE_KINDS.map((kind) => [kind, RULE_FILES[kind].constant]),
 );
 
-export function serializeRules(kind, list) {
-  const spec = RULE_FILES[kind];
+export function serializeRules(kind: string, list: unknown): string {
+  const spec = (RULE_FILES as Record<string, RuleFile | undefined>)[kind];
   if (!spec) throw new Error(`Unknown rule file "${kind}"`);
 
   return `// ${spec.title} — rewritten wholesale by the EDITOR on the
@@ -103,7 +108,9 @@ export const ${spec.constant} = ${literal(list)};
 }
 
 /** Every rules file for a document, ready to POST. */
-export function serializeAllRules(data) {
+export function serializeAllRules(
+  data: Partial<Record<RuleKind, unknown>>,
+): { kind: RuleKind; file: string; source: string }[] {
   return RULE_KINDS.map((kind) => ({
     kind,
     file: `${kind}.js`,

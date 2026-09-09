@@ -1,4 +1,13 @@
-import { ASSET_EXTENSIONS, ASSET_KINDS, assetRewritten } from '../src/data/assets.ts';
+import { ASSET_EXTENSIONS, assetRewritten } from '../src/data/assets.ts';
+
+/**
+ * Which kind a file is, by its extension.
+ *
+ * Re-exported rather than written again: `data/assets` already answers this
+ * for the game, and two copies of the same rule are two things to keep in step
+ * the next time a format is added.
+ */
+export { kindOfFile } from '../src/data/assets.ts';
 
 /**
  * Getting a file into a game folder.
@@ -10,10 +19,13 @@ import { ASSET_EXTENSIONS, ASSET_KINDS, assetRewritten } from '../src/data/asset
  * Lifted out of the old assets mode so both editors write files the same way.
  */
 
-const readFile = (file) =>
-  new Promise((resolve, reject) => {
+const readFile = (file: File) =>
+  new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
+    reader.onload = () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('That file did not read back as text'));
     reader.onerror = () => reject(new Error('That file could not be read'));
     reader.readAsDataURL(file);
   });
@@ -27,7 +39,7 @@ const readFile = (file) =>
  *
  * @returns the safe name, or '' when the extension is not one we can use.
  */
-export function safeFileName(name = '') {
+export function safeFileName(name = ''): string {
   const dot = name.lastIndexOf('.');
   const ext = (dot > 0 ? name.slice(dot + 1) : '').toLowerCase();
   const stem = (dot > 0 ? name.slice(0, dot) : name).replace(/[^A-Za-z0-9 _-]/g, '_').slice(0, 63);
@@ -36,11 +48,8 @@ export function safeFileName(name = '') {
 }
 
 /** What a file's extension says it is. There is nothing to ask about a .glb. */
-export const kindOfFile = (name) =>
-  ASSET_KINDS.mesh.extensions.includes(name.split('.').pop().toLowerCase()) ? 'mesh' : 'texture';
-
 /** The name without its extension, which is what the record is called. */
-export const stemOf = (name) => name.replace(/\.[^.]+$/, '');
+export const stemOf = (name: string): string => name.replace(/\.[^.]+$/, '');
 
 /**
  * Store one file in the game folder.
@@ -52,7 +61,16 @@ export const stemOf = (name) => name.replace(/\.[^.]+$/, '');
  *
  * @returns {Promise<{name: string} | {error: string}>}
  */
-export async function uploadAsset(game, file) {
+/**
+ * What storing a file gave back: the name it was stored under, or why not.
+ *
+ * Two shapes rather than one with both optional, because the caller already
+ * asks `'error' in result` -- and only a union makes that question settle what
+ * the other half holds.
+ */
+export type UploadResult = { name: string } | { error: string };
+
+export async function uploadAsset(game: string, file: File): Promise<UploadResult> {
   const name = safeFileName(file.name);
   if (!name) return { error: `${file.name} is not a kind of file this can use` };
 
@@ -62,11 +80,12 @@ export async function uploadAsset(game, file) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ game, name, data: await readFile(file) }),
     });
-    const body = await response.json();
+    const body = (await response.json()) as { error?: string };
     if (!response.ok) return { error: body.error ?? `Could not store ${file.name}` };
     assetRewritten(name);
     return { name };
   } catch (error) {
-    return { error: `Could not store ${file.name}: ${error.message}. Is the dev server running?` };
+    const why = error instanceof Error ? error.message : String(error);
+    return { error: `Could not store ${file.name}: ${why}. Is the dev server running?` };
   }
 }

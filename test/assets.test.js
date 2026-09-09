@@ -15,8 +15,8 @@ import {
   normalizeProp,
   standHeights,
 } from '../Engine/src/data/props.ts';
-import { safeFileName } from '../Engine/editor/uploadAsset.js';
-import { serializeRules } from '../Engine/editor/serializeData.js';
+import { safeFileName } from '../Engine/editor/uploadAsset.ts';
+import { serializeRules } from '../Engine/editor/serializeData.ts';
 import { serializeMap } from '../Engine/editor/serialize.js';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 

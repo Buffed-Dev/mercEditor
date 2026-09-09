@@ -3,7 +3,7 @@ import { NavLink, useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, assetById, assetUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
-import { writeRules } from '../save.js';
+import { writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -23,7 +23,7 @@ import { createMaterialPreview } from '../preview/materialPreview.js';
 import { createVfxPreview } from '../preview/vfxPreview.js';
 import { VfxDetail } from '../panels/VfxDetail';
 import { usePreviewStage } from '../viewport/usePreviewStage';
-import { kindOfFile, stemOf, uploadAsset } from '../uploadAsset.js';
+import { kindOfFile, stemOf, uploadAsset } from '../uploadAsset.ts';
 import styles from './LibraryWorkspace.module.css';
 
 /** One empty list, so "no document yet" does not look like a change. */

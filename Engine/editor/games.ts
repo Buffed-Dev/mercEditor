@@ -1,4 +1,30 @@
-import { id as servedGame } from '#game';
+import { id as gameId } from '#game';
+import type { GameMap } from '../src/data/mapFormat.ts';
+
+/**
+ * Which game this dev server is serving.
+ *
+ * `#game` is content, outside the type checker, so its exports arrive as
+ * `any`. Naming the shape here keeps that from spreading.
+ */
+const servedGame = gameId as string;
+
+/** One game folder, as the shelf lists it. */
+export type GameSummary = { id: string; label?: string };
+
+/**
+ * A game's manifest, as the editor reads it.
+ *
+ * `#game` and the dynamic import below are both content outside the type
+ * checker, so this says what is actually reached for rather than letting `any`
+ * spread into whatever opens a game.
+ */
+export type GameModule = {
+  id?: string;
+  label?: string;
+  rules?: object;
+  maps?: readonly GameMap[];
+};
 
 /**
  * The shelf: what games there are, and how to open, start and address one.
@@ -12,10 +38,13 @@ import { id as servedGame } from '#game';
 export { servedGame };
 
 /** Every game folder the dev server can see, freshly asked each time. */
-export async function listGames() {
+export async function listGames(): Promise<GameSummary[]> {
   try {
     const response = await fetch('/__games');
-    if (response.ok) return (await response.json()).games ?? [];
+    if (response.ok) {
+      const body = (await response.json()) as { games?: GameSummary[] };
+      return body.games ?? [];
+    }
   } catch {
     // No dev server: the one this page was built against is still openable,
     // because its manifest came in with the bundle.
@@ -30,9 +59,9 @@ export async function listGames() {
  * names one game, which is exactly what a tool over several of them cannot be
  * limited to.
  */
-export function loadGame(id) {
-  if (id === servedGame) return import('#game');
-  return import(/* @vite-ignore */ `/Games/${id}/game.js`);
+export function loadGame(id: string): Promise<GameModule> {
+  if (id === servedGame) return import('#game') as Promise<GameModule>;
+  return import(/* @vite-ignore */ `/Games/${id}/game.js`) as Promise<GameModule>;
 }
 
 /**
@@ -42,7 +71,7 @@ export function loadGame(id) {
  * rules, its ids. Opening one is opening a document, not switching a tab, so it
  * comes up fresh rather than being migrated into the workspace around it.
  */
-export function open(id) {
+export function open(id: string | null | undefined): void {
   location.search = id ? `?game=${encodeURIComponent(id)}` : '';
 }
 
@@ -56,7 +85,7 @@ export function open(id) {
  *
  * @returns {Promise<string|null>} what went wrong, or null if it is opening.
  */
-export async function newGame(from) {
+export async function newGame(from: string): Promise<string | null> {
   const id = prompt('New game id (letters, digits, dashes):', '')?.trim();
   if (!id) return null;
   try {
@@ -70,6 +99,7 @@ export async function newGame(from) {
     open(id);
     return null;
   } catch (error) {
-    return `Could not make that game: ${error.message}. Is the dev server running?`;
+    const why = error instanceof Error ? error.message : String(error);
+    return `Could not make that game: ${why}. Is the dev server running?`;
   }
 }

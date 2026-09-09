@@ -13,7 +13,17 @@
  */
 
 /** @type {EnvGroup[]} */
-export const ENV_GROUPS = [
+import type { FieldSpec } from './fields/types.ts';
+
+/**
+ * One block of the environment panel.
+ *
+ * `key` is the env field that switches the whole group on; the first group has
+ * none because a map's colours are not optional.
+ */
+export type EnvGroup = { key?: string; label?: string; fields: FieldSpec[] };
+
+export const ENV_GROUPS: EnvGroup[] = [
   {
     fields: [
       { key: 'sky', kind: 'color', label: 'Sky / fog' },

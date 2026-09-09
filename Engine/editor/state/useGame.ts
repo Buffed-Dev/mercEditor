@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { resetMaps } from '../../src/data/maps/index.ts';
 import { createDataDocument } from '../dataDocument.js';
-import { loadGame } from '../games.js';
+import { loadGame } from '../games.ts';
 import { say } from './status';
 
 export type LoadedGame = {

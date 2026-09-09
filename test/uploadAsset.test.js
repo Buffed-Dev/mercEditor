@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { kindOfFile, safeFileName, stemOf } from '../Engine/editor/uploadAsset.js';
+import { kindOfFile, safeFileName, stemOf } from '../Engine/editor/uploadAsset.ts';
 
 test('a name the server would refuse is renamed rather than rejected', () => {
   // The name came off a file somebody exported hours ago; "rock (final)(2).glb"

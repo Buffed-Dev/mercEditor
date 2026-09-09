@@ -18,7 +18,7 @@ import {
   normalizeMaterial,
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
-import { createUndoable } from './undoable.js';
+import { createUndoable } from './undoable.ts';
 
 /**
  * The editable rules document: attributes, effects, abilities, archetypes and

@@ -99,7 +99,9 @@ export type AssetInput = Partial<Omit<Asset, 'kind'>> & { kind?: string };
 export const ASSET_KIND_KEYS = Object.keys(ASSET_KINDS) as AssetKind[];
 
 /** Every extension any kind will take, for the upload check on both sides. */
-export const ASSET_EXTENSIONS = [
+// Widened to plain strings: this list exists to be tested against the
+// extension of a file somebody picked, which is any string at all.
+export const ASSET_EXTENSIONS: string[] = [
   ...new Set(ASSET_KIND_KEYS.flatMap((kind) => ASSET_KINDS[kind].extensions)),
 ];
 

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router';
-import { writeRules } from '../save.js';
+import { writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';

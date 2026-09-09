@@ -29,11 +29,18 @@ import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
  *   builds the stage and puts something on it, and `onUnmount` lets go of
  *   whatever that was.
  */
-export function createPreviewStage({ frustum = 6, onMount, onUnmount }) {
-  let engine = null;
-  let scene = null;
-  let camera = null;
-  let watcher = null;
+export function createPreviewStage({
+  frustum = 6,
+  onMount,
+  onUnmount,
+}: {
+  frustum?: number;
+  onMount?: (scene: Scene) => void;
+  onUnmount?: () => void;
+}) {
+  let engine: Engine | null = null;
+  let camera: TargetCamera | null = null;
+  let watcher: ResizeObserver | null = null;
 
   /**
    * Square the ortho box to the canvas, so nothing is stretched — and fit
@@ -45,8 +52,8 @@ export function createPreviewStage({ frustum = 6, onMount, onUnmount }) {
    * to be judged in. Taking the smaller dimension means `frustum` is what you
    * are promised to see, whichever shape the panel is.
    */
-  function fit() {
-    if (!engine) return;
+  function fit(): void {
+    if (!engine || !camera) return;
     engine.resize();
     const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
     const width = aspect >= 1 ? frustum * aspect : frustum;
@@ -58,15 +65,15 @@ export function createPreviewStage({ frustum = 6, onMount, onUnmount }) {
   }
 
   return {
-    mount(canvas) {
+    mount(canvas: HTMLCanvasElement): void {
       if (engine) return;
       engine = new Engine(canvas, true, { stencil: false }, true);
-      scene = new Scene(engine);
-      scene.useRightHandedSystem = true;
-      scene.clearColor = new Color4(0.04, 0.05, 0.07, 1);
-      scene.skipPointerMovePicking = true;
+      const stage = new Scene(engine);
+      stage.useRightHandedSystem = true;
+      stage.clearColor = new Color4(0.04, 0.05, 0.07, 1);
+      stage.skipPointerMovePicking = true;
 
-      camera = new TargetCamera('previewIso', CAMERA_OFFSET.clone(), scene);
+      camera = new TargetCamera('previewIso', CAMERA_OFFSET.clone(), stage);
       camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
       camera.minZ = 0.1;
       camera.maxZ = 200;
@@ -79,20 +86,22 @@ export function createPreviewStage({ frustum = 6, onMount, onUnmount }) {
       watcher = new ResizeObserver(fit);
       watcher.observe(canvas);
 
-      engine.runRenderLoop(() => scene.render());
-      onMount?.(scene);
+      engine.runRenderLoop(() => stage.render());
+      onMount?.(stage);
     },
 
     /** Give the device back. A browser has only so many of them. */
-    unmount() {
+    unmount(): void {
       if (!engine) return;
       onUnmount?.();
-      watcher.disconnect();
+      watcher?.disconnect();
       watcher = null;
       engine.dispose();
       engine = null;
-      scene = null;
       camera = null;
     },
   };
 }
+
+/** A small scene of its own, for previewing one thing at a time. */
+export type PreviewStage = ReturnType<typeof createPreviewStage>;

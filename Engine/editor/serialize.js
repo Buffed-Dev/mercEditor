@@ -6,7 +6,7 @@
  */
 
 import { encodeTerrain } from '../src/data/terrain/codec.ts';
-import { quote } from './literal.js';
+import { quote } from './literal.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 
 const hex = (value) => `0x${(value ?? 0).toString(16).padStart(6, '0')}`;

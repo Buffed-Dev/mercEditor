@@ -1,6 +1,9 @@
 import { registerMap } from '../src/data/maps/index.ts';
+import type { GameMap } from '../src/data/mapFormat.ts';
+import type { Terrain } from '../src/data/terrains.ts';
+import type { RuleKind } from './serializeData.ts';
 import { serializeMap } from './serialize.js';
-import { serializeAllRules } from './serializeData.js';
+import { serializeAllRules } from './serializeData.ts';
 
 /**
  * Writing the game folder back, through the dev server.
@@ -15,15 +18,21 @@ import { serializeAllRules } from './serializeData.js';
  */
 
 /** A terrain id to the two-character key a map's rows are written in. */
-export const terrainCharOf = (terrains) => (id) =>
-  terrains.find((terrain) => terrain.id === id)?.char ?? '';
+export const terrainCharOf =
+  (terrains: readonly Terrain[]) =>
+  (id: string): string =>
+    terrains.find((terrain) => terrain.id === id)?.char ?? '';
 
 /**
  * Write one map module into the game folder.
  *
  * @returns {Promise<string>} the file that was written
  */
-export async function writeMap(game, map, terrains) {
+export async function writeMap(
+  game: string,
+  map: GameMap,
+  terrains: readonly Terrain[],
+): Promise<string> {
   const response = await fetch('/__maps', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -33,7 +42,7 @@ export async function writeMap(game, map, terrains) {
       source: serializeMap(map, terrainCharOf(terrains)),
     }),
   });
-  const body = await response.json();
+  const body = (await response.json()) as { error?: string; file: string };
   if (!response.ok) throw new Error(body.error ?? 'Save failed');
   // The file is written; this is the same map going into the registry the game
   // reads, so the editor stays open and the save is live at once.
@@ -49,13 +58,16 @@ export async function writeMap(game, map, terrains) {
  *
  * @returns {Promise<number>} how many files were written
  */
-export async function writeRules(game, data) {
+export async function writeRules(
+  game: string,
+  data: Partial<Record<RuleKind, unknown>>,
+): Promise<number> {
   const response = await fetch('/__data', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ game, files: serializeAllRules(data) }),
   });
-  const body = await response.json();
+  const body = (await response.json()) as { error?: string; files: unknown[] };
   if (!response.ok) throw new Error(body.error ?? 'Save failed');
   return body.files.length;
 }

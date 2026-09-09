@@ -10,16 +10,16 @@
 
 const UNDO_LIMIT = 60;
 
-const clone = (value) => structuredClone(value);
+const clone = <T>(value: T): T => structuredClone(value);
 
-export function createUndoable(initial) {
+export function createUndoable<T>(initial: T) {
   let state = clone(initial);
-  const undoStack = [];
-  const redoStack = [];
+  const undoStack: T[] = [];
+  const redoStack: T[] = [];
   let dirty = false;
 
   /** Who wants to hear that this document changed. See history.ts. */
-  const listeners = new Set();
+  const listeners = new Set<() => void>();
   /** How many times this document has changed. See history.ts. */
   let revision = 0;
   const notify = () => {
@@ -33,7 +33,7 @@ export function createUndoable(initial) {
     },
 
     /** @returns a function that stops listening. */
-    subscribe(listener) {
+    subscribe(listener: () => void): () => void {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -55,7 +55,7 @@ export function createUndoable(initial) {
      * Snapshot before mutating. A drag passes `false` for every step after the
      * first so the whole gesture collapses into one step.
      */
-    checkpoint(checkpointed = true) {
+    checkpoint(checkpointed = true): void {
       dirty = true;
       notify();
       if (!checkpointed) return;
@@ -64,27 +64,34 @@ export function createUndoable(initial) {
       redoStack.length = 0;
     },
 
-    undo() {
-      if (!undoStack.length) return false;
+    undo(): boolean {
+      // Popped into a name first: `length` says there is one, but only the
+      // value itself says so in a way the compiler can carry forward.
+      const previous = undoStack.pop();
+      if (previous === undefined) return false;
       redoStack.push(clone(state));
-      state = undoStack.pop();
+      state = previous;
       dirty = true;
       notify();
       return true;
     },
 
-    redo() {
-      if (!redoStack.length) return false;
+    redo(): boolean {
+      const next = redoStack.pop();
+      if (next === undefined) return false;
       undoStack.push(clone(state));
-      state = redoStack.pop();
+      state = next;
       dirty = true;
       notify();
       return true;
     },
 
-    markSaved() {
+    markSaved(): void {
       dirty = false;
       notify();
     },
   };
 }
+
+/** A value, its history, and everyone watching it. */
+export type Undoable<T> = ReturnType<typeof createUndoable<T>>;

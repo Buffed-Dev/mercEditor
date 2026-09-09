@@ -14,23 +14,23 @@
 const UNSAFE = ["'", '\\', '\n', '\r', ' ', ' '];
 
 /** A string as a JS literal. Prefers the house single quotes when it can. */
-export function quote(value) {
+export function quote(value: unknown): string {
   const text = String(value ?? '');
   if (UNSAFE.some((character) => text.includes(character))) return JSON.stringify(text);
   return `'${text}'`;
 }
 
 /** A number, trimmed of float noise like 0.30000000000000004. */
-export function number(value) {
-  if (!Number.isFinite(value)) return '0';
+export function number(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '0';
   return String(Number(value.toFixed(6)));
 }
 
-const isPlainObject = (value) =>
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** Bare when it is a valid identifier, quoted when it is not. */
-function propertyKey(key) {
+function propertyKey(key: string): string {
   return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : quote(key);
 }
 
@@ -39,7 +39,7 @@ function propertyKey(key) {
  * they are short enough to read that way and break otherwise, which is what
  * keeps a list of attributes scannable rather than hundreds of lines tall.
  */
-export function literal(value, indent = '') {
+export function literal(value: unknown, indent = ''): string {
   if (value === null || value === undefined) return 'null';
   if (typeof value === 'boolean') return String(value);
   if (typeof value === 'number') return number(value);
