@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDataDocument, idFromLabel } from '../Engine/editor/dataDocument.js';
-import { blankMap, createDocument } from '../Engine/editor/document.js';
+import { blankMap, createDocument } from '../Engine/editor/document.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { decodeTerrain } from '../Engine/src/data/terrain/codec.ts';
 

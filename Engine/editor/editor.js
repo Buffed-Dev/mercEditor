@@ -18,7 +18,7 @@ import { normalizeLight } from '../src/data/lights.ts';
 
 import { MONSTER_KINDS } from '../src/game/monsters.ts';
 import { World } from '../src/game/world.ts';
-import { createDocument } from './document.js';
+import { createDocument } from './document.ts';
 
 /**
  * The editing surface: a free-flying isometric view of the map being edited,

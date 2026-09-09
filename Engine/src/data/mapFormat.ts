@@ -176,9 +176,11 @@ export type GameMap = {
    */
   terrain?: readonly string[] | TerrainGrid;
   terrainKeys?: Record<string, string>;
-  terrainRim?: readonly RimRing[];
+  /** Null, not absent, once the editor has been through it. */
+  terrainRim?: readonly RimRing[] | null;
   rows?: readonly string[];
-  height?: number;
+  /** One character per cell: '.' at level 0, '1'-'9' above it. See terrain/codec. */
+  height?: readonly string[];
   startZ?: number;
   stepHeight?: number;
   spawns?: Record<string, Placed>;

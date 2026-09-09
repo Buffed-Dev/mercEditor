@@ -12,7 +12,7 @@ import {
 } from '@tabler/icons-react';
 import { destinationIds } from '../../src/data/maps/index.ts';
 import { LIGHT_TYPES } from '../../src/data/lights.ts';
-import { ASSETS, ASSET_GROUPS } from '../document.js';
+import { ASSETS, ASSET_GROUPS } from '../document.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { Section } from '../ui/Section';

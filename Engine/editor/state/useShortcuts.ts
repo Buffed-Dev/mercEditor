@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { SLOT_KEYS, TOOLS, useTools } from './tools';
-import { ASSETS } from '../document.js';
+import { ASSETS } from '../document.ts';
 import { useSelection } from './selection';
 
 /**

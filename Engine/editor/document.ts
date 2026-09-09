@@ -5,6 +5,70 @@ import { decodeTerrain } from '../src/data/terrain/codec.ts';
 import { resizeGrid, idx, levelAt, kindAt, EMPTY } from '../src/data/terrain/grid.ts';
 import { createHistory } from './history.ts';
 import { beginStroke } from './terrain/stroke.ts';
+import type { ChunkInput } from '../src/data/maps/chunks.ts';
+import type { LightInput } from '../src/data/lights.ts';
+import type { GameMap, MapEnv, MapObject, MapVfx, Placed } from '../src/data/mapFormat.ts';
+import type { RimRing } from '../src/data/terrain/profile.ts';
+import type { TerrainGrid } from '../src/data/terrain/grid.ts';
+import type { Selection } from './state/selection.ts';
+
+/** One thing the shelf can put on the map. */
+export type Brush = {
+  id: string;
+  label: string;
+  list?: string;
+  kind?: string;
+  group: string;
+  icon: string;
+};
+
+/** What a placement was told about the thing being placed. */
+export type PlaceOptions = {
+  propId?: string;
+  vfxId?: string;
+  lightType?: string;
+  face?: string;
+  to?: string;
+  spawn?: string;
+  color?: number;
+  label?: string;
+};
+
+/**
+ * A map as the editor holds it while editing.
+ *
+ * Close to what a file holds, with two differences: `terrain` is the live grid
+ * rather than rows of characters (see mapFormat), and every list is present
+ * rather than optional, because the editor fills them in on the way in and the
+ * panels would otherwise each have to check.
+ */
+export type MapDoc = {
+  id: string;
+  name: string | undefined;
+  spawns: Record<string, Placed>;
+  walls: MapObject[];
+  doors: MapObject[];
+  portals: MapObject[];
+  monsters: MapObject[];
+  torches: MapObject[];
+  stations: MapObject[];
+  chunks: ChunkInput[];
+  lights: LightInput[];
+  /** Always carries its effect id, which is what the editor writes. */
+  vfx: MapVfx[];
+  props: MapObject[];
+  generated: boolean;
+  chunkCount: number;
+  startZ: number;
+  terrainRim: readonly RimRing[] | null;
+  stepHeight: number;
+  env: MapEnv;
+  terrain: TerrainGrid;
+  terrainIds: string[];
+};
+
+/** Everything but the grid, which is what the undo stack carries. */
+type DocState = Omit<MapDoc, 'terrain'>;
 
 /**
  * The map being edited: a deep copy of a map module that the editor mutates
@@ -48,7 +112,7 @@ export const ASSET_GROUPS = [
   ['layout', 'Layout'],
 ];
 
-export const ASSETS = [
+export const ASSETS: Brush[] = [
   { id: 'wall', label: 'Wall', list: 'walls', group: 'structure', icon: 'stack-2' },
   { id: 'door', label: 'Door', list: 'doors', group: 'structure', icon: 'door' },
   { id: 'portal', label: 'Portal', list: 'portals', group: 'structure', icon: 'door' },
@@ -75,7 +139,7 @@ export const ASSETS = [
 const UNDO_LIMIT = 60;
 
 /** "chunk", "chunk2", "chunk3"… — the first name not already taken. */
-function freshChunkName(chunks) {
+function freshChunkName(chunks: readonly ChunkInput[]): string {
   const taken = new Set(chunks.map((c) => c.name));
   if (!taken.has('chunk')) return 'chunk';
   for (let n = 2; ; n++) if (!taken.has(`chunk${n}`)) return `chunk${n}`;
@@ -83,7 +147,7 @@ function freshChunkName(chunks) {
 
 // structuredClone, not a JSON round trip: the terrain grid is typed arrays and
 // JSON would quietly turn each one into an object keyed by index.
-const clone = (value) => structuredClone(value);
+const clone = <T>(value: T): T => structuredClone(value);
 
 /**
  * A fresh map: an empty grid.
@@ -93,7 +157,7 @@ const clone = (value) => structuredClone(value);
  * an island into it — which is a different and better start than being handed
  * a rectangle and having to carve it down.
  */
-export function blankMap(id, cols = 24, rows = 24) {
+export function blankMap(id: string, cols = 24, rows = 24): GameMap {
   return {
     id,
     name: id.replace(/(^|-)(\w)/g, (_, sep, c) => (sep ? ' ' : '') + c.toUpperCase()),
@@ -115,7 +179,7 @@ export function blankMap(id, cols = 24, rows = 24) {
   };
 }
 
-export function createDocument(map) {
+export function createDocument(map: GameMap) {
   // The terrain grid is decoded once and then never replaced, only written
   // into. Its identity has to be stable because undo entries hold a reference
   // to it: swapping the object under them would leave older entries writing
@@ -125,7 +189,7 @@ export function createDocument(map) {
   /** Terrain ids by grid value - 1. Append-only: an index in use is forever. */
   const terrainIds = [...decoded.terrainIds];
 
-  const doc = clone({
+  const cloned = clone({
     id: map.id,
     name: map.name,
     spawns: map.spawns ?? {},
@@ -147,19 +211,36 @@ export function createDocument(map) {
     terrainRim: map.terrainRim ?? null,
     // The most a step can rise and still be walkable, in levels.
     stepHeight: map.stepHeight ?? 1,
-    chunks: map.chunks ?? [],
-    doors: map.doors ?? [],
-    portals: map.portals ?? [],
-    monsters: map.monsters ?? [],
-    torches: map.torches ?? [],
-    stations: map.stations ?? [],
-    lights: map.lights ?? [],
-    vfx: map.vfx ?? [],
-    props: map.props ?? [],
+    chunks: [...(map.chunks ?? [])],
+    doors: [...(map.doors ?? [])],
+    portals: [...(map.portals ?? [])],
+    monsters: [...(map.monsters ?? [])],
+    torches: [...(map.torches ?? [])],
+    stations: [...(map.stations ?? [])],
+    lights: [...(map.lights ?? [])],
+    vfx: [...(map.vfx ?? [])],
+    props: [...(map.props ?? [])],
     env: normalizeEnv(map.env),
   });
-  doc.terrain = terrain;
-  doc.terrainIds = terrainIds;
+  /**
+   * The grid joins the document without going through `clone`.
+   *
+   * It is the live one the stroke tools write into, so a copy here would leave
+   * every edit landing on something nothing else can see.
+   */
+  const doc: MapDoc = { ...cloned, terrain, terrainIds };
+
+  /**
+   * The document reached by a list name worked out at runtime.
+   *
+   * Every panel addresses a list by its name -- 'walls', 'portals' -- which an
+   * object type cannot be indexed by. One cast here beats a branch per list in
+   * each of the eight places below.
+   */
+  const lists = doc as unknown as Record<string, MapObject[] | undefined>;
+
+  /** The same, for the two places that write a field by name. */
+  const fields = doc as unknown as Record<string, unknown>;
 
   const history = createHistory(UNDO_LIMIT);
 
@@ -170,12 +251,13 @@ export function createDocument(map) {
    * one stack safely: a snapshot restores object lists into the same `doc`, and
    * the grid a stroke is holding is never swapped out from under it.
    */
-  const snapshot = () => {
+  const snapshot = (): DocState => {
     const { terrain: _grid, ...rest } = doc;
     return clone(rest);
   };
-  const restore = (state) => {
-    for (const key of Object.keys(state)) doc[key] = state[key];
+  const restore = (state: DocState): void => {
+    const from = state as unknown as Record<string, unknown>;
+    for (const key of Object.keys(from)) fields[key] = from[key];
   };
 
   /**
@@ -184,13 +266,13 @@ export function createDocument(map) {
    * `checkpointed` is false when a caller is making many writes that belong to
    * one gesture; it takes the snapshot itself, once, before the first.
    */
-  function checkpoint(checkpointed = true) {
+  function checkpoint(checkpointed = true): void {
     if (!checkpointed) {
       history.touch();
       return;
     }
     const before = snapshot();
-    let after = null;
+    let after: DocState | null = null;
     history.push({
       label: 'edit',
       // A snapshot cannot say which cells moved, so it carries no rectangle and
@@ -201,25 +283,26 @@ export function createDocument(map) {
         restore(before);
       },
       redo() {
-        restore(after);
+        if (after) restore(after);
       },
     });
   }
 
-  const inBounds = (gx, gy) => gx >= 0 && gy >= 0 && gx < terrain.cols && gy < terrain.rows;
+  const inBounds = (gx: number, gy: number) =>
+    gx >= 0 && gy >= 0 && gx < terrain.cols && gy < terrain.rows;
 
   /** Objects sitting on a tile, across every object list. */
-  function objectsAt(gx, gy) {
+  function objectsAt(gx: number, gy: number): { list: string; entry: MapObject }[] {
     // Chunks are not in this list on purpose: they are rectangles you draw
     // things *inside*, so a tile being in one must not stop anything landing
     // on it.
     return ['torches', 'portals', 'monsters', 'lights', 'vfx', 'doors', 'stations', 'props']
-      .flatMap((list) => doc[list].map((entry) => ({ list, entry })))
+      .flatMap((list) => (lists[list] ?? []).map((entry) => ({ list, entry })))
       .filter(({ entry }) => entry.gx === gx && entry.gy === gy);
   }
 
   /** How many wall blocks stand on a tile. */
-  function wallAt(gx, gy) {
+  function wallAt(gx: number, gy: number): MapObject | null {
     return doc.walls.find((wall) => wall.gx === gx && wall.gy === gy) ?? null;
   }
 
@@ -231,7 +314,7 @@ export function createDocument(map) {
    * never reordered — an unused entry in a saved map's legend is a line of
    * noise, and renumbering would repaint every cell that used it.
    */
-  function kindOf(id) {
+  function kindOf(id: string): number {
     if (!id) return EMPTY;
     const at = terrainIds.indexOf(id);
     if (at >= 0) return at + 1;
@@ -240,7 +323,7 @@ export function createDocument(map) {
   }
 
   /** Which terrain is on a tile, as an id, or '' where there is no cell. */
-  function terrainAt(gx, gy) {
+  function terrainAt(gx: number, gy: number): string {
     const kind = kindAt(terrain, gx, gy);
     return kind === EMPTY ? '' : (terrainIds[kind - 1] ?? '');
   }
@@ -257,7 +340,7 @@ export function createDocument(map) {
     get start() {
       return doc.spawns.default ?? null;
     },
-    setStart(gx, gy) {
+    setStart(gx: number, gy: number): boolean {
       checkpoint();
       doc.spawns.default = { gx, gy };
       return true;
@@ -300,16 +383,16 @@ export function createDocument(map) {
 
     kindOf,
     terrainAt,
-    levelAt: (gx, gy) => levelAt(terrain, gx, gy),
+    levelAt: (gx: number, gy: number) => levelAt(terrain, gx, gy),
 
     /**
      * Open a terrain gesture. Every write goes through it, and `commit` turns
      * the whole gesture into one undo step.
      */
-    beginStroke: (label) => beginStroke(terrain, label),
+    beginStroke: (label: string) => beginStroke(terrain, label),
 
     /** Close a gesture. Returns the rectangle it changed, or null. */
-    commit(stroke) {
+    commit(stroke: ReturnType<typeof beginStroke> | null | undefined) {
       const entry = stroke?.commit();
       if (!entry) return null;
       history.push(entry);
@@ -323,7 +406,7 @@ export function createDocument(map) {
      * taller rather than refusing, which is how a low barrier becomes a tower
      * without a separate control for its height.
      */
-    place(gx, gy, brush, options = {}) {
+    place(gx: number, gy: number, brush: Brush, options: PlaceOptions = {}): string | null {
       if (!inBounds(gx, gy)) return 'Outside the map';
       const wall = wallAt(gx, gy);
 
@@ -407,7 +490,7 @@ export function createDocument(map) {
     },
 
     /** How many wall blocks stand on a tile, 0 for none. */
-    wallStack(gx, gy) {
+    wallStack(gx: number, gy: number): number {
       const wall = wallAt(gx, gy);
       return wall ? Math.max(1, Math.round(wall.stack ?? 1)) : 0;
     },
@@ -423,27 +506,27 @@ export function createDocument(map) {
      * The ground itself is untouched — its height is the Terrain tool's, and
      * that tool can lower a tile as easily as it raises one.
      */
-    erase(gx, gy) {
+    erase(gx: number, gy: number): boolean {
       const hits = objectsAt(gx, gy);
       const wall = wallAt(gx, gy);
       if (!hits.length && !wall) return false;
 
       checkpoint();
       for (const { list, entry } of hits) {
-        doc[list] = doc[list].filter((candidate) => candidate !== entry);
+        lists[list] = (lists[list] ?? []).filter((candidate) => candidate !== entry);
       }
       if (wall) doc.walls = doc.walls.filter((candidate) => candidate !== wall);
       return true;
     },
 
     /** Name a tile as an arrival point that other maps' portals can target. */
-    nameSpawn(name, gx, gy) {
+    nameSpawn(name: string, gx: number, gy: number): void {
       checkpoint();
       doc.spawns[name] = { gx, gy };
     },
 
     /** `checkpointed` is false when the caller is deleting a batch as one step. */
-    removeSpawn(name, checkpointed = true) {
+    removeSpawn(name: string, checkpointed = true): void {
       if (checkpointed) checkpoint();
       delete doc.spawns[name];
     },
@@ -458,7 +541,7 @@ export function createDocument(map) {
      * Anything standing outside the new bounds is dropped, since keeping it
      * would write coordinates no tile can hold.
      */
-    resize(cols, rows) {
+    resize(cols: number, rows: number): void {
       if (cols === terrain.cols && rows === terrain.rows) return;
 
       const before = {
@@ -479,7 +562,10 @@ export function createDocument(map) {
         redo: () => Object.assign(terrain, after),
       });
 
-      const keep = (o) => o.gx < cols && o.gy < rows;
+      // Infinity, not 0: something with no position at all was dropped by
+      // the comparison before and is dropped by it still.
+      const keep = (o: { gx?: number; gy?: number }) =>
+        (o.gx ?? Infinity) < cols && (o.gy ?? Infinity) < rows;
       // Props were missed here before, which is how base.js came to carry
       // entries at gy 21-25 on an 18-row map.
       doc.torches = doc.torches.filter(keep);
@@ -502,7 +588,7 @@ export function createDocument(map) {
      * Named spawns come back keyed by name instead, since that is how they are
      * addressed. Returns null for a bare tile.
      */
-    selectionAt(gx, gy) {
+    selectionAt(gx: number, gy: number): Selection {
       // Walls come last on purpose. A torch is mounted on a wall and a light
       // hangs off one, so on a shared tile the small thing in front is the one
       // you meant; the wall is what is left when there is nothing on it.
@@ -519,7 +605,9 @@ export function createDocument(map) {
         'walls',
         'chunks',
       ]) {
-        const index = doc[list].findIndex((entry) => entry.gx === gx && entry.gy === gy);
+        const index = (lists[list] ?? []).findIndex(
+          (entry) => entry.gx === gx && entry.gy === gy,
+        );
         if (index >= 0) return { list, index };
       }
       const spawn = Object.entries(doc.spawns).find(([, s]) => s.gx === gx && s.gy === gy);
@@ -534,7 +622,7 @@ export function createDocument(map) {
      * being pointed at. You drag it where it goes, which is the same gesture
      * that moves everything else.
      */
-    addChunk() {
+    addChunk(): number {
       checkpoint();
       doc.chunks.push({ ...defaultChunk(0, 0), name: freshChunkName(doc.chunks) });
       return doc.chunks.length - 1;
@@ -545,16 +633,22 @@ export function createDocument(map) {
      * while a slider is being dragged, so a drag leaves a single undo step
      * rather than one per pixel.
      */
-    updateObject(list, index, patch, checkpointed = true) {
-      const entry = doc[list]?.[index];
+    updateObject(
+      list: string,
+      index: number,
+      patch: Record<string, unknown>,
+      checkpointed = true,
+    ): Record<string, unknown> | null {
+      const entry = lists[list]?.[index];
       if (!entry) return null;
       if (checkpointed) checkpoint();
 
       // A light's type decides which fields it has, so switching type starts
       // from that type's defaults instead of carrying stale fields across.
-      if (list === 'lights' && patch.type && patch.type !== entry.type) {
-        doc.lights[index] = defaultLight(patch.type, entry.gx, entry.gy);
-        return doc.lights[index];
+      if (list === 'lights' && typeof patch.type === 'string' && patch.type !== entry.type) {
+        const made = defaultLight(patch.type, entry.gx, entry.gy);
+        doc.lights[index] = made;
+        return made;
       }
 
       Object.assign(entry, patch);
@@ -570,8 +664,8 @@ export function createDocument(map) {
      * light above a prop in the panel is therefore a grouping, not a reorder,
      * and the panel treats it as one.
      */
-    reorderObject(list, from, to) {
-      const entries = doc[list];
+    reorderObject(list: string, from: number, to: number): boolean {
+      const entries = lists[list];
       if (!Array.isArray(entries)) return false;
       if (from === to || from < 0 || to < 0 || from >= entries.length || to >= entries.length) {
         return false;
@@ -582,10 +676,11 @@ export function createDocument(map) {
       return true;
     },
 
-    removeObject(list, index, checkpointed = true) {
-      if (!doc[list]?.[index]) return false;
+    removeObject(list: string, index: number, checkpointed = true): boolean {
+      const entries = lists[list];
+      if (!entries?.[index]) return false;
       if (checkpointed) checkpoint();
-      doc[list].splice(index, 1);
+      entries.splice(index, 1);
       return true;
     },
 
@@ -595,7 +690,13 @@ export function createDocument(map) {
      * Only cells that exist move: raising empty space would be inventing
      * terrain, which is what the paint tool is for.
      */
-    raiseGround(gx, gy, delta, max = 9, stroke = null) {
+    raiseGround(
+      gx: number,
+      gy: number,
+      delta: number,
+      max = 9,
+      stroke: ReturnType<typeof beginStroke> | null = null,
+    ): boolean {
       const level = levelAt(terrain, gx, gy);
       if (level === null) return false;
       const next = Math.min(max, Math.max(0, level + delta));
@@ -603,12 +704,15 @@ export function createDocument(map) {
       const own = stroke ?? beginStroke(terrain, 'height');
       const i = idx(terrain, gx, gy);
       own.set(gx, gy, next, terrain.kind[i]);
-      if (!stroke) this.commit(own);
+      if (!stroke) {
+        const entry = own.commit();
+        if (entry) history.push(entry);
+      }
       return true;
     },
 
     /** Rename a named spawn, keeping its position. Returns an error or null. */
-    renameSpawn(from, to) {
+    renameSpawn(from: string, to: string): string | null {
       const name = to.trim();
       if (!name) return 'A spawn needs a name';
       if (name === from) return null;
@@ -620,7 +724,7 @@ export function createDocument(map) {
     },
 
     /** Move a named spawn to a tile. */
-    moveSpawn(name, gx, gy, checkpointed = true) {
+    moveSpawn(name: string, gx: number, gy: number, checkpointed = true): void {
       if (!doc.spawns[name]) return;
       if (checkpointed) checkpoint();
       doc.spawns[name] = { gx, gy };
@@ -632,14 +736,14 @@ export function createDocument(map) {
      * starts and writes every intermediate value uncheckpointed, so a drag
      * across a slider is one undo step rather than one per pixel.
      */
-    setEnv(key, value, checkpointed = true) {
+    setEnv(key: string, value: unknown, checkpointed = true): void {
       checkpoint(checkpointed);
-      doc.env[key] = value;
+      (doc.env as unknown as Record<string, unknown>)[key] = value;
     },
 
-    setMeta(key, value, checkpointed = true) {
+    setMeta(key: string, value: unknown, checkpointed = true): void {
       checkpoint(checkpointed);
-      doc[key] = value;
+      fields[key] = value;
     },
 
     /**
@@ -655,7 +759,7 @@ export function createDocument(map) {
       return history.redo();
     },
 
-    markSaved() {
+    markSaved(): void {
       history.markSaved();
     },
 
@@ -668,7 +772,7 @@ export function createDocument(map) {
      *
      * @returns a function that stops listening.
      */
-    subscribe: (listener) => history.subscribe(listener),
+    subscribe: (listener: () => void) => history.subscribe(listener),
 
     /** How many times this document has changed. See history.ts. */
     get revision() {
@@ -676,3 +780,6 @@ export function createDocument(map) {
     },
   };
 }
+
+/** One map, open for editing, with its own undo stack. */
+export type MapDocument = ReturnType<typeof createDocument>;

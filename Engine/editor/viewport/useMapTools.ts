@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toolById as terrainToolById } from '../terrain/tools.ts';
-import { ASSETS } from '../document.js';
+import { ASSETS } from '../document.ts';
 import { say } from '../state/status';
 import { useSelection, type Selection } from '../state/selection';
 import { isTerrainTool, toolById, useTools, type ToolId } from '../state/tools';

@@ -72,7 +72,7 @@ type Content = {
 type World = {
   terrain: TerrainGrid;
   terrainIds: string[];
-  map: { terrainRim?: readonly RimRing[] };
+  map: { terrainRim?: readonly RimRing[] | null };
 };
 
 type Bucket = {
