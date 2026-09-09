@@ -1,6 +1,6 @@
 import { spawnPoint, wallStacks } from '../data/mapFormat.js';
-import { LEVEL_H } from '../render/dimensions.js';
-import { blockedTiles, standHeights } from '../data/props.js';
+import { LEVEL_H } from '../data/dimensions.ts';
+import { blockedTiles, standHeights } from '../data/props.ts';
 import { decodeTerrain } from '../data/terrain/codec.ts';
 import { levelAt as gridLevelAt } from '../data/terrain/grid.ts';
 

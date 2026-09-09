@@ -1,11 +1,11 @@
-import { ATTRIBUTE_FIELDS, ATTRIBUTE_KINDS } from '../../src/data/attributes.js';
-import { EFFECT_FIELDS, DURATION_TYPES } from '../../src/data/effects.js';
+import { ATTRIBUTE_FIELDS, ATTRIBUTE_KINDS } from '../../src/data/attributes.ts';
+import { EFFECT_FIELDS, DURATION_TYPES } from '../../src/data/effects.ts';
 import { ABILITY_FIELDS } from '../../src/data/abilities.js';
-import { ITEM_FIELDS } from '../../src/data/items.js';
-import { CATEGORY_FIELDS } from '../../src/data/categories.js';
-import { RECIPE_FIELDS } from '../../src/data/recipes.js';
-import { LOOT_TABLE_FIELDS } from '../../src/data/lootTables.js';
-import { BASE_LEVEL_FIELDS } from '../../src/data/baseLevels.js';
+import { ITEM_FIELDS } from '../../src/data/items.ts';
+import { CATEGORY_FIELDS } from '../../src/data/categories.ts';
+import { RECIPE_FIELDS } from '../../src/data/recipes.ts';
+import { LOOT_TABLE_FIELDS } from '../../src/data/lootTables.ts';
+import { BASE_LEVEL_FIELDS } from '../../src/data/baseLevels.ts';
 import type { FieldSpec } from '../fields/types';
 
 /**
@@ -119,7 +119,7 @@ const TABLES: Partial<Record<ListId, FieldTable>> = {
  *
  * Two lists vary by a `kind` the record carries — an attribute is a stat or a
  * resource, an effect is instant or lasting — and each of those declares which
- * of its table's fields apply. The same trick `data/lights.js` uses, and the
+ * of its table's fields apply. The same trick `data/lights.ts` uses, and the
  * reason adding a duration type is a line in a data file rather than a branch
  * of interface code.
  */
@@ -131,13 +131,16 @@ export function fieldsForRecord(list: ListId, record: Record<string, unknown>): 
   return keys.filter((key) => table[key]).map((key) => ({ key, ...table[key] }) as FieldSpec);
 }
 
-function perKindKeys(list: ListId, record: Record<string, unknown>): string[] | null {
+function perKindKeys(
+  list: ListId,
+  record: Record<string, unknown>,
+): readonly string[] | null {
   if (list === 'attributes') {
-    const kinds = ATTRIBUTE_KINDS as Record<string, { fields: string[] }>;
+    const kinds = ATTRIBUTE_KINDS as Record<string, { fields: readonly string[] }>;
     return kinds[String(record.kind ?? 'stat')]?.fields ?? null;
   }
   if (list === 'effects') {
-    const kinds = DURATION_TYPES as Record<string, { fields: string[] }>;
+    const kinds = DURATION_TYPES as Record<string, { fields: readonly string[] }>;
     return kinds[String(record.duration ?? 'instant')]?.fields ?? null;
   }
   return null;

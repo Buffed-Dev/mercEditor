@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, assetById, assetUrl } from '../../src/data/assets.js';
-import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.js';
+import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
 import { writeRules } from '../save.js';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';

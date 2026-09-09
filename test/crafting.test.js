@@ -25,7 +25,7 @@ import {
   purseView,
   upgradeBase,
 } from '../Engine/src/game/crafting.js';
-import { nextBaseLevel } from '../Engine/src/data/baseLevels.js';
+import { nextBaseLevel } from '../Engine/src/data/baseLevels.ts';
 import { itemRange } from '../Engine/src/game/items.js';
 import { EQUIPMENT_SLOTS } from '../Engine/src/game/inventory.js';
 

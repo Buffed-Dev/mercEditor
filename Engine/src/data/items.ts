@@ -31,7 +31,7 @@
  * new character has of it.
  *
  * What an item is *worth* lives here too, as `costs` — a list of cost lines
- * (see ./costs.js), each naming a currency or another item. On the definition
+ * (see ./costs.ts), each naming a currency or another item. On the definition
  * rather than on the recipe that makes it, because it is a fact about the sword
  * rather than about one way of getting one: price it once and every bench
  * charges the same.
@@ -42,8 +42,17 @@
  * new mechanism.
  */
 
-import { CATEGORIES, CATEGORY_BEHAVIOURS, behaviourOf } from './categories.js';
-import { ITEMS } from '#game/rules/items.js';
+import {
+  CATEGORIES,
+  CATEGORY_BEHAVIOURS,
+  behaviourOf,
+  isCategoryBehaviour,
+  type CategoryBehaviour,
+  type CategoryInput,
+} from './categories.ts';
+import type { CostInput } from './costs.ts';
+import type { ModifierOp } from './effects.ts';
+import { ITEMS as GAME_ITEMS } from '#game/rules/items.js';
 
 /**
  * The slot kinds an item can claim.
@@ -62,18 +71,84 @@ export const ITEM_SLOTS = [
   ['feet', 'Feet'],
   ['amulet', 'Amulet'],
   ['ring', 'Ring'],
-];
+] as const;
 
-export const ITEM_SLOT_IDS = new Set(ITEM_SLOTS.map(([id]) => id));
+/** Where a worn item goes. `none` is what everything else gets. */
+export type ItemSlot = (typeof ITEM_SLOTS)[number][0];
 
-const BEHAVIOUR_IDS = new Set(CATEGORY_BEHAVIOURS.map(([id]) => id));
+export const ITEM_SLOT_IDS: ReadonlySet<string> = new Set(ITEM_SLOTS.map(([id]) => id));
+
+export const isItemSlot = (value: unknown): value is ItemSlot =>
+  typeof value === 'string' && ITEM_SLOT_IDS.has(value);
+
+/** One rollable stat line on a piece of equipment. */
+export type ItemStat = {
+  attribute: string;
+  op: ModifierOp;
+  min: number;
+  max: number;
+  step: number;
+};
+
+/** A stat line as a rules file writes it. */
+export type ItemStatInput = {
+  attribute?: string;
+  op?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+export type Item = {
+  id: string;
+  label: string;
+  /** Which of the three machines this is, read through `category`. */
+  kind: CategoryBehaviour;
+  category: string;
+  icon: string;
+  slot: ItemSlot | 'none';
+  grants: string;
+  start: number;
+  stats: ItemStat[];
+  /** Left as written; `recipeCosts` is what normalizes them. */
+  costs: CostInput[];
+};
+
+/**
+ * A fresh item, before a category has told it what kind of thing it is.
+ *
+ * `kind` is absent rather than guessed because it is derived, never stored --
+ * see the note above `stackLimit`.
+ */
+export type NewItem = Omit<Item, 'kind'>;
+
+/** An item as a rules file writes it. */
+export type ItemInput = {
+  id?: string;
+  label?: string;
+  /** Written before categories existed. Read, never written. */
+  kind?: string;
+  category?: string;
+  icon?: string;
+  slot?: string;
+  grants?: string;
+  start?: number;
+  stats?: readonly ItemStatInput[];
+  costs?: readonly CostInput[];
+};
+
+/** Money, as `currenciesOf` distils it out of the item list. */
+export type Currency = { id: string; label: string; icon?: string; start: number };
 
 /** A category's behaviour, defaults filled in — categoryMap without the map. */
-const normalizeCategoryBehaviour = (entry) =>
-  BEHAVIOUR_IDS.has(entry?.behaviour) ? entry.behaviour : 'material';
+const normalizeCategoryBehaviour = (entry: CategoryInput | undefined): CategoryBehaviour =>
+  isCategoryBehaviour(entry?.behaviour) ? entry.behaviour : 'material';
 
 /** The first category running on this machine — what a new item of it lands in. */
-const firstCategory = (behaviour, categories = CATEGORIES) =>
+const firstCategory = (
+  behaviour: CategoryBehaviour,
+  categories: readonly CategoryInput[] = CATEGORIES,
+): string | undefined =>
   (categories ?? []).find((entry) => normalizeCategoryBehaviour(entry) === behaviour)?.id;
 
 /**
@@ -97,7 +172,10 @@ const firstCategory = (behaviour, categories = CATEGORIES) =>
 export const STACK_MAX = 20;
 
 /** How many of this definition fit in a cell. Equipment never stacks. */
-export function stackLimit(def, categories = CATEGORIES) {
+export function stackLimit(
+  def: ItemInput,
+  categories: readonly CategoryInput[] = CATEGORIES,
+): number {
   return normalizeItem(def, categories).kind === 'material' ? STACK_MAX : 1;
 }
 
@@ -119,7 +197,7 @@ export const ITEM_FIELDS = {
   // Resolved to a picker of real abilities by the editor, the way a recipe's
   // item is: data/ has no idea which abilities exist in the open document.
   grants: { kind: 'ability', label: 'Grants', default: '' },
-};
+} as const;
 
 /**
  * One rollable stat line.
@@ -133,10 +211,11 @@ export const ITEM_STAT_FIELDS = {
   min: { kind: 'number', label: 'Least', min: -9999, max: 9999, step: 0.01, default: 1 },
   max: { kind: 'number', label: 'Most', min: -9999, max: 9999, step: 0.01, default: 1 },
   step: { kind: 'number', label: 'Steps of', min: 0.01, max: 100, step: 0.01, default: 1 },
-};
+} as const;
 
 /** The set itself lives in rules/, which the editor rewrites. */
-export { ITEMS };
+/** Left unnormalized: the rules editor reads this straight into what it saves. */
+export const ITEMS = GAME_ITEMS as ItemInput[];
 
 /**
  * The values a stat line can roll: the ladder from the low end upwards in
@@ -147,7 +226,13 @@ export { ITEMS };
  * the editor has to describe a line it is not rolling, and two copies of this
  * arithmetic would drift.
  */
-export function statRungs(stat) {
+export function statRungs(stat: ItemStatInput): {
+  count: number;
+  min: number;
+  max: number;
+  step: number;
+  top: number;
+} {
   const line = normalizeItemStat(stat);
   const min = Math.min(line.min, line.max);
   const max = Math.max(line.min, line.max);
@@ -156,11 +241,14 @@ export function statRungs(stat) {
   return { count, min, max, step, top: min + (count - 1) * step };
 }
 
-export function defaultItemStat(attribute = 'attackPower') {
+export function defaultItemStat(attribute = 'attackPower'): ItemStat {
   return { attribute, op: 'add', min: 1, max: 1, step: 1 };
 }
 
-export function defaultItem(id = 'newItem', categories = CATEGORIES) {
+export function defaultItem(
+  id = 'newItem',
+  categories: readonly CategoryInput[] = CATEGORIES,
+): NewItem {
   return {
     id,
     label: ITEM_FIELDS.label.default,
@@ -185,11 +273,12 @@ export function defaultItem(id = 'newItem', categories = CATEGORIES) {
  * would swap the two boxes out from under someone halfway through typing a new
  * range into a row that already has one.
  */
-export function normalizeItemStat(stat = {}) {
+export function normalizeItemStat(stat: ItemStatInput = {}): ItemStat {
   const base = defaultItemStat(stat.attribute ?? 'attackPower');
-  const min = Number.isFinite(stat.min) ? stat.min : base.min;
-  const max = Number.isFinite(stat.max) ? stat.max : base.max;
-  const step = Number.isFinite(stat.step) && stat.step > 0 ? stat.step : base.step;
+  const min = Number.isFinite(stat.min) ? (stat.min as number) : base.min;
+  const max = Number.isFinite(stat.max) ? (stat.max as number) : base.max;
+  const step =
+    Number.isFinite(stat.step) && (stat.step as number) > 0 ? (stat.step as number) : base.step;
   return {
     attribute: base.attribute,
     op: stat.op === 'multiply' || stat.op === 'override' ? stat.op : 'add',
@@ -205,15 +294,18 @@ export function normalizeItemStat(stat = {}) {
  * takes a rules bundle. Everything in the running game reads the shipped set,
  * which is the default.
  */
-export function normalizeItem(def = {}, categories = CATEGORIES) {
+export function normalizeItem(
+  def: ItemInput = {},
+  categories: readonly CategoryInput[] = CATEGORIES,
+): Item {
   // A definition written before categories existed says `kind: 'equipment'`
   // outright. It is read as the behaviour it names, so a hand-written file — or
   // a test fixture — does not have to invent a category to say what it already
   // said. A real category always wins over it.
   const named = (categories ?? []).some((category) => category.id === def.category);
-  const kind = named
+  const kind: CategoryBehaviour = named
     ? behaviourOf(def.category, categories)
-    : BEHAVIOUR_IDS.has(def.kind)
+    : isCategoryBehaviour(def.kind)
       ? def.kind // written before categories existed: `kind: 'equipment'`
       : def.category
         ? behaviourOf(def.category, categories) // a category that has since gone
@@ -222,18 +314,23 @@ export function normalizeItem(def = {}, categories = CATEGORIES) {
   // `kind` goes out in a category that means the same thing, or normalizing the
   // normalized item a second time — which rollItem does — would read the
   // default category back and turn a sword into a stack of ore.
-  const category = named ? def.category : (firstCategory(kind, categories) ?? def.category ?? '');
+  // The '' on the named branch is not dead: a category row whose own id is
+  // missing matches an item that names no category at all, and the else branch
+  // already falls back the same way.
+  const category: string = named
+    ? (def.category ?? '')
+    : (firstCategory(kind, categories) ?? def.category ?? '');
   const wearable = kind === 'equipment';
   // Anything that is not equipment has no slot at all, rather than a slot
   // nobody wears. An empty one would pass the "does this fit here" test in
   // ../game/inventory.js, which reads a missing slot as "goes anywhere" — so
   // ore would be wearable.
-  const slot = wearable
-    ? ITEM_SLOT_IDS.has(def.slot)
+  const slot: ItemSlot | 'none' = wearable
+    ? isItemSlot(def.slot)
       ? def.slot
       : ITEM_FIELDS.slot.default
     : 'none';
-  const start = Number.isFinite(def.start) ? Math.round(def.start) : 0;
+  const start = Number.isFinite(def.start) ? Math.round(def.start as number) : 0;
   return {
     ...defaultItem(def.id ?? 'newItem'),
     ...def,
@@ -249,13 +346,16 @@ export function normalizeItem(def = {}, categories = CATEGORIES) {
     start: kind === 'currency' ? Math.min(999999, Math.max(0, start)) : 0,
     // Prices are left exactly as stored. They are tidied where they are spent —
     // the editor has to be able to show a row you are halfway through typing.
-    costs: def.costs ?? [],
+    costs: [...(def.costs ?? [])],
   };
 }
 
 /** Look items up by id. Callers hold the array; this is the index. */
-export function itemMap(defs = ITEMS, categories = CATEGORIES) {
-  return new Map(defs.map((def) => [def.id, normalizeItem(def, categories)]));
+export function itemMap(
+  defs: readonly ItemInput[] = ITEMS,
+  categories: readonly CategoryInput[] = CATEGORIES,
+): Map<string, Item> {
+  return new Map(defs.map((def) => [def.id ?? 'newItem', normalizeItem(def, categories)]));
 }
 
 /**
@@ -266,7 +366,10 @@ export function itemMap(defs = ITEMS, categories = CATEGORIES) {
  * can point at — and this is the view of them the purse, the loot roll and the
  * crafting panel want: id, name, and what you start with.
  */
-export function currenciesOf(defs = ITEMS, categories = CATEGORIES) {
+export function currenciesOf(
+  defs: readonly ItemInput[] = ITEMS,
+  categories: readonly CategoryInput[] = CATEGORIES,
+): Currency[] {
   return defs
     .map((def) => normalizeItem(def, categories))
     .filter((item) => item.kind === 'currency')

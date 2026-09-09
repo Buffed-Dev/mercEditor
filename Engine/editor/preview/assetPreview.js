@@ -10,9 +10,9 @@ import { createPropRuntime } from '../../src/render/props.js';
 import { createTerrainLayer } from '../../src/render/terrainLayer.ts';
 import { createGrid, idx } from '../../src/data/terrain/grid.ts';
 import { DEFAULT_ENV } from '../../src/data/mapFormat.js';
-import { LEVEL_H } from '../../src/render/dimensions.js';
+import { LEVEL_H } from '../../src/data/dimensions.ts';
 import { assetFrames, normalizeAsset } from '../../src/data/assets.js';
-import { normalizeProp } from '../../src/data/props.js';
+import { normalizeProp } from '../../src/data/props.ts';
 import { normalizeTerrain } from '../../src/data/terrains.ts';
 
 /**

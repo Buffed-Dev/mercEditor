@@ -44,13 +44,46 @@ export const PROP_FIELDS = {
   blocks: { kind: 'bool', label: 'Blocks the way', default: false },
   top: { kind: 'range', label: 'Stand on top at', min: 0, max: 8, step: 0.05, default: 0 },
   shadow: { kind: 'bool', label: 'Casts a shadow', default: true },
+} as const;
+
+/** A prop definition: what a thing standing on the ground is made of. */
+export type Prop = {
+  id: string;
+  label: string;
+  mesh: string;
+  material: string;
+  texture: string;
+  sheet: string;
+  billboard: boolean;
+  tint: number;
+  scale: number;
+  rotY: number;
+  lift: number;
+  blocks: boolean;
+  /** Height something can stand on, or 0 for a prop that is not a surface. */
+  top: number;
+  shadow: boolean;
 };
+
+/** A prop as a rules file writes it. */
+export type PropInput = Partial<Prop>;
+
+/**
+ * One prop placed on a map: which definition, and where.
+ *
+ * Distinct from `Prop` because a map stores the position and may override the
+ * lift, while everything else about the thing comes from the definition.
+ */
+export type PlacedProp = { id: string; gx: number; gy: number; lift?: number };
+
+/** Finds a definition by id. Passed in so the editor can ask about drafts. */
+export type PropLookup = (id: string) => Prop | null;
 
 /**
  * A tint is a multiply, so white is "leave it alone" — which is why it is the
  * default rather than a colour anyone chose.
  */
-export function defaultProp(id = 'prop') {
+export function defaultProp(id = 'prop'): Prop {
   return {
     id,
     label: id,
@@ -69,20 +102,21 @@ export function defaultProp(id = 'prop') {
   };
 }
 
-export function normalizeProp(prop = {}) {
+export function normalizeProp(prop: PropInput = {}): Prop {
   const full = defaultProp(prop.id ?? 'prop');
+  const given = prop as Record<string, unknown>;
   for (const key of Object.keys(full)) {
-    if (prop[key] !== undefined) full[key] = prop[key];
+    if (given[key] !== undefined) (full as Record<string, unknown>)[key] = given[key];
   }
   full.label = prop.label ?? full.id;
   return full;
 }
 
-export const PROPS = (GAME_PROPS ?? []).map(normalizeProp);
+export const PROPS: Prop[] = ((GAME_PROPS as PropInput[]) ?? []).map(normalizeProp);
 
 const BY_ID = new Map(PROPS.map((prop) => [prop.id, prop]));
 
-export const propById = (id) => BY_ID.get(id) ?? null;
+export const propById = (id: string): Prop | null => BY_ID.get(id) ?? null;
 
 /**
  * The tiles a map's props make impassable.
@@ -102,8 +136,11 @@ export const propById = (id) => BY_ID.get(id) ?? null;
  * @param {object[]} placed the map's objects
  * @param {(id: string) => object|null} [lookup] which definitions to read
  */
-export function standHeights(placed = [], lookup = propById) {
-  const tops = new Map();
+export function standHeights(
+  placed: readonly PlacedProp[] = [],
+  lookup: PropLookup = propById,
+): Map<string, number> {
+  const tops = new Map<string, number>();
   for (const entry of placed) {
     const top = lookup(entry.id)?.top ?? 0;
     if (!top) continue;
@@ -113,8 +150,11 @@ export function standHeights(placed = [], lookup = propById) {
   return tops;
 }
 
-export function blockedTiles(placed = [], lookup = propById) {
-  const blocked = new Set();
+export function blockedTiles(
+  placed: readonly PlacedProp[] = [],
+  lookup: PropLookup = propById,
+): Set<string> {
+  const blocked = new Set<string>();
   for (const entry of placed) {
     if (lookup(entry.id)?.blocks) blocked.add(`${Math.floor(entry.gx)},${Math.floor(entry.gy)}`);
   }

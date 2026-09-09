@@ -1,8 +1,8 @@
 import { getMap } from '../data/maps/index.js';
-import { ATTRIBUTES } from '../data/attributes.js';
-import { EFFECTS } from '../data/effects.js';
+import { ATTRIBUTES } from '../data/attributes.ts';
+import { EFFECTS } from '../data/effects.ts';
 import { ABILITIES, abilityMap } from '../data/abilities.js';
-import { ARCHETYPES, archetypeMap } from '../data/archetypes.js';
+import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
 import { World } from '../game/world.js';
 import { createActor, grantStartingEffects, tickActor } from '../game/actor.js';
 import {
@@ -44,11 +44,11 @@ import {
   unequipToBag,
   wear,
 } from '../game/equipment.js';
-import { ITEMS, currenciesOf } from '../data/items.js';
-import { BASE_LEVELS } from '../data/baseLevels.js';
-import { CATEGORIES } from '../data/categories.js';
-import { LOOT_TABLES } from '../data/lootTables.js';
-import { RECIPES } from '../data/recipes.js';
+import { ITEMS, currenciesOf } from '../data/items.ts';
+import { BASE_LEVELS } from '../data/baseLevels.ts';
+import { CATEGORIES } from '../data/categories.ts';
+import { LOOT_TABLES } from '../data/lootTables.ts';
+import { RECIPES } from '../data/recipes.ts';
 import {
   advanceCraft,
   beginCraft,
@@ -60,7 +60,7 @@ import {
 import { createProjectiles } from '../game/projectiles.js';
 import { spawnMonsters, updateMonsters } from '../game/monsters.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { LEVEL_H } from './dimensions.js';
+import { LEVEL_H } from '../data/dimensions.ts';
 import { buildMapView } from './mapView.js';
 import { createDebugViews } from './debug.js';
 import { createMonsterViews } from './monsters.js';

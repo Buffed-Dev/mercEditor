@@ -1,6 +1,6 @@
 import { ASSET_FIELDS, ASSET_KINDS } from '../../src/data/assets.js';
-import { MATERIAL_FIELDS } from '../../src/data/materials.js';
-import { PROP_FIELDS } from '../../src/data/props.js';
+import { MATERIAL_FIELDS } from '../../src/data/materials.ts';
+import { PROP_FIELDS } from '../../src/data/props.ts';
 import { TERRAIN_FIELDS } from '../../src/data/terrains.ts';
 import type { FieldSpec } from '../fields/types';
 

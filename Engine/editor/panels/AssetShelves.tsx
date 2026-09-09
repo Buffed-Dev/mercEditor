@@ -11,7 +11,7 @@ import {
   IconTargetArrow,
 } from '@tabler/icons-react';
 import { destinationIds } from '../../src/data/maps/index.js';
-import { LIGHT_TYPES } from '../../src/data/lights.js';
+import { LIGHT_TYPES } from '../../src/data/lights.ts';
 import { ASSETS, ASSET_GROUPS } from '../document.js';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';

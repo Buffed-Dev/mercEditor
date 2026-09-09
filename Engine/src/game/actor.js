@@ -1,5 +1,5 @@
-import { ATTRIBUTES } from '../data/attributes.js';
-import { ARCHETYPES, archetypeMap } from '../data/archetypes.js';
+import { ATTRIBUTES } from '../data/attributes.ts';
+import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
 import { PLAYER_RADIUS } from './world.js';
 import { createAttributeSet } from './attributes.js';
 

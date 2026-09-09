@@ -22,20 +22,35 @@
  * chosen one of its own — see ./icons.js for the two sets.
  */
 
-import { CATEGORIES } from '#game/rules/categories.js';
+import { CATEGORIES as GAME_CATEGORIES } from '#game/rules/categories.js';
 
 /** The set itself lives in rules/, which the editor rewrites. */
-export { CATEGORIES };
+export type Category = {
+  id: string;
+  label: string;
+  behaviour: CategoryBehaviour;
+  icon: string;
+};
+
+/** A category as a rules file writes it, before `normalizeCategory` runs. */
+export type CategoryInput = Partial<Omit<Category, 'behaviour'>> & { behaviour?: string };
+
+/** Left unnormalized: the rules editor reads this straight into what it saves. */
+export const CATEGORIES = GAME_CATEGORIES as CategoryInput[];
 
 export const CATEGORY_BEHAVIOURS = [
   ['equipment', 'Equipment'],
   ['material', 'Material'],
   ['currency', 'Currency'],
-];
+] as const;
 
-const BEHAVIOUR_IDS = new Set(CATEGORY_BEHAVIOURS.map(([id]) => id));
+/** How a category's items behave. Worn, stacked, or spent. */
+export type CategoryBehaviour = (typeof CATEGORY_BEHAVIOURS)[number][0];
 
-export const DEFAULT_BEHAVIOUR = 'material';
+export const isCategoryBehaviour = (value: unknown): value is CategoryBehaviour =>
+  CATEGORY_BEHAVIOURS.some(([id]) => id === value);
+
+export const DEFAULT_BEHAVIOUR: CategoryBehaviour = 'material';
 
 export const CATEGORY_FIELDS = {
   label: { kind: 'text', label: 'Name', default: 'New category' },
@@ -46,9 +61,9 @@ export const CATEGORY_FIELDS = {
     default: DEFAULT_BEHAVIOUR,
   },
   icon: { kind: 'icon', label: 'Icon', default: 'box' },
-};
+} as const;
 
-export function defaultCategory(id = 'newCategory') {
+export function defaultCategory(id = 'newCategory'): Category {
   return {
     id,
     label: CATEGORY_FIELDS.label.default,
@@ -57,18 +72,20 @@ export function defaultCategory(id = 'newCategory') {
   };
 }
 
-export function normalizeCategory(def = {}) {
+export function normalizeCategory(def: CategoryInput = {}): Category {
   return {
     ...defaultCategory(def.id ?? 'newCategory'),
     ...def,
-    behaviour: BEHAVIOUR_IDS.has(def.behaviour) ? def.behaviour : DEFAULT_BEHAVIOUR,
+    behaviour: isCategoryBehaviour(def.behaviour) ? def.behaviour : DEFAULT_BEHAVIOUR,
     icon: typeof def.icon === 'string' && def.icon ? def.icon : CATEGORY_FIELDS.icon.default,
   };
 }
 
 /** Look categories up by id. Callers hold the array; this is the index. */
-export function categoryMap(defs = CATEGORIES) {
-  return new Map(defs.map((def) => [def.id, normalizeCategory(def)]));
+export function categoryMap(
+  defs: readonly CategoryInput[] = CATEGORIES,
+): Map<string, Category> {
+  return new Map(defs.map((def) => [def.id ?? 'newCategory', normalizeCategory(def)]));
 }
 
 /**
@@ -78,7 +95,10 @@ export function categoryMap(defs = CATEGORIES) {
  * stacks, and it is inert. That is the harmless end of the three — the other
  * two would have it claim a slot or turn into money.
  */
-export function behaviourOf(categoryId, categories = CATEGORIES) {
+export function behaviourOf(
+  categoryId: string | undefined,
+  categories: readonly CategoryInput[] = CATEGORIES,
+): CategoryBehaviour {
   const found = (categories ?? []).find((def) => def.id === categoryId);
   return found ? normalizeCategory(found).behaviour : DEFAULT_BEHAVIOUR;
 }

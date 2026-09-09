@@ -16,8 +16,8 @@
  */
 
 import { SLOT_BINDINGS } from '../data/abilities.js';
-import { CURRENCIES } from '../data/currencies.js';
-import { normalizeCosts } from '../data/costs.js';
+import { CURRENCIES } from '../data/currencies.ts';
+import { normalizeCosts } from '../data/costs.ts';
 import { createInventory } from './inventory.js';
 
 export function createCharacter({ cols, rows, currencies = CURRENCIES } = {}) {

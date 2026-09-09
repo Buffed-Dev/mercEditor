@@ -2,7 +2,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 // Side-effect only: this is what adds `createInstance` to Mesh.
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { SETTLE_SECONDS } from '../game/ground.js';
-import { LEVEL_H } from './dimensions.js';
+import { LEVEL_H } from '../data/dimensions.ts';
 import { surface } from './materials.js';
 
 /**

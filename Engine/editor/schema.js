@@ -1,10 +1,10 @@
-import { LIGHT_FIELDS, LIGHT_TYPES, normalizeLight } from '../src/data/lights.js';
+import { LIGHT_FIELDS, LIGHT_TYPES, normalizeLight } from '../src/data/lights.ts';
 import { CHUNK_ROLES } from '../src/data/maps/chunks.js';
 
 /**
  * What each kind of map object exposes to the inspector. The panel renders
  * whatever it finds here, so a new editable property is one line in this file
- * rather than a new branch of UI code — the same trick data/lights.js uses for
+ * rather than a new branch of UI code — the same trick data/lights.ts uses for
  * light types.
  *
  * Field kinds: text, select (fixed options), maps (the map registry), color,

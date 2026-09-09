@@ -1,8 +1,8 @@
-import { MODIFIER_OPS, MAGNITUDE_TYPES, MAGNITUDE_SOURCES, EXECUTIONS } from '../../../src/data/effects.js';
+import { MODIFIER_OPS, MAGNITUDE_TYPES, MAGNITUDE_SOURCES, EXECUTIONS } from '../../../src/data/effects.ts';
 import { EFFECT_TARGETS } from '../../../src/data/abilities.js';
-import { COST_KINDS } from '../../../src/data/costs.js';
-import { LOOT_ROLL_FIELDS } from '../../../src/data/lootTables.js';
-import { ITEM_STAT_FIELDS } from '../../../src/data/items.js';
+import { COST_KINDS } from '../../../src/data/costs.ts';
+import { LOOT_ROLL_FIELDS } from '../../../src/data/lootTables.ts';
+import { ITEM_STAT_FIELDS } from '../../../src/data/items.ts';
 import { Field } from '../../fields/Field';
 import type { FieldSpec, FieldValue } from '../../fields/types';
 import { optionsForField, type ListId, type OptionSource } from '../../rules/schema';

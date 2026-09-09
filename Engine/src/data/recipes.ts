@@ -20,12 +20,18 @@
  * of whoever walks up to it.
  */
 
-import { normalizeCosts } from './costs.js';
-import { itemMap } from './items.js';
-import { RECIPES } from '#game/rules/recipes.js';
+import { normalizeCosts, type Cost } from './costs.ts';
+import { itemMap, type ItemInput } from './items.ts';
+import { RECIPES as GAME_RECIPES } from '#game/rules/recipes.js';
 
 /** The set itself lives in rules/, which the editor rewrites. */
-export { RECIPES };
+export type Recipe = { id: string; label: string; item: string; minBase: number };
+
+/** A recipe as a rules file writes it. */
+export type RecipeInput = Partial<Recipe>;
+
+/** Left unnormalized: the rules editor reads this straight into what it saves. */
+export const RECIPES = GAME_RECIPES as RecipeInput[];
 
 /**
  * `item` is an id in the items list, not a value that can be defaulted to
@@ -37,9 +43,9 @@ export const RECIPE_FIELDS = {
   label: { kind: 'text', label: 'Name', default: 'New recipe' },
   item: { kind: 'item', label: 'Produces', default: '' },
   minBase: { kind: 'range', label: 'Needs base level', min: 1, max: 20, step: 1, default: 1 },
-};
+} as const;
 
-export function defaultRecipe(id = 'newRecipe') {
+export function defaultRecipe(id = 'newRecipe'): Recipe {
   return {
     id,
     label: RECIPE_FIELDS.label.default,
@@ -55,10 +61,14 @@ export function defaultRecipe(id = 'newRecipe') {
  * that points nowhere is something the editor should say out loud, and a
  * silently substituted first-item-in-the-list would hide it.
  */
-export function normalizeRecipe(def = {}) {
+export function normalizeRecipe(def: RecipeInput = {}): Recipe {
   const base = defaultRecipe(def.id ?? 'newRecipe');
-  const clamp = (value, field, fallback) =>
-    Number.isFinite(value) ? Math.min(field.max, Math.max(field.min, value)) : fallback;
+  const clamp = (
+    value: number | undefined,
+    field: { min: number; max: number },
+    fallback: number,
+  ) =>
+    Number.isFinite(value) ? Math.min(field.max, Math.max(field.min, value as number)) : fallback;
   return {
     ...base,
     ...def,
@@ -74,12 +84,12 @@ export function normalizeRecipe(def = {}) {
  * answer wherever it is asked — the panel drawing a row and the bench taking
  * the money read the same function.
  */
-export function recipeCosts(recipe, items) {
+export function recipeCosts(recipe: RecipeInput, items?: readonly ItemInput[]): Cost[] {
   const def = itemMap(items).get(normalizeRecipe(recipe).item);
   return def ? normalizeCosts(def.costs) : [];
 }
 
 /** Look recipes up by id. Callers hold the array; this is the index. */
-export function recipeMap(defs = RECIPES) {
-  return new Map(defs.map((def) => [def.id, normalizeRecipe(def)]));
+export function recipeMap(defs: readonly RecipeInput[] = RECIPES): Map<string, Recipe> {
+  return new Map(defs.map((def) => [def.id ?? 'newRecipe', normalizeRecipe(def)]));
 }

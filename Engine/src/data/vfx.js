@@ -75,7 +75,7 @@ export function curveAt(curve, t) {
 
 /**
  * The shapes particles can be born from, and which of the geometry fields each
- * one actually uses — the same trick data/lights.js plays with light types, so
+ * one actually uses — the same trick data/lights.ts plays with light types, so
  * a shape's own settings appear in the panel and nothing else does.
  *
  * These are Babylon's own emitters, named for what they look like rather than

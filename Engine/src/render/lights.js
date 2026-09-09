@@ -6,8 +6,8 @@ import { PointLight } from '@babylonjs/core/Lights/pointLight.js';
 import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { colorOf } from './materials.js';
-import { normalizeLight } from '../data/lights.js';
-import { LEVEL_H } from './dimensions.js';
+import { normalizeLight } from '../data/lights.ts';
+import { LEVEL_H } from '../data/dimensions.ts';
 
 /**
  * A map's `lights` list, turned into Babylon lights and their shadow

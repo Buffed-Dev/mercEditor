@@ -3,7 +3,7 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { LEVEL_H } from './dimensions.js';
+import { LEVEL_H } from '../data/dimensions.ts';
 import { unlit } from './materials.js';
 
 /**

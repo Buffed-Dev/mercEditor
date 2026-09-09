@@ -5,7 +5,7 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js'
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { LEVEL_H } from './dimensions.js';
+import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.js';
 import { BODY_LENGTH, BODY_RADIUS } from './player.js';
 

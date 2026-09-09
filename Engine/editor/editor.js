@@ -12,9 +12,9 @@ import '@babylonjs/core/Culling/ray.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { CAMERA_OFFSET } from '../src/render/isoCamera.js';
 import { buildMapView } from '../src/render/mapView.js';
-import { LEVEL_H } from '../src/render/dimensions.js';
+import { LEVEL_H } from '../src/data/dimensions.ts';
 import { colorOf, unlit } from '../src/render/materials.js';
-import { normalizeLight } from '../src/data/lights.js';
+import { normalizeLight } from '../src/data/lights.ts';
 
 import { MONSTER_KINDS } from '../src/game/monsters.js';
 import { World } from '../src/game/world.js';
@@ -43,7 +43,7 @@ const SPAWN_MARKER_COLOR = 0x35d07f;
 const START_MARKER_COLOR = 0xffc247;
 
 /** The '@' tile, or null. Read out of the rows because that is where it lives. */
-const WALL_PREVIEW_H = 1.3; // matches WALL_H in render/dimensions.js
+const WALL_PREVIEW_H = 1.3; // matches WALL_H in data/dimensions.ts
 
 /**
  * Rendering groups. Babylon clears the depth buffer between them, so a higher

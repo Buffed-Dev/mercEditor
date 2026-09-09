@@ -44,7 +44,32 @@ export const MATERIAL_FIELDS = {
   transparent: { kind: 'bool', label: 'Use texture alpha', default: false },
   backFaces: { kind: 'bool', label: 'Draw back faces', default: false },
   unlit: { kind: 'bool', label: 'Ignore lighting', default: false },
+} as const;
+
+/** A surface, as the renderer and the editor both understand it. */
+export type Material = {
+  id: string;
+  label: string;
+  texture: string;
+  bump: string;
+  color: number;
+  uScale: number;
+  vScale: number;
+  uOffset: number;
+  vOffset: number;
+  roughness: number;
+  metallic: number;
+  bumpStrength: number;
+  emissive: number;
+  emissiveStrength: number;
+  alpha: number;
+  transparent: boolean;
+  backFaces: boolean;
+  unlit: boolean;
 };
+
+/** A material as a rules file writes it. See `normalizeMaterial`. */
+export type MaterialInput = Partial<Material>;
 
 /** What the preview stands the material on. Shape says different things. */
 export const MATERIAL_SHAPES = {
@@ -53,29 +78,41 @@ export const MATERIAL_SHAPES = {
   plane: { label: 'Plane', hint: 'One face, straight on: what the picture itself looks like.' },
 };
 
-export const MATERIAL_SHAPE_KEYS = Object.keys(MATERIAL_SHAPES);
+/** Which preview body the editor shows a material on. */
+export type MaterialShape = keyof typeof MATERIAL_SHAPES;
 
+export const MATERIAL_SHAPE_KEYS = Object.keys(MATERIAL_SHAPES) as MaterialShape[];
+
+// `flatMap` rather than `filter` then `map`: a filter does not tell the
+// compiler that the fields which survive it are the ones carrying a default,
+// so the map afterwards would be reaching for a property the union does not
+// have. The `as` is for `fromEntries`, which forgets which keys it was handed
+// -- the values themselves are still read from MATERIAL_FIELDS, so there is no
+// second copy of the defaults to keep in step.
 const DEFAULTS = Object.fromEntries(
-  Object.entries(MATERIAL_FIELDS)
-    .filter(([, field]) => field.default !== undefined)
-    .map(([key, field]) => [key, field.default]),
-);
+  Object.entries(MATERIAL_FIELDS).flatMap(([key, field]) =>
+    'default' in field ? [[key, field.default]] : [],
+  ),
+) as Omit<Material, 'id' | 'label' | 'texture' | 'bump'>;
 
-export function defaultMaterial(id = 'material') {
+export function defaultMaterial(id = 'material'): Material {
   return { id, label: id, texture: '', bump: '', ...DEFAULTS };
 }
 
-export function normalizeMaterial(material = {}) {
+export function normalizeMaterial(material: MaterialInput = {}): Material {
   const full = defaultMaterial(material.id ?? 'material');
+  const given = material as Record<string, unknown>;
   for (const key of Object.keys(full)) {
-    if (material[key] !== undefined) full[key] = material[key];
+    if (given[key] !== undefined) (full as Record<string, unknown>)[key] = given[key];
   }
   full.label = material.label ?? full.id;
   return full;
 }
 
-export const MATERIALS = (GAME_MATERIALS ?? []).map(normalizeMaterial);
+export const MATERIALS: Material[] = ((GAME_MATERIALS as MaterialInput[]) ?? []).map(
+  normalizeMaterial,
+);
 
 const BY_ID = new Map(MATERIALS.map((material) => [material.id, material]));
 
-export const materialById = (id) => BY_ID.get(id) ?? null;
+export const materialById = (id: string): Material | null => BY_ID.get(id) ?? null;

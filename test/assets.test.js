@@ -14,7 +14,7 @@ import {
   defaultProp,
   normalizeProp,
   standHeights,
-} from '../Engine/src/data/props.js';
+} from '../Engine/src/data/props.ts';
 import { safeFileName } from '../Engine/editor/uploadAsset.js';
 import { serializeRules } from '../Engine/editor/serializeData.js';
 import { serializeMap } from '../Engine/editor/serialize.js';

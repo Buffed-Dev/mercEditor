@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { STACK_MAX } from '../Engine/src/data/items.js';
+import { STACK_MAX } from '../Engine/src/data/items.ts';
 import { createInventory } from '../Engine/src/game/inventory.js';
 import { countOf, rollItem, stacks } from '../Engine/src/game/items.js';
 

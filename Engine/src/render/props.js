@@ -8,9 +8,9 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 // Side-effect only: this is what teaches the loader above to read a .glb.
 import '@babylonjs/loaders/glTF/index.js';
 import { ASSETS, assetById, assetFrames, assetUrl } from '../data/assets.js';
-import { materialById, normalizeMaterial } from '../data/materials.js';
-import { PROPS, propById } from '../data/props.js';
-import { LEVEL_H } from './dimensions.js';
+import { materialById, normalizeMaterial } from '../data/materials.ts';
+import { PROPS, propById } from '../data/props.ts';
+import { LEVEL_H } from '../data/dimensions.ts';
 import { applyMaterial, colorOf, materialFrom, materialKey, surface } from './materials.js';
 import { keep, keepModel } from './sceneCache.js';
 

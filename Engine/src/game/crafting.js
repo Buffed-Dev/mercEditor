@@ -28,10 +28,10 @@
  * crafted one gets them without a line changing here.
  */
 
-import { costLabeller, describeCosts, normalizeCosts } from '../data/costs.js';
-import { nextBaseLevel } from '../data/baseLevels.js';
-import { itemMap, stackLimit } from '../data/items.js';
-import { recipeCosts, recipeMap } from '../data/recipes.js';
+import { costLabeller, describeCosts, normalizeCosts } from '../data/costs.ts';
+import { nextBaseLevel } from '../data/baseLevels.ts';
+import { itemMap, stackLimit } from '../data/items.ts';
+import { recipeCosts, recipeMap } from '../data/recipes.ts';
 import { itemRange, rollItem } from './items.js';
 
 /** How long the bench takes over one item. */

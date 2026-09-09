@@ -48,7 +48,7 @@ const RULE_FILES = {
   baseLevels: {
     constant: 'BASE_LEVELS',
     title: 'Base levels',
-    note: 'Each row is what reaching that level costs; the shape is in ../baseLevels.js.',
+    note: 'Each row is what reaching that level costs; the shape is in ../baseLevels.ts.',
   },
   vfx: {
     constant: 'VFX',
@@ -68,12 +68,12 @@ const RULE_FILES = {
   materials: {
     constant: 'MATERIALS',
     title: 'Material definitions',
-    note: 'Named surfaces; the shape is in ../../../Engine/src/data/materials.js.',
+    note: 'Named surfaces; the shape is in ../../../Engine/src/data/materials.ts.',
   },
   props: {
     constant: 'PROPS',
     title: 'Object definitions',
-    note: 'What each field does is in ../../../Engine/src/data/props.js.',
+    note: 'What each field does is in ../../../Engine/src/data/props.ts.',
   },
   recipes: {
     constant: 'RECIPES',

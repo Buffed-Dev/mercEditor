@@ -1,13 +1,13 @@
-import { ATTRIBUTES, defaultAttribute } from '../src/data/attributes.js';
-import { ARCHETYPES, defaultArchetype } from '../src/data/archetypes.js';
+import { ATTRIBUTES, defaultAttribute } from '../src/data/attributes.ts';
+import { ARCHETYPES, defaultArchetype } from '../src/data/archetypes.ts';
 import { ABILITIES, defaultAbility } from '../src/data/abilities.js';
-import { EFFECTS, defaultEffect, defaultModifier } from '../src/data/effects.js';
-import { ITEMS, defaultItem, defaultItemStat } from '../src/data/items.js';
-import { RECIPES, defaultRecipe } from '../src/data/recipes.js';
-import { CATEGORIES, behaviourOf, defaultCategory } from '../src/data/categories.js';
-import { defaultCost } from '../src/data/costs.js';
-import { LOOT_TABLES, defaultLootRoll, defaultLootTable } from '../src/data/lootTables.js';
-import { BASE_LEVELS, defaultBaseLevel } from '../src/data/baseLevels.js';
+import { EFFECTS, defaultEffect, defaultModifier } from '../src/data/effects.ts';
+import { ITEMS, defaultItem, defaultItemStat } from '../src/data/items.ts';
+import { RECIPES, defaultRecipe } from '../src/data/recipes.ts';
+import { CATEGORIES, behaviourOf, defaultCategory } from '../src/data/categories.ts';
+import { defaultCost } from '../src/data/costs.ts';
+import { LOOT_TABLES, defaultLootRoll, defaultLootTable } from '../src/data/lootTables.ts';
+import { BASE_LEVELS, defaultBaseLevel } from '../src/data/baseLevels.ts';
 import { VFX, defaultVfx } from '../src/data/vfx.js';
 import { ASSETS, defaultAsset, normalizeAsset } from '../src/data/assets.js';
 import { TERRAINS, TERRAIN_FIELDS, defaultTerrain, normalizeTerrain } from '../src/data/terrains.ts';
@@ -16,8 +16,8 @@ import {
   MATERIAL_FIELDS,
   defaultMaterial,
   normalizeMaterial,
-} from '../src/data/materials.js';
-import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.js';
+} from '../src/data/materials.ts';
+import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
 import { createUndoable } from './undoable.js';
 
 /**

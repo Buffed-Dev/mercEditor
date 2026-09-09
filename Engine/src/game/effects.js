@@ -1,4 +1,4 @@
-import { EFFECTS, effectMap } from '../data/effects.js';
+import { EFFECTS, effectMap } from '../data/effects.ts';
 import { runExecution } from './executions/index.js';
 
 /**

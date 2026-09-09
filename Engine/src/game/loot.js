@@ -14,9 +14,9 @@
  * nothing here beyond a different id in the same field.
  */
 
-import { currencyMap } from '../data/currencies.js';
-import { itemMap } from '../data/items.js';
-import { lootTableMap, normalizeLootRoll } from '../data/lootTables.js';
+import { currencyMap } from '../data/currencies.ts';
+import { itemMap } from '../data/items.ts';
+import { lootTableMap, normalizeLootRoll } from '../data/lootTables.ts';
 import { SETTLE_SECONDS } from './ground.js';
 import { countOf, rollItem, withCount } from './items.js';
 

@@ -5,7 +5,7 @@ import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { BILLBOARD } from '../../src/render/isoCamera.js';
-import { normalizeMaterial } from '../../src/data/materials.js';
+import { normalizeMaterial } from '../../src/data/materials.ts';
 import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.js';
 
 /**

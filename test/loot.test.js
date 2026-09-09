@@ -206,8 +206,8 @@ test('a range typed backwards still pays', () => {
 
 test('a vase is placed like a monster and pays out like one', async () => {
   const { MONSTER_KINDS, spawnMonsters } = await import('../Engine/src/game/monsters.js');
-  const { ARCHETYPES } = await import('../Engine/src/data/archetypes.js');
-  const { ATTRIBUTES } = await import('../Engine/src/data/attributes.js');
+  const { ARCHETYPES } = await import('../Engine/src/data/archetypes.ts');
+  const { ATTRIBUTES } = await import('../Engine/src/data/attributes.ts');
 
   assert.equal(MONSTER_KINDS.vase.prop, true, 'a vase would be drawn with a face');
 
@@ -233,7 +233,7 @@ test('a vase is placed like a monster and pays out like one', async () => {
 
 test('a stack only partly fits: take what you can, leave the rest', async () => {
   const { rollItem, countOf } = await import('../Engine/src/game/items.js');
-  const { STACK_MAX } = await import('../Engine/src/data/items.js');
+  const { STACK_MAX } = await import('../Engine/src/data/items.ts');
   const character = createCharacter({ currencies: CURRENCIES });
   const ground = createGround();
   const deps = { ground, character };

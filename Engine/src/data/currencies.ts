@@ -17,18 +17,21 @@
  * stat lines and nothing to pick up but a number.
  */
 
-import { ITEMS, currenciesOf } from './items.js';
+import { ITEMS, currenciesOf, type Currency } from './items.ts';
+
+/** A currency as a rules file writes it. */
+export type CurrencyInput = Partial<Currency>;
 
 /** Every currency in the shipped rules. Anything editing rules derives its own
  *  with currenciesOf(items), the way createLevel does. */
 export const CURRENCIES = currenciesOf(ITEMS);
 
-export function defaultCurrency(id = 'newCurrency') {
+export function defaultCurrency(id = 'newCurrency'): Currency {
   return { id, label: 'New currency', start: 0 };
 }
 
-export function normalizeCurrency(def = {}) {
-  const start = Number.isFinite(def.start) ? Math.round(def.start) : 0;
+export function normalizeCurrency(def: CurrencyInput = {}): Currency {
+  const start = Number.isFinite(def.start) ? Math.round(def.start as number) : 0;
   return {
     ...defaultCurrency(def.id ?? 'newCurrency'),
     ...def,
@@ -37,6 +40,8 @@ export function normalizeCurrency(def = {}) {
 }
 
 /** Look currencies up by id. Callers hold the array; this is the index. */
-export function currencyMap(defs = CURRENCIES) {
-  return new Map(defs.map((def) => [def.id, normalizeCurrency(def)]));
+export function currencyMap(
+  defs: readonly CurrencyInput[] = CURRENCIES,
+): Map<string, Currency> {
+  return new Map(defs.map((def) => [def.id ?? 'newCurrency', normalizeCurrency(def)]));
 }

@@ -1,4 +1,4 @@
-import { defaultLight } from '../src/data/lights.js';
+import { defaultLight } from '../src/data/lights.ts';
 import { defaultChunk } from '../src/data/maps/chunks.js';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.js';
 import { decodeTerrain } from '../src/data/terrain/codec.ts';

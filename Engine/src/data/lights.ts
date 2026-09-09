@@ -31,6 +31,30 @@ export const LIGHT_FIELDS = {
   // Blur width in shadow-map texels. Small reads as a hard sunlit edge, large
   // as an overcast day.
   shadowSoftness: { kind: 'number', label: 'Shadow softness', min: 0, max: 12, step: 0.5, default: 3 },
+} as const;
+
+/**
+ * What each field holds once it is on a light.
+ *
+ * Written out rather than derived from `LIGHT_FIELDS`, because `as const` makes
+ * every default a literal type — `intensity` would come out as `12`, not
+ * `number`, and no light could then be dimmed. Thirteen boring lines beat a
+ * mapped type that has to be argued with.
+ */
+type LightValues = {
+  color: number;
+  groundColor: number;
+  intensity: number;
+  height: number;
+  distance: number;
+  decay: number;
+  angle: number;
+  penumbra: number;
+  azimuth: number;
+  elevation: number;
+  castShadow: boolean;
+  shadowDarkness: number;
+  shadowSoftness: number;
 };
 
 export const LIGHT_TYPES = {
@@ -54,27 +78,46 @@ export const LIGHT_TYPES = {
     hint: 'Sky colour above, bounce colour below, everywhere at once. Position is ignored.',
     fields: ['color', 'groundColor', 'intensity'],
   },
-};
+} as const;
+
+/** Which kind of light. The four `LIGHT_TYPES` keys and nothing else. */
+export type LightType = keyof typeof LIGHT_TYPES;
+
+/**
+ * A light as a map stores it.
+ *
+ * The value fields are optional because which ones exist is decided by `type` —
+ * a sky fill has no cone angle, and a sun ignores its own position. Making them
+ * all required would oblige every caller to invent numbers that the renderer
+ * would then ignore.
+ */
+export type Light = { type: LightType; gx: number; gy: number } & Partial<LightValues>;
+
+export const isLightType = (value: unknown): value is LightType =>
+  typeof value === 'string' && value in LIGHT_TYPES;
 
 /** Sensible starting values per type, so a freshly placed light is visible. */
-const TYPE_OVERRIDES = {
+const TYPE_OVERRIDES: Record<LightType, Partial<LightValues>> = {
   point: { intensity: 14, color: 0xffb46a },
   spot: { intensity: 30, height: 3.2, color: 0xffe9c4 },
   directional: { intensity: 2.3, color: 0xfff4dc },
   hemisphere: { intensity: 1.1, color: 0xcfe9ff, groundColor: 0x6f9445 },
 };
 
-export function defaultLight(type, gx, gy) {
-  const spec = LIGHT_TYPES[type] ?? LIGHT_TYPES.point;
-  const light = { type, gx, gy };
-  for (const field of spec.fields) {
-    light[field] = LIGHT_FIELDS[field].default;
+export function defaultLight(type: string, gx: number, gy: number): Light {
+  // Resolved before it is stored, not just before it is read. The unchecked
+  // `type` used to be written onto the light while the *fields* came from the
+  // point fallback, so a bad type produced a light that disagreed with itself.
+  const kind: LightType = isLightType(type) ? type : 'point';
+  const light: Light = { type: kind, gx, gy };
+  for (const field of LIGHT_TYPES[kind].fields) {
+    (light as Record<string, unknown>)[field] = LIGHT_FIELDS[field].default;
   }
-  return { ...light, ...TYPE_OVERRIDES[type] };
+  return { ...light, ...TYPE_OVERRIDES[kind] };
 }
 
 /** Fill in anything a hand-written map left out, so the map view sees no gaps. */
-export function normalizeLight(def) {
-  const type = LIGHT_TYPES[def.type] ? def.type : 'point';
+export function normalizeLight(def: Partial<Light>): Light {
+  const type: LightType = isLightType(def.type) ? def.type : 'point';
   return { ...defaultLight(type, def.gx ?? 0, def.gy ?? 0), ...def, type };
 }

@@ -1,4 +1,4 @@
-import { ATTRIBUTES, normalizeAttribute } from '../data/attributes.js';
+import { ATTRIBUTES, normalizeAttribute } from '../data/attributes.ts';
 
 /**
  * One actor's attributes.

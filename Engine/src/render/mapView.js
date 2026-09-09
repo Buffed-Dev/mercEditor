@@ -10,7 +10,7 @@ import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imagePro
 import { createLights } from './lights.js';
 import { createDecals } from './decals.js';
 import { colorOf, surface, unlit } from './materials.js';
-import { LEVEL_H, WALL_H } from './dimensions.js';
+import { LEVEL_H, WALL_H } from '../data/dimensions.ts';
 import { normalizeEnv } from '../data/mapFormat.js';
 import { applyFog } from './fog.js';
 import { createVfxRuntime } from './vfx.js';

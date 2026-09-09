@@ -17,7 +17,7 @@
  * values while play-testing.
  */
 
-import { normalizeItem, normalizeItemStat, stackLimit, statRungs } from '../data/items.js';
+import { normalizeItem, normalizeItemStat, stackLimit, statRungs } from '../data/items.ts';
 
 /** A unique enough handle to tell two identical swords apart in a container. */
 let serial = 0;
