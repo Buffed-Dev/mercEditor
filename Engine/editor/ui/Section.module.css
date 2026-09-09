@@ -1,0 +1,70 @@
+/* A collapsible section. The header *is* the control — there is no separate
+   disclosure triangle to aim at — because at 22px tall a 12px target inside a
+   180px header is a thing you miss. */
+
+.section {
+  border-bottom: 1px solid var(--e-line);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--e-t) var(--e-ease);
+}
+
+.head:hover {
+  color: var(--e-fg);
+}
+
+.head:focus-visible {
+  outline: 2px solid var(--e-accent);
+  outline-offset: -2px;
+}
+
+.chevron {
+  flex: none;
+  color: var(--e-fg-3);
+  transition: transform var(--e-t) var(--e-ease);
+}
+
+.open .chevron {
+  transform: rotate(90deg);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--e-raised);
+  color: var(--e-fg-2);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.body {
+  padding: 2px 0 6px;
+}

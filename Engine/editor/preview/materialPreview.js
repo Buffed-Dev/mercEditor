@@ -1,0 +1,130 @@
+import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
+import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
+import { BILLBOARD } from '../../src/render/isoCamera.js';
+import { normalizeMaterial } from '../../src/data/materials.js';
+import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.js';
+
+/**
+ * A named surface, and the same surface being drawn.
+ *
+ * Every number in a material is about light, and none of them can be read.
+ * "Roughness 0.35" is not a thing anyone knows the look of — so half the editor
+ * is the form and the other half is a shape wearing what the form says.
+ *
+ * Three shapes rather than one, because they answer different questions. A
+ * plane shows the picture: whether the tiling lines up, and what the thing
+ * actually looks like flat on. A cube shows three faces at once, which is where
+ * a tiling factor and a metal go wrong. A sphere has every angle in it at once,
+ * which is the only way to see a highlight move.
+ *
+ * It builds through the game's own `materialFrom`, so what is tuned here is
+ * what a map draws. The effects editor drifted from the game twice by having a
+ * path of its own, and both times the effect looked right in the tool and wrong
+ * in play.
+ *
+ * Lifted out of the old materials mode unchanged — this is the part worth
+ * keeping, and the panel around it is the part being replaced.
+ */
+export function createMaterialPreview() {
+  let scene = null;
+  let lamps = [];
+  let body = null;
+  let material = null;
+  let materialFor = '';
+
+  /** Drop the shape. The material outlives it — see `draw`. */
+  function clear() {
+    body?.dispose(false, false);
+    body = null;
+  }
+
+  return {
+    /** How wide a view the preview opens on, in world units. */
+    frustum: 3.4,
+
+    /** The scene, for the console. See the map workspace's handle. */
+    get scene() {
+      return scene;
+    },
+
+    mount(made) {
+      scene = made;
+      // Two lights: a fill so nothing is unreadable, and a key so a curved
+      // surface has a bright side and a dark one. A material under one flat
+      // light is a material you cannot judge.
+      const fill = new HemisphericLight('matFill', new Vector3(0.2, 1, 0.1), scene);
+      fill.intensity = 0.7;
+      fill.groundColor = new Color3(0.18, 0.2, 0.26);
+      const key = new DirectionalLight('matKey', new Vector3(-0.6, -1, 0.55), scene);
+      key.intensity = 1.6;
+      lamps = [fill, key];
+    },
+
+    unmount() {
+      clear();
+      material?.dispose(true, false);
+      material = null;
+      materialFor = '';
+      for (const lamp of lamps) lamp.dispose();
+      lamps = [];
+      scene = null;
+    },
+
+    /**
+     * Stand a material on the chosen shape.
+     *
+     * @param record the material being edited
+     * @param {{shape?: string, urlOf?: (id: string) => string}} context `shape`
+     *   is 'box', 'sphere' or 'plane'; `urlOf` resolves a texture asset id to a
+     *   url the server will serve.
+     */
+    draw(record, context = {}) {
+      const { shape = 'box', urlOf = () => '' } = context;
+      if (!scene || !record) return clear();
+      clear();
+      const def = normalizeMaterial(record);
+
+      // One unit across whatever the shape, because a tile is one unit and that
+      // is the only scale a tiling factor can be judged against.
+      body =
+        shape === 'sphere'
+          ? MeshBuilder.CreateSphere('matBody', { diameter: 1.6, segments: 48 }, scene)
+          : shape === 'plane'
+            ? MeshBuilder.CreatePlane(
+                'matBody',
+                // Two-sided, because which side of a plane faces you is a
+                // question the preview should not be able to get wrong: a
+                // material that culls its back faces would show nothing at all.
+                { size: 1.8, sideOrientation: Mesh.DOUBLESIDE },
+                scene,
+              )
+            : MeshBuilder.CreateBox('matBody', { size: 1.3 }, scene);
+
+      // The plane is turned to face the camera rather than left lying in the
+      // world: a picture is looked at straight on, not at the map's angle. The
+      // game's own billboard orientation, which is the one that is correct for
+      // this camera in a right-handed scene — `lookAt` gets the handedness
+      // right and the facing wrong, and shows you the back of the plane.
+      if (shape === 'plane') body.rotationQuaternion = BILLBOARD.clone();
+      body.isPickable = false;
+
+      // Made once and written onto after that. Compiling a shader is what makes
+      // a preview blink, and every field on this form except "ignore lighting"
+      // leaves the shader alone — which is why that one is what the key turns
+      // on.
+      const key = materialKey(def);
+      if (key !== materialFor) {
+        material?.dispose(true, false);
+        material = materialFrom(def, scene, urlOf);
+        materialFor = key;
+      } else {
+        applyMaterial(def, material, scene, urlOf);
+      }
+      body.material = material;
+    },
+  };
+}

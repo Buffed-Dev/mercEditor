@@ -1,0 +1,33 @@
+/* Said plainly, and only when there is something to say. */
+
+.problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 3px 8px;
+  padding: 5px 7px;
+  border-left: 2px solid var(--e-warn);
+  border-radius: 0 var(--e-r) var(--e-r) 0;
+  background: color-mix(in srgb, var(--e-warn) 12%, transparent);
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  line-height: 1.45;
+}
+
+/* A map with no terrain draws nothing, with no error, and looks exactly like a
+   renderer that has broken. That is worth a louder colour. */
+.fatal {
+  border-left-color: var(--e-danger);
+  background: color-mix(in srgb, var(--e-danger) 14%, transparent);
+  color: var(--e-fg);
+}
+
+.glyph {
+  flex: none;
+  margin-top: 1px;
+  color: var(--e-warn);
+}
+
+.fatal .glyph {
+  color: var(--e-danger);
+}

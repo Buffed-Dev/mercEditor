@@ -1,0 +1,14 @@
+/* Instant. A tooltip that waits a second is one you have already given up on
+   and gone looking for the answer somewhere else. */
+
+.popup {
+  padding: 3px 7px;
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r);
+  background: var(--e-raised);
+  color: var(--e-fg);
+  font-size: var(--e-fs-5);
+  line-height: 1.35;
+  max-width: 260px;
+  box-shadow: var(--e-shadow);
+}

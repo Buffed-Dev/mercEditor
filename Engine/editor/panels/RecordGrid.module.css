@@ -1,0 +1,165 @@
+/* A grid, because the job here is comparing records rather than scrolling a
+   list of them. */
+
+.wrap {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+}
+
+.bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.filter {
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.filter:focus {
+  border-color: var(--e-accent);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 8px;
+  align-content: start;
+  padding: 8px;
+  overflow: auto;
+}
+
+.card {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--e-line);
+  border-radius: var(--e-r-md);
+  background: var(--e-panel);
+  cursor: pointer;
+  transition:
+    border-color var(--e-t) var(--e-ease),
+    background var(--e-t) var(--e-ease);
+}
+
+.card:hover {
+  border-color: var(--e-line-2);
+  background: var(--e-raised);
+}
+
+.on {
+  border-color: var(--e-accent);
+  background: color-mix(in srgb, var(--e-accent) 14%, var(--e-panel));
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tile {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--e-r-md);
+  background: color-mix(in srgb, var(--e-accent) 24%, var(--e-input));
+  color: var(--e-accent);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.names {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.name,
+.kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  color: var(--e-fg);
+  font-size: var(--e-fs-2);
+}
+
+.kind {
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: 10px;
+}
+
+.more {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.more:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.chip {
+  padding: 0 5px;
+  border: 1px solid var(--e-line);
+  border-radius: 3px;
+  background: var(--e-work);
+  color: var(--e-fg-2);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--e-line);
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}
+
+.value {
+  color: var(--e-value);
+  font-weight: 400;
+}
+
+.empty {
+  padding: 24px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}

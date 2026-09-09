@@ -1,0 +1,90 @@
+/* The shelf. Nothing 3D is built while this is up, which is why it comes up
+   instantly — picking a game is what loads the editor. */
+
+.home {
+  min-height: 100%;
+  padding: 56px 40px;
+  background: var(--e-bg);
+  color: var(--e-fg);
+  font-family: var(--e-sans);
+}
+
+.header {
+  max-width: 900px;
+  margin: 0 auto 28px;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.lede {
+  margin: 0;
+  color: var(--e-fg-2);
+  font-size: 13px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.card {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  text-align: left;
+  background: var(--e-work);
+  border: 1px solid var(--e-line);
+  border-radius: var(--e-r-lg);
+  color: var(--e-fg);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background var(--e-t) var(--e-ease),
+    border-color var(--e-t) var(--e-ease);
+}
+
+.card:hover {
+  background: var(--e-panel);
+  border-color: var(--e-line-2);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--e-accent);
+  outline-offset: 2px;
+}
+
+.glyph {
+  color: var(--e-fg-3);
+  margin-bottom: 6px;
+}
+
+.name {
+  font-size: 14px;
+}
+
+.path,
+.meta {
+  font-size: 11px;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+}
+
+.new {
+  border-style: dashed;
+}
+
+.empty {
+  max-width: 900px;
+  margin: 18px auto 0;
+  color: var(--e-warn);
+  font-size: 13px;
+}

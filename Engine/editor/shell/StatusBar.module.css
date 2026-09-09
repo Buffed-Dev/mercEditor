@@ -1,0 +1,47 @@
+/* One line: what just happened on the left, what is under the pointer on the
+   right. The right half is a readout you glance at while painting, which is why
+   it is worth the width — the bar used to carry a message and nothing else. */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--e-statusbar);
+  padding: 0 calc(var(--e-gap) + 4px);
+  font-size: var(--e-fs-5);
+  color: var(--e-fg-2);
+}
+
+.msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.good {
+  color: var(--e-good);
+}
+.warn {
+  color: var(--e-warn);
+}
+
+.context {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-family: var(--e-mono);
+}
+
+.value {
+  color: var(--e-fg);
+}
+
+.swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--e-line-2);
+}

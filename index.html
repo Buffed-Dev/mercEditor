@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Merc</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #070a11; overflow: hidden; }
+      #game { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      /* Shown only when a frame threw. Deliberately loud: the loop survives
+         now, so without this a bug would just look like odd behaviour. */
+      #fault {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+        padding: 8px 14px; background: #6b1f1f; color: #ffdede;
+        font: 12px ui-monospace, Menlo, Consolas, monospace;
+        pointer-events: none; user-select: none;
+      }
+      #fault.hidden { display: none; }
+
+      /* Character sheet, opened with C. Sits over the left of the screen so the
+         player is still visible while it is up — the game does not pause for
+         it, and reading your armour while something is chasing you should not
+         mean fighting blind. Click-through: only the cells holding something
+         take the pointer, so an empty grid never swallows an attack. */
+      #character {
+        position: fixed; top: 50%; left: 32px; transform: translateY(-50%);
+        font: 12px ui-monospace, Menlo, Consolas, monospace;
+        color: #c6d3e8; pointer-events: none; user-select: none;
+      }
+      #character.hidden { display: none; }
+      .ch-panel {
+        width: 470px; border: 1px solid #2c3648; border-radius: 7px;
+        background: #0d121bee; box-shadow: 0 10px 34px #04070ccc;
+      }
+      .ch-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        padding: 10px 14px; border-bottom: 1px solid #222c3c;
+      }
+      .ch-title { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #e2ebff; }
+      .ch-archetype { color: #7f8ea8; }
+      .ch-body { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 12px 14px 14px; }
+      .ch-col h2 {
+        margin: 0 0 8px; font-size: 10px; font-weight: normal; letter-spacing: 1.4px;
+        text-transform: uppercase; color: #64708a;
+      }
+      .ch-baghead { margin-top: 14px !important; }
+      /* What the two mouse buttons do in here, since neither is guessable. */
+      .ch-help {
+        margin: 10px 14px 12px; padding-top: 9px; border-top: 1px solid #171f2b;
+        font-size: 10px; color: #5b667e;
+      }
+
+      .ch-stat {
+        display: flex; justify-content: space-between; gap: 10px;
+        padding: 3px 0; border-bottom: 1px solid #171f2b;
+      }
+      .ch-k { color: #8b9ab5; }
+      .ch-v { color: #e2ebff; }
+
+      /* The doll is three columns because the slot list says which column each
+         piece belongs in; the panel only lays out what the data describes. */
+      .ch-doll { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+      .ch-slot {
+        min-height: 34px; padding: 4px 5px; border: 1px solid #232d3d; border-radius: 4px;
+        background: #10151ecc; display: flex; flex-direction: column; justify-content: space-between;
+        font: inherit; color: inherit; text-align: left;
+      }
+      .ch-slot-label { font-size: 9px; letter-spacing: .4px; color: #5b667e; }
+      .ch-item { font-size: 10px; color: #d7c08a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      .ch-bag { display: grid; gap: 3px; }
+      .ch-cell {
+        aspect-ratio: 1; border: 1px solid #212a39; border-radius: 3px; background: #0b0f17cc;
+        font: 9px ui-monospace, Menlo, Consolas, monospace; color: #d7c08a; overflow: hidden;
+        display: flex; align-items: center; justify-content: center; text-align: center;
+        padding: 2px;
+      }
+
+      /* A cell holding something is a target: you can pick it up. Empty ones
+         stay inert so the sheet keeps its click-through behaviour where there
+         is nothing to grab. */
+      .ch-cell.filled, .ch-slot.filled { pointer-events: auto; cursor: grab; }
+
+      /* While something is carried the sheet takes the pointer as a whole, so
+         a press that misses a cell is still a press on the interface: the item
+         goes back where it came from rather than onto the floor. */
+      .ch-panel.holding { pointer-events: auto; }
+
+      /* Carrying something turns every cell into a target — an empty one is
+         exactly where you might want to put the thing down. */
+      .ch-panel.holding .ch-cell, .ch-panel.holding .ch-slot {
+        pointer-events: auto; cursor: pointer;
+      }
+      .ch-panel.holding .ch-cell:not(.filled), .ch-panel.holding .ch-slot:not(.filled) {
+        border-style: dashed; border-color: #3d4a63;
+      }
+      .ch-cell.filled:hover, .ch-slot.filled:hover,
+      .ch-panel.holding .ch-cell:hover, .ch-panel.holding .ch-slot:hover {
+        border-color: #6d5c34; background: #171d29ee;
+      }
+
+      /* The crafting bench, opened by clicking its name plate and closed by
+         walking away from it. On the right, opposite the character sheet, so
+         both can be up at once — you craft while looking at what you have.
+         Click-through except its buttons, like the sheet: the game keeps
+         running behind it and a panel that swallowed presses across its
+         footprint would mean being unable to fight beside the bench. */
+      #crafting {
+        position: fixed; top: 50%; right: 32px; transform: translateY(-50%);
+        font: 12px ui-monospace, Menlo, Consolas, monospace;
+        color: #c6d3e8; pointer-events: none; user-select: none;
+      }
+      #crafting.hidden { display: none; }
+      .cf-panel {
+        width: 320px; border: 1px solid #2c3648; border-radius: 7px;
+        background: #0d121bee; box-shadow: 0 10px 34px #04070ccc;
+      }
+      .cf-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        padding: 10px 14px; border-bottom: 1px solid #222c3c;
+      }
+      .cf-title { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #e2ebff; }
+      .cf-purse { color: #d7c08a; }
+      .cf-base {
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        padding: 9px 14px; border-bottom: 1px solid #171f2b; color: #8b9ab5;
+      }
+      .cf-upgrade {
+        pointer-events: auto; cursor: pointer;
+        padding: 4px 9px; border: 1px solid #3a4557; border-radius: 4px;
+        background: #141b27; color: #d7c08a; font: inherit;
+      }
+      .cf-upgrade:hover:not(:disabled) { border-color: #6d5c34; background: #1b2431; }
+      .cf-upgrade:disabled { cursor: default; color: #5b667e; border-color: #232d3d; }
+      .cf-upgrade.poor { color: #7a6a4a; }
+
+      .cf-list { display: flex; flex-direction: column; gap: 3px; padding: 10px 14px 0; }
+      .cf-row {
+        pointer-events: auto; cursor: pointer; display: grid;
+        grid-template-columns: 1fr auto; gap: 2px 10px;
+        padding: 6px 8px; border: 1px solid #212a39; border-radius: 4px;
+        background: #0b0f17cc; font: inherit; color: #e2ebff; text-align: left;
+      }
+      .cf-row:hover:not(:disabled) { border-color: #6d5c34; background: #171d29ee; }
+
+      /* The progress bar is the row's own background, filling from the left.
+         Behind the text rather than beside it, so a row does not change size
+         when it starts working. */
+      .cf-fill {
+        position: absolute; inset: 0 auto 0 0; width: 0;
+        background: #2a3346; border-radius: 3px;
+      }
+      .cf-row { position: relative; overflow: hidden; }
+      .cf-row > span:not(.cf-fill) { position: relative; }
+      .cf-row.making { border-color: #6d5c34; color: #e2ebff; }
+      /* Busy is not a refusal, so a waiting row is dimmed rather than crossed
+         out — every one of them is coming back in a second. */
+      .cf-row:disabled:not(.locked):not(.making) { cursor: default; opacity: .55; }
+      .cf-cost { color: #d7c08a; }
+      .cf-lines { grid-column: 1 / -1; font-size: 10px; color: #7f8ea8; }
+
+      /* Cannot be afforded: dimmed, but still pressable, so the notice can say
+         so. Locked or pointing at nothing: not pressable at all. */
+      .cf-row.poor { color: #8b9ab5; }
+      .cf-row.poor .cf-cost { color: #7a6a4a; }
+      .cf-row.locked {
+        cursor: default; color: #5b667e; border-style: dashed; border-color: #232d3d;
+      }
+      .cf-row.locked .cf-cost, .cf-row.locked .cf-lines { color: #4b556b; }
+
+      .cf-help {
+        margin: 10px 14px 12px; padding-top: 9px; border-top: 1px solid #171f2b;
+        font-size: 10px; color: #5b667e;
+      }
+
+      /* The abilities screen, opened with K. Centred, because it is a screen
+         you stop to use rather than a read-out you glance at — and unlike the
+         sheet and the bench there is nothing on the map you would be looking at
+         while dragging bindings around. Click-through except its chips and
+         keys, like every other panel over the game. */
+      #abilities {
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font: 12px ui-monospace, Menlo, Consolas, monospace;
+        color: #c6d3e8; pointer-events: none; user-select: none;
+      }
+      #abilities.hidden { display: none; }
+      .ab-panel {
+        width: 460px; border: 1px solid #2c3648; border-radius: 7px;
+        background: #0d121bee; box-shadow: 0 10px 34px #04070ccc;
+      }
+      .ab-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        padding: 10px 14px; border-bottom: 1px solid #222c3c;
+      }
+      .ab-title { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #e2ebff; }
+      .ab-hint { font-size: 10px; color: #5b667e; }
+      .ab-sub {
+        margin: 0; padding: 10px 14px 6px;
+        font-size: 10px; font-weight: normal; letter-spacing: 1.4px;
+        text-transform: uppercase; color: #64708a;
+      }
+
+      /* Five keys in a row, in the order the bar draws them. */
+      .ab-keys { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 12px 14px; }
+      .ab-key {
+        pointer-events: auto;
+        min-height: 62px; padding: 5px; border: 1px solid #232d3d; border-radius: 5px;
+        background: #10151ecc; display: flex; flex-direction: column; gap: 4px;
+      }
+      .ab-key.empty { border-style: dashed; }
+      /* The key you are about to drop on, said plainly. */
+      .ab-key.over { border-color: #6d5c34; background: #171d29ee; border-style: solid; }
+      /* The main hand's key: it is not a choice, so it does not offer itself
+         as one. No hover, no drop highlight, and it says what it is. */
+      .ab-key.fixed { border-style: solid; border-color: #2a3446; background: #0b0f17cc; }
+      .ab-key.fixed .ab-chip { cursor: default; border-color: transparent; background: transparent; }
+      .ab-why { font-size: 8px; letter-spacing: .4px; text-transform: uppercase; color: #4b556b; text-align: center; }
+      .ab-chip.held { cursor: default; opacity: .55; }
+      .ab-binding {
+        font-size: 9px; letter-spacing: .6px; color: #5b667e; text-align: center;
+      }
+
+      .ab-known {
+        display: flex; flex-wrap: wrap; gap: 5px;
+        padding: 0 14px 14px; min-height: 34px;
+      }
+
+      /* An ability, wherever it is sitting. The same chip in both places, so
+         dragging one into a key does not change what it looks like. */
+      .ab-chip {
+        pointer-events: auto; cursor: grab;
+        flex: 0 0 auto; padding: 4px 7px; border-radius: 4px;
+        border: 1px solid #2a3446; background: #141b27; color: #d7c08a;
+        font-size: 10px; line-height: 1.35;
+      }
+      .ab-chip:empty { display: none; }
+      .ab-chip:hover { border-color: #6d5c34; }
+      .ab-chip:active { cursor: grabbing; }
+      .ab-key .ab-chip { flex: 1 1 auto; text-align: center; }
+      .ab-key.empty .ab-chip { border: 0; background: transparent; }
+      /* Bound to something the rules no longer define — renaming an ability
+         does this, and it is better said than silently dropped. */
+      .ab-chip.missing { color: #8a5a5a; border-color: #4a2a2a; }
+      .ab-name { display: block; }
+      .ab-from { display: block; font-size: 9px; color: #6b7a94; }
+      .ab-empty { font-size: 10px; color: #5b667e; }
+
+      /* Whatever is on the cursor. Never takes the pointer: an element under
+         the cursor that swallowed clicks would make it impossible to put the
+         item down. */
+      #held {
+        position: fixed; inset: 0; z-index: 6;
+        pointer-events: none; user-select: none;
+        font: 11px ui-monospace, Menlo, Consolas, monospace;
+      }
+      .held-item {
+        position: absolute; top: 0; left: 0; white-space: nowrap;
+        padding: 2px 8px; border: 1px solid #7d6a3e; border-radius: 3px;
+        background: #1a1408f2; color: #f0dcae; box-shadow: 0 4px 14px #05070ccc;
+      }
+
+      #menu {
+        position: fixed; inset: 0; display: flex;
+        flex-direction: column; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at center, #121a27 0%, #070a11 70%);
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+      }
+      #menu.hidden { display: none; }
+      #menu h1 {
+        margin: 0; font-family: Impact, Haettenschweiler, sans-serif;
+        font-size: 96px; letter-spacing: 4px; color: #e8eefc;
+        text-shadow: 0 6px 18px #000;
+      }
+      #menu p { margin: 6px 0 42px; font-size: 18px; color: #6d7a95; }
+      #play {
+        width: 240px; padding: 18px 0; font: 26px ui-monospace, Menlo, Consolas, monospace;
+        color: #cfe0ff; background: #151b28; border: 2px solid #3a465f; border-radius: 8px;
+        cursor: pointer; transition: background .12s, border-color .12s, color .12s;
+      }
+      #play:hover { background: #1d2740; border-color: #6f8ecb; color: #fff; }
+
+      #hint { position: fixed; bottom: 42px; font-size: 14px; color: #4d5871; }
+
+      /* Cover for map transitions: the swap happens while this is opaque. */
+      #fade {
+        position: fixed; inset: 0; background: #05070c; pointer-events: none;
+        opacity: 0; transition: opacity .22s linear;
+      }
+      #fade.on { opacity: 1; }
+
+      /* What the cover says while it is up. Only worth showing when the wait is
+         long enough to notice, so it appears a beat after the fade does. */
+      #loading {
+        position: absolute; inset: auto 0 42px 0; text-align: center;
+        font: 500 13px/1 ui-monospace, Consolas, monospace; letter-spacing: 2px;
+        text-transform: uppercase; color: #55637f;
+        opacity: 0; transition: opacity .3s linear .25s;
+      }
+      #fade.on #loading { opacity: 1; }
+
+      /* How far through the wait the map is. Fed from how much of the scene is
+         drawable, so it stops where the loading actually is. */
+      #bar {
+        position: absolute; inset: auto 0 30px 0; margin: 0 auto;
+        width: min(320px, 50vw); height: 3px; border-radius: 2px; background: #161d2c;
+        opacity: 0; transition: opacity .3s linear .25s;
+      }
+      #bar > i { display: block; width: 0; height: 100%; border-radius: 2px; background: #55637f; transition: width .12s linear; }
+      #fade.on #bar { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <!-- The 3D view, and the Babylon GUI layer over it: the status line, the
+         health/ability/cast bars and the item name plates are all drawn there,
+         not here. What is left in the DOM is the menu, the character sheet, the
+         thing on the cursor, and the fault banner. -->
+    <div id="game"></div>
+    <div id="fault" class="hidden"></div>
+    <div id="held"></div>
+    <div id="character" class="hidden"></div>
+    <div id="crafting" class="hidden"></div>
+    <div id="abilities" class="hidden"></div>
+    <div id="fade"><div id="loading">Loading</div><div id="bar"><i></i></div></div>
+    <div id="menu">
+      <h1>MERC</h1>
+      <p>a tiny isometric prototype</p>
+      <button id="play">PLAY</button>
+      <div id="hint">WASD to move &middot; SPACE to attack &middot; C for character &middot; ENTER to start &middot; ESC for menu</div>
+    </div>
+    <script type="module" src="/Engine/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+/* The group's hue, bound over the accent for the whole middle and right, so a
+   record is coloured by the part of the game it belongs to. */
+
+.stage {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+}
+
+.stage[data-group='ability'] {
+  --e-accent: var(--e-hue-ability);
+}
+.stage[data-group='actors'] {
+  --e-accent: var(--e-hue-actors);
+}
+.stage[data-group='economy'] {
+  --e-accent: var(--e-hue-economy);
+}
+
+.none {
+  padding: 24px 16px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}

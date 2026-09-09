@@ -1,0 +1,114 @@
+/* A name is not a picture, so the choice is made by looking. */
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  cursor: pointer;
+}
+
+.trigger:hover {
+  border-color: var(--e-line-2);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.none {
+  display: inline-block;
+  width: 1em;
+}
+
+/* A value the picker cannot draw is still a value the record holds. */
+.unknown {
+  color: var(--e-warn);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+}
+
+.popup {
+  width: 268px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.filter {
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.filter:focus {
+  border-color: var(--e-accent);
+}
+
+/* Nearly five hundred of them, so the grid scrolls and the filter is the way
+   through it. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.cell:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.on {
+  border-color: var(--e-accent);
+  background: color-mix(in srgb, var(--e-accent) 24%, var(--e-input));
+  color: var(--e-accent);
+}
+
+.empty {
+  margin: 0;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}

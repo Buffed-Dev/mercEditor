@@ -1,0 +1,73 @@
+/* Menus float above everything, so they are the one surface here that is
+   allowed a shadow — it is what separates them from the panel underneath. */
+
+.popup {
+  min-width: 160px;
+  max-height: min(420px, var(--available-height, 420px));
+  overflow: auto;
+  padding: 4px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  color: var(--e-fg);
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--e-row);
+  padding: 0 8px;
+  border-radius: var(--e-r);
+  color: var(--e-fg);
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  white-space: nowrap;
+}
+
+.item[data-highlighted] {
+  background: var(--e-raised);
+}
+
+.item[data-disabled] {
+  color: var(--e-fg-3);
+  cursor: default;
+}
+
+/* The only place destructive actions are allowed to appear. */
+.danger {
+  color: var(--e-danger);
+}
+.danger[data-highlighted] {
+  background: var(--e-danger);
+  color: var(--e-on-accent);
+}
+
+.check {
+  width: 14px;
+  flex: none;
+  color: var(--e-accent);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  font-family: var(--e-mono);
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--e-line);
+}

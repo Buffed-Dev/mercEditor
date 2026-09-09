@@ -1,0 +1,101 @@
+/* A docked panel: a card with a header it can be folded away by, and a body
+   that scrolls on its own so the shell never does. */
+
+.panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  background: var(--e-work);
+  border: 1px solid var(--e-line);
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 2px 0 4px;
+  border-bottom: 1px solid var(--e-line);
+  background: var(--e-panel);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+  font-size: var(--e-fs-5);
+  color: var(--e-fg-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+}
+
+.tab {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background var(--e-t) var(--e-ease),
+    color var(--e-t) var(--e-ease);
+}
+
+.tab:hover {
+  background: var(--e-hover);
+  color: var(--e-fg);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.body {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Folded away. Wide enough to hit, and it says what it is so the way back is
+   not a mystery button. */
+.stub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 24px;
+  padding: 5px 0;
+  background: var(--e-work);
+  border: 1px solid var(--e-line);
+  color: var(--e-fg-2);
+}
+
+.stubLabel {
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

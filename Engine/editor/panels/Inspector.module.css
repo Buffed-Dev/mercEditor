@@ -1,0 +1,51 @@
+.inspector {
+  padding-bottom: 8px;
+}
+
+.empty,
+.note {
+  display: grid;
+  place-content: center;
+  padding: 16px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}
+
+/* What is selected, said once at the top, so the fields below do not have to
+   spell out what they belong to. */
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.kind {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.describes {
+  flex: 1;
+  min-width: 0;
+  color: var(--e-fg);
+  font-size: var(--e-fs-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* An effect the map may simply not want: the switch, and the settings behind
+   it. Off, there is one row here rather than five. */
+.envGroup {
+  border-bottom: 1px solid var(--e-line);
+  padding: 2px 0;
+}
+
+.envGroup.on {
+  background: color-mix(in srgb, var(--e-panel) 55%, transparent);
+}

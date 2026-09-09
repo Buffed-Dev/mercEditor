@@ -1,0 +1,132 @@
+/* The palette. Recognising a thing is faster than reading its name, so these
+   are swatches rather than rows — but the name is under each one, because a
+   grid of icons you do not yet know is a guessing game. */
+
+.shelves {
+  padding-bottom: 8px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 3px;
+  padding: 3px 6px 6px;
+}
+
+.swatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px 4px;
+  border: 1px solid var(--e-line);
+  border-radius: var(--e-r-md);
+  background: var(--e-panel);
+  color: var(--e-fg-2);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background var(--e-t) var(--e-ease),
+    border-color var(--e-t) var(--e-ease),
+    color var(--e-t) var(--e-ease);
+}
+
+.swatch:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.swatch:focus-visible {
+  outline: 2px solid var(--e-accent);
+  outline-offset: 1px;
+}
+
+.on {
+  border-color: var(--e-accent);
+  background: color-mix(in srgb, var(--e-accent) 20%, var(--e-panel));
+  color: var(--e-fg);
+}
+
+.label {
+  max-width: 100%;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* What the next click will place, as opposed to anything already on the map —
+   which is what the inspector is for. */
+.options {
+  margin: 4px 0 0;
+  padding: 4px 0 6px;
+  border-top: 1px solid var(--e-line);
+  background: color-mix(in srgb, var(--e-panel) 55%, transparent);
+}
+
+.optionsHead {
+  display: block;
+  padding: 0 6px 3px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* A terrain has no icon — it is a surface. Its two-letter key is what the map
+   file writes it as, so it is also what identifies it at a glance. */
+.chip {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  background: var(--e-input);
+  border: 1px solid var(--e-line-2);
+  color: var(--e-fg-2);
+  font-family: var(--e-mono);
+  font-size: 9px;
+}
+
+/* The way through to the record itself. Shown on hover rather than always,
+   because it is about the definition and the swatch is about placing one. */
+.edit {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: none;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  color: var(--e-fg-3);
+}
+
+.swatch {
+  position: relative;
+}
+
+.swatch:hover .edit {
+  display: grid;
+}
+
+.edit:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+/* The digit this brush answers to. Quiet until you are looking for it, but
+   there — a shortcut nobody can see is one nobody uses. */
+.slot {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: 9px;
+  line-height: 1;
+}
+
+.on .slot {
+  color: var(--e-accent);
+}

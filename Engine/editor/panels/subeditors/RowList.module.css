@@ -1,0 +1,76 @@
+/*
+ * A repeating structure inside a record: an effect's modifiers, an ability's
+ * costs, a loot table's rolls.
+ *
+ * Each is a row of controls rather than a nested form, because they are read
+ * as a list — "+5 health, ×1.2 attack power" — and a stack of labelled boxes
+ * per entry buries that under its own chrome.
+ */
+
+.list {
+  border-top: 1px solid var(--e-line);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 3px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.row {
+  position: relative;
+  padding: 3px 6px 5px 8px;
+  border-left: 2px solid var(--e-line-2);
+  margin: 0 6px 4px;
+  background: color-mix(in srgb, var(--e-panel) 60%, transparent);
+  border-radius: 0 var(--e-r) var(--e-r) 0;
+}
+
+.row:hover {
+  border-left-color: var(--e-accent);
+}
+
+/* The remove control sits with the row it removes, and only appears when the
+   pointer is on it — a column of permanent × down the side of a form reads as
+   the most important thing in it. */
+.remove {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  display: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-3);
+  cursor: pointer;
+}
+
+.row:hover .remove,
+.remove:focus-visible {
+  display: grid;
+  place-items: center;
+}
+
+.remove:hover {
+  background: var(--e-danger);
+  color: var(--e-on-accent);
+}
+
+.empty {
+  padding: 2px 8px 8px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}

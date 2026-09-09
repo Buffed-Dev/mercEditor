@@ -1,0 +1,59 @@
+/* The tools, floating over the middle of the map's bottom edge — near the hand
+   and near the thing being edited, rather than a column at the far left of the
+   window. The dividers are the only thing that says which tools sculpt the
+   ground and which place things on it, so they are a real hairline and not a
+   margin. */
+
+.rail {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  /* Wide enough that a mis-click lands on nothing rather than on the wrong
+     tool. Tools are held down for minutes at a time; the gap is cheap. */
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: var(--e-r-md);
+  border: 1px solid var(--e-line-2);
+  background: color-mix(in srgb, var(--e-panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--e-shadow);
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--e-line-2);
+}
+
+/* What Place would put down, kept visible while the left panel is showing
+   something other than the asset shelves. Without this the brush is invisible
+   the moment you switch to the Objects tab, and you paint the wrong thing. */
+.brush {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  margin-left: 2px;
+  border-left: 1px solid var(--e-line-2);
+}
+
+.swatch {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--e-r);
+  border: 1px solid var(--e-line-2);
+  background: var(--e-input);
+  color: var(--e-accent);
+  font-size: var(--e-fs-5);
+  overflow: hidden;
+}
+
+.empty {
+  color: var(--e-fg-3);
+}

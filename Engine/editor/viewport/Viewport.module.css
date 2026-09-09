@@ -1,0 +1,39 @@
+/* A cell in the shell's grid like any panel beside it. It is rounded because
+   every surface here is, and it clips because a canvas cannot round itself. */
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--e-line);
+  overflow: hidden;
+  background: #000;
+}
+
+.host {
+  position: absolute;
+  inset: 0;
+}
+
+/* The one thing allowed to float over the map: what you are looking at it
+   with, as opposed to what you are doing to it. */
+.viewOptions {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--e-r-md);
+  border: 1px solid var(--e-line-2);
+  background: color-mix(in srgb, var(--e-panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--e-line-2);
+}

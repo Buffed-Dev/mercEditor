@@ -1,0 +1,74 @@
+/* Nine lists in three groups. The hue is the group, all the way down. */
+
+.nav {
+  padding: 4px 0 8px;
+}
+
+/* Each group rebinds the accent, and everything under it inherits — a card
+   edge, a selected row, a focus ring. No rule below knows which group it is in.
+   The hues are far enough apart to be told apart at 2px. */
+.group[data-group='ability'] {
+  --e-accent: var(--e-hue-ability);
+}
+.group[data-group='actors'] {
+  --e-accent: var(--e-hue-actors);
+}
+.group[data-group='economy'] {
+  --e-accent: var(--e-hue-economy);
+}
+
+.group + .group {
+  margin-top: 8px;
+}
+
+.head {
+  margin: 0;
+  padding: 4px 8px 2px;
+  color: var(--e-accent);
+  font-size: var(--e-fs-5);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--e-row);
+  margin: 0 4px;
+  padding: 0 8px;
+  border-radius: var(--e-r);
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-2);
+  text-decoration: none;
+}
+
+.item:hover {
+  background: var(--e-hover);
+  color: var(--e-fg);
+}
+
+.item[aria-current='page'] {
+  background: color-mix(in srgb, var(--e-accent) 22%, var(--e-raised));
+  color: var(--e-fg);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: 10px;
+}
+
+.item[aria-current='page'] .count {
+  color: var(--e-accent);
+}

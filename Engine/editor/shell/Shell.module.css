@@ -1,0 +1,102 @@
+/*
+ * The frame every workspace is drawn inside.
+ *
+ * Three rows — bar, work, status — and the work row is a grid of columns whose
+ * widths the resizers write. Nothing here floats: the viewport is a cell in
+ * that grid like every panel beside it, which is what lets the canvas be sized
+ * by the layout instead of by arithmetic on the shell's own measurements.
+ */
+
+.shell {
+  /*
+   * Dense, but readable. This tool is for looking at forty numbers at once, so
+   * the rows are tighter than an ordinary form — rebound here, on the shell, so
+   * every control below inherits the sizes without one of them naming a number.
+   *
+   * The first pass was a step too far: 11px labels and 16px icons are legible
+   * in a screenshot and tiring for an afternoon.
+   */
+  --e-row: 25px;
+  --e-control: 24px;
+  --e-label: 96px;
+  --e-fs-1: 13px;
+  --e-fs-2: 13px;
+  --e-fs-3: 13px;
+  --e-fs-4: 15px;
+  --e-fs-5: 12px;
+  --e-gap: 6px;
+  --e-resizer-w: 5px;
+  /* Icons carry the whole tool rail, so they are sized here rather than passed
+     as a number at each call. */
+  --e-icon: 16px;
+  --e-icon-lg: 21px;
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: var(--e-bar) minmax(0, 1fr) var(--e-statusbar);
+  background: var(--e-bg);
+  color: var(--e-fg);
+  font-family: var(--e-sans);
+  font-size: var(--e-fs-2);
+  overflow: hidden;
+  /* The platform scrollbar is wider than a field row is tall, and lands right
+     next to the values it would otherwise crowd. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--e-raised) transparent;
+}
+
+.shell * {
+  box-sizing: border-box;
+}
+
+.shell ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.shell ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shell ::-webkit-scrollbar-thumb {
+  background: var(--e-raised);
+  border-radius: 4px;
+}
+
+.shell ::-webkit-scrollbar-thumb:hover {
+  background: var(--e-line-2);
+}
+
+.body {
+  display: grid;
+  min-height: 0;
+  gap: 0;
+  padding: 0 var(--e-gap) var(--e-gap);
+}
+
+/* A drag handle living in the gap between two panels. It is wider than the gap
+   it sits in so there is something to actually hit, and it draws nothing until
+   the pointer is on it. */
+.resizer {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  touch-action: none;
+}
+
+.resizer::after {
+  content: '';
+  position: absolute;
+  inset: 0 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background var(--e-t) var(--e-ease);
+}
+
+.resizer:hover::after,
+.resizer.dragging::after {
+  background: var(--e-accent);
+}

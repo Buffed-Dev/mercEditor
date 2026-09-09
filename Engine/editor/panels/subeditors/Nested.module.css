@@ -1,0 +1,19 @@
+/* Saying that a value is not set is as much a fact as the value: an archetype
+   that leaves an attribute alone falls back to the attribute's own base, and
+   that is worth being able to go back to. */
+.clear {
+  display: block;
+  margin: -2px 0 4px calc(var(--e-label) + 12px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--e-fg-3);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.clear:hover {
+  color: var(--e-accent);
+  text-decoration: underline;
+}

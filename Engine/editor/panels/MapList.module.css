@@ -1,0 +1,50 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 1px;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: var(--e-row);
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--e-hover);
+}
+
+.on {
+  background: var(--e-raised);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id {
+  flex: none;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+}
+
+.add {
+  margin-top: 4px;
+  justify-content: flex-start;
+}

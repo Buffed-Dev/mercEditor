@@ -1,0 +1,102 @@
+/* The picker. A square for saturation and value, a bar for hue, the number
+   itself, and the colours this map already uses — which is the half that gets
+   used most, because most colour picking is reusing a colour you chose before. */
+
+.popup {
+  width: 208px;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.area {
+  position: relative;
+  height: 116px;
+  border-radius: var(--e-r);
+  cursor: crosshair;
+  touch-action: none;
+  /* White to the hue across, then black up from the bottom: the standard
+     saturation/value square, painted with two gradients rather than a canvas. */
+  background-image:
+    linear-gradient(to top, #000, transparent),
+    linear-gradient(to right, #fff, var(--hue));
+}
+
+.hue {
+  position: relative;
+  height: 11px;
+  border-radius: 6px;
+  cursor: ew-resize;
+  touch-action: none;
+  background: linear-gradient(
+    to right,
+    #f00 0%,
+    #ff0 17%,
+    #0f0 33%,
+    #0ff 50%,
+    #00f 67%,
+    #f0f 83%,
+    #f00 100%
+  );
+}
+
+/* One marker for both, since both are "you are here" on a field of colour. It
+   is a ring rather than a dot so the colour underneath stays readable. */
+.marker {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.hex {
+  width: 100%;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-2);
+  text-transform: uppercase;
+  outline: none;
+}
+
+.hex:focus {
+  border-color: var(--e-accent);
+}
+
+.used {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.chip {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid var(--e-line-2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--e-fg-2);
+}
+
+.usedLabel {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}

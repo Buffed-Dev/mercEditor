@@ -1,0 +1,22 @@
+/* The one control in the view bar that is a choice rather than a switch. */
+.debug {
+  height: var(--e-control);
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  outline: none;
+  cursor: pointer;
+}
+
+.debug:hover {
+  background: var(--e-hover);
+  color: var(--e-fg);
+}
+
+.debug:focus {
+  border-color: var(--e-accent);
+}

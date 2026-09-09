@@ -1,0 +1,44 @@
+.detail {
+  padding-bottom: 8px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.kind {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.id {
+  flex: 1;
+  min-width: 0;
+  color: var(--e-fg);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* What a shape actually does, in the words the data file uses. An emitter's
+   settings are not readable without it. */
+.hint {
+  margin: 0 8px 4px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  line-height: 1.4;
+}
+
+.modKind {
+  margin: 0 0 2px;
+  padding: 0 6px;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+}

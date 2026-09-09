@@ -1,0 +1,218 @@
+/* Browse left, look centre, edit right — and here the centre really is a
+   canvas, because these are the records you judge by looking at them. */
+
+.kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.kind {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--e-r);
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  text-decoration: none;
+}
+
+.kind:hover {
+  background: var(--e-hover);
+  color: var(--e-fg);
+}
+
+.kind[aria-current='page'] {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.count {
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: 10px;
+}
+
+.records {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+}
+
+.record {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: var(--e-row);
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.record:hover {
+  background: var(--e-hover);
+}
+
+.on {
+  background: var(--e-raised);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.id,
+.recordId {
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+}
+
+.add {
+  margin-top: 4px;
+  justify-content: flex-start;
+}
+
+.stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--e-line);
+  overflow: hidden;
+  background: #0a0d12;
+}
+
+/*
+ * Taken out of flow, like the map's canvas is.
+ *
+ * A canvas at `height: 100%` inside a track sized by its contents is a loop:
+ * the renderer measures the element, sets the backing store to match, the
+ * element grows, and the next measure is bigger again. It ran to 1837px tall
+ * before anyone noticed, because a taller canvas still draws — just of nothing
+ * you can see.
+ */
+.canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Beside the preview, because which shape answers which question is a decision
+   about what you are currently trying to see. */
+.shapes {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--e-r-md);
+  border: 1px solid var(--e-line-2);
+  background: color-mix(in srgb, var(--e-panel) 88%, transparent);
+}
+
+.detail {
+  padding-bottom: 8px;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.kindTag {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.noPreview {
+  display: grid;
+  place-content: center;
+  padding: 24px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}
+
+/* The input itself is never shown — the label is the control. A file input
+   cannot be styled, and a button that opens one is what everyone expects. */
+.file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.add:has(.file) {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: var(--e-control);
+  padding: 0 9px;
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r);
+  background: var(--e-panel);
+  color: var(--e-fg);
+  font-size: var(--e-fs-2);
+  cursor: pointer;
+}
+
+.add:has(.file):hover {
+  background: var(--e-raised);
+}
+
+/* Which file the record actually names, said plainly — it is the one thing
+   about an asset that no field table describes. */
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.fileName {
+  flex: 1;
+  min-width: 0;
+  color: var(--e-fg-2);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replace {
+  flex: none;
+  color: var(--e-accent);
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.replace:hover {
+  text-decoration: underline;
+}

@@ -1,0 +1,83 @@
+/* The map's structure: which rectangles of it are pieces a run can place. */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 6px;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: var(--e-row);
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name:hover {
+  background: var(--e-hover);
+}
+
+.size {
+  flex: none;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+}
+
+.note {
+  margin: 0;
+  padding: 2px 10px 6px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  line-height: 1.45;
+}
+
+/* Something drawn that will not be in the game is worth saying plainly. */
+.warn {
+  margin: 4px 8px;
+  padding: 5px 7px;
+  border-left: 2px solid var(--e-warn);
+  border-radius: 0 var(--e-r) var(--e-r) 0;
+  background: color-mix(in srgb, var(--e-warn) 12%, transparent);
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  line-height: 1.45;
+}
+
+.play {
+  margin: 6px 8px 4px;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Only the pieces with a role wear one. Filler is the absence of a label, not
+   a label saying nothing. */
+.role {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--e-accent) 22%, transparent);
+  color: var(--e-accent);
+  font-size: 10px;
+  line-height: 15px;
+}

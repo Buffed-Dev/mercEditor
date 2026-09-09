@@ -1,0 +1,300 @@
+/*
+ * One row per field: the label in a fixed left gutter, the control to its
+ * right. That gutter is the difference between a form you can scan and a stack
+ * of loose boxes — the controls line up into one edge down the pane.
+ *
+ * The number is the control this editor is mostly made of. One box, filled to
+ * where the value sits between its ends. Drag it to sweep, click it to type.
+ * Sweeping is how you find a feel and typing is how you land on a figure, and a
+ * control offering only one of the two makes the other impossible — so it is
+ * one control, not a slider with a box bolted beside it, which is two hit
+ * targets and two places to look for one number.
+ */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--e-row);
+  padding: 1px 6px;
+}
+
+.label {
+  flex: none;
+  width: var(--e-label);
+  min-width: 0;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Fields that belong together — position x/y, size w/h, min/max — share one
+   row, because they are one value with parts rather than three settings. */
+.pair {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+
+.pair > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------- number */
+
+.num {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  cursor: ew-resize;
+  user-select: none;
+  /* The fill and the well behind it in one paint. A hard stop rather than a
+     gradient: this is the reading of a quantity, not decoration. */
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--e-accent) 24%, var(--e-input)) var(--fill, 0%),
+    var(--e-input) var(--fill, 0%)
+  );
+  transition: border-color var(--e-t) var(--e-ease);
+}
+
+.num:hover {
+  border-color: var(--e-line-2);
+}
+
+/* While it is being swept the fill is the accent proper: the number is moving,
+   and the bar is the part of it you are actually watching. */
+.scrubbing {
+  border-color: var(--e-accent);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--e-accent) 46%, var(--e-input)) var(--fill, 0%),
+    var(--e-input) var(--fill, 0%)
+  );
+}
+
+/* No two ends to sit between, so no fill: an unbounded field is a plain well
+   that can still be dragged. */
+.free {
+  background: var(--e-input);
+}
+
+.num:focus-within {
+  border-color: var(--e-accent);
+  cursor: text;
+}
+
+.numInput {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--e-value);
+  font: inherit;
+  font-size: var(--e-fs-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  /* The pointer belongs to the box, which decides between a sweep and a caret.
+     Once there is a caret in it, it takes the pointer back. */
+  cursor: inherit;
+  outline: none;
+}
+
+/* The spinners are a second, tiny way to change the number, and they sit
+   exactly where the value ends. */
+.numInput::-webkit-inner-spin-button,
+.numInput::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.numInput {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.unit {
+  flex: none;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}
+
+/* ------------------------------------------------------------------ text */
+
+.text {
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.text:hover {
+  border-color: var(--e-line-2);
+}
+
+.text:focus {
+  border-color: var(--e-accent);
+}
+
+/* ---------------------------------------------------------------- select */
+
+.select {
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.select:hover {
+  border-color: var(--e-line-2);
+}
+
+.select:focus {
+  border-color: var(--e-accent);
+}
+
+/* Four options or fewer are shown at once. A switcher says what the choices
+   *are* without being opened, which on a pane of a dozen settings is the
+   difference between reading it and interrogating it. */
+.segmented {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  height: var(--e-control);
+  border-radius: var(--e-r);
+  background: var(--e-input);
+}
+
+.segment {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    background var(--e-t) var(--e-ease),
+    color var(--e-t) var(--e-ease);
+}
+
+.segment:hover {
+  color: var(--e-fg);
+}
+
+.segment[aria-pressed='true'] {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+/* ------------------------------------------------------------------ bool */
+
+.toggle {
+  flex: none;
+  width: 30px;
+  height: 17px;
+  padding: 2px;
+  border: 1px solid var(--e-line-2);
+  border-radius: 9px;
+  background: var(--e-input);
+  cursor: pointer;
+  transition:
+    background var(--e-t) var(--e-ease),
+    border-color var(--e-t) var(--e-ease);
+}
+
+.toggle[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--e-good) 30%, var(--e-input));
+  border-color: var(--e-good);
+}
+
+.knob {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--e-fg-3);
+  transition:
+    transform var(--e-t) var(--e-ease),
+    background var(--e-t) var(--e-ease);
+}
+
+.toggle[aria-pressed='true'] .knob {
+  background: var(--e-good);
+  transform: translateX(13px);
+}
+
+/* ----------------------------------------------------------------- color */
+
+.swatchButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  font-family: var(--e-mono);
+  cursor: pointer;
+}
+
+.swatchButton:hover {
+  border-color: var(--e-line-2);
+}
+
+.swatch {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid var(--e-line-2);
+}

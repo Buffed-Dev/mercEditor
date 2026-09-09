@@ -1,0 +1,69 @@
+.detail {
+  padding-bottom: 8px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.kind {
+  flex: none;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The id is editable because it is what everything else points at — renaming
+   one is a real edit, not a label change. */
+.id {
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.id:focus {
+  border-color: var(--e-accent);
+}
+
+.reference {
+  border-left: 2px solid transparent;
+}
+
+/* Following a reference is a route, so the back button brings you home. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--e-accent);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.note {
+  padding: 16px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}

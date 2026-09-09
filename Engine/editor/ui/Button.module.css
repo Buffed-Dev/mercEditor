@@ -1,0 +1,82 @@
+/*
+ * Three variants and nothing else.
+ *
+ *   primary  the one action a view is for — at most one on screen
+ *   default  an ordinary action, bordered
+ *   quiet    a toolbar or row action, no chrome until you point at it
+ *
+ * There is deliberately no danger variant. Destructive actions live in context
+ * and overflow menus, where a mis-click cannot reach them, and are coloured
+ * there — a permanently red button sitting in a panel draws the eye for its
+ * whole life to something you want people to reach for rarely.
+ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: var(--e-control);
+  padding: 0 9px;
+  border-radius: var(--e-r);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background var(--e-t) var(--e-ease),
+    border-color var(--e-t) var(--e-ease),
+    color var(--e-t) var(--e-ease);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--e-accent);
+  outline-offset: 1px;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primary {
+  background: var(--e-accent);
+  color: var(--e-on-accent);
+}
+.primary:hover:not(:disabled) {
+  background: var(--e-accent-hover);
+}
+
+.default {
+  border-color: var(--e-line-2);
+  background: var(--e-panel);
+}
+.default:hover:not(:disabled) {
+  background: var(--e-raised);
+}
+
+.quiet {
+  color: var(--e-fg-2);
+}
+.quiet:hover:not(:disabled) {
+  background: var(--e-hover);
+  color: var(--e-fg);
+}
+
+/* Pressed-in, for a toggle that is on: a tool, a view option, a tab. */
+.on {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+.quiet.on {
+  color: var(--e-accent);
+}
+
+/* Icon only. Square, so a row of them reads as a strip rather than as words. */
+.icon {
+  width: var(--e-control);
+  padding: 0;
+}
