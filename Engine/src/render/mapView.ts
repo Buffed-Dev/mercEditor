@@ -45,6 +45,7 @@ import { applyFog } from './fog.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { createPropRuntime } from './props.ts';
 import { createTerrainLayer } from './terrainLayer.ts';
+import { skyEnvironment } from './environment.ts';
 import { VFX } from '../data/vfx.ts';
 
 /**
@@ -112,6 +113,10 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
    */
   function applyEnvironment() {
     scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1);
+    // What a metal in this map has to reflect: its own sky and its own soil.
+    // Without one, `surface` leaves every PBR material's environment at zero
+    // and metallic is a dial that does nothing.
+    scene.environmentTexture = skyEnvironment(scene, env.sky, env.soilColor);
     // Not distance fog: the camera is orthographic, so every pixel is about as
     // far from it as every other and linear fog only ever tinted the lot.
     scene.fogMode = Scene.FOGMODE_NONE;

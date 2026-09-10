@@ -43,10 +43,13 @@ export function surface(
   material.albedoColor = colorOf(color);
   material.roughness = roughness;
   material.metallic = metallic;
-  // No environment texture in this game, so the only reflection a shiny surface
-  // could show is the flat fallback — which reads as a grey wash over the
-  // albedo rather than as reflection.
-  material.environmentIntensity = 0;
+  // Asked of the scene rather than pinned. There used to be no environment
+  // anywhere, so this was zero and every metal came out near-black -- the
+  // metallic dial was a knob that visibly did nothing. A scene that has one
+  // (see render/environment.ts) gets reflections; a scene that has not, like a
+  // bare preview stage, is left exactly as it was rather than showing the flat
+  // fallback, which reads as a grey wash over the albedo.
+  material.environmentIntensity = scene.environmentTexture ? 1 : 0;
   return material;
 }
 
@@ -99,6 +102,22 @@ export function unlit(
 export const materialKey = (def: MaterialInput): string =>
   `material:named:${def.id}:${def.unlit ? 'flat' : 'lit'}`;
 
+/** How a material's pictures are cut into frames, if they are. */
+const sheetOf = (def: MaterialInput) => {
+  const columns = Math.max(1, Math.round(def.sheetColumns ?? 1));
+  const rows = Math.max(1, Math.round(def.sheetRows ?? 1));
+  const all = columns * rows;
+  const asked = Math.round(def.sheetFrames ?? 0);
+  return {
+    columns,
+    rows,
+    // A frame count nobody set, or one that runs off the end, is the whole grid.
+    count: asked > 0 ? Math.min(asked, all) : all,
+    fps: Math.max(0.5, def.sheetFps ?? 12),
+    animated: all > 1,
+  };
+};
+
 /**
  * The picture a material lays over a surface.
  *
@@ -117,18 +136,55 @@ function pictureFor(
   // the folder be renamed or moved without rewriting anything inside it.
   const url = urlOf(filePath(def.path, named));
   if (!url) return null;
+  const sheet = sheetOf(def);
   const u = def.uScale ?? 1;
   const v = def.vScale ?? 1;
   const du = def.uOffset ?? 0;
   const dv = def.vOffset ?? 0;
-  return keep(scene, `texture:${url}:${u},${v},${du},${dv}`, () => {
+  // The sheet is in the key as well as the tiling, and for the same reason:
+  // the same file cut two ways is two textures, and one shared between them
+  // would have each overwriting the other's window every frame.
+  const key = sheet.animated
+    ? `texture:${url}:sheet:${sheet.columns}x${sheet.rows}:${sheet.count}@${sheet.fps}`
+    : `texture:${url}:${u},${v},${du},${dv}`;
+
+  return keep(scene, key, () => {
     // invertY off, because this is worn over a model's own UVs and those came
     // out of a glTF, which puts v=0 at the top of the picture.
     const texture = new Texture(url, scene, false, false);
-    texture.uScale = u;
-    texture.vScale = v;
-    texture.uOffset = du;
-    texture.vOffset = dv;
+
+    if (!sheet.animated) {
+      texture.uScale = u;
+      texture.vScale = v;
+      texture.uOffset = du;
+      texture.vOffset = dv;
+      return texture;
+    }
+
+    // A sheet's window *is* the tiling, so the material's own tiling has
+    // nothing left to say -- one cell wide and one cell tall, slid a cell at a
+    // time rather than a texture uploaded per frame.
+    //
+    // invertY is off above, so v counts down the picture the way the cells were
+    // laid out and the row is not counted back from the bottom. That is the
+    // opposite of the sprite planes in render/props.ts, which are drawn on
+    // Babylon's own quads.
+    texture.uScale = 1 / sheet.columns;
+    texture.vScale = 1 / sheet.rows;
+    const show = (frame: number): void => {
+      texture.uOffset = (frame % sheet.columns) / sheet.columns;
+      texture.vOffset = Math.floor(frame / sheet.columns) / sheet.rows;
+    };
+    show(0);
+
+    let at = 0;
+    // One observer per animated texture rather than one per material: `keep`
+    // makes this once per scene per cutting, so the count is the number of
+    // distinct animated pictures, and it goes when the scene does.
+    scene.onBeforeRenderObservable.add(() => {
+      at += (scene.getEngine().getDeltaTime() / 1000) * sheet.fps;
+      show(Math.floor(at) % sheet.count);
+    });
     return texture;
   });
 }
@@ -171,20 +227,42 @@ export function applyMaterial<T extends Surface>(
   }
 
   material.albedoTexture = picture;
+  // A picture of what is solid beats reading it off the colour map: a colour
+  // map with no alpha in it has nothing to read, which is the case this is for.
+  const cutout = pictureFor(def, def.opacityMap, scene, urlOf);
+  material.opacityTexture = cutout;
   if (picture) {
     // Alpha off the colour map rather than off a second file: a leaf or a fence
     // is one picture whose transparent parts are already in it.
-    picture.hasAlpha = Boolean(def.transparent);
-    material.useAlphaFromAlbedoTexture = Boolean(def.transparent);
+    picture.hasAlpha = Boolean(def.transparent) && !cutout;
+    material.useAlphaFromAlbedoTexture = Boolean(def.transparent) && !cutout;
   }
   material.albedoColor = colorOf(def.color ?? 0xffffff);
   material.roughness = def.roughness ?? 0.8;
   material.metallic = def.metallic ?? 0;
 
+  // glTF's packing: roughness in green, metalness in blue. With one of these
+  // the two numbers above become multipliers over it rather than the answer,
+  // which is what glTF means by them.
+  const orm = pictureFor(def, def.orm, scene, urlOf);
+  material.metallicTexture = orm;
+  material.useRoughnessFromMetallicTextureGreen = Boolean(orm);
+  material.useMetallnessFromMetallicTextureBlue = Boolean(orm);
+  // Off, or Babylon looks for roughness in the alpha channel instead and a
+  // three-channel ORM has none to find.
+  material.useRoughnessFromMetallicTextureAlpha = false;
+
   const bump = pictureFor(def, def.bump, scene, urlOf);
   material.bumpTexture = bump;
   if (bump) bump.level = def.bumpStrength ?? 1;
 
+  // Painted shadow in the creases. It darkens what the environment lights and
+  // nothing else, so it was worth exactly zero until there was an environment.
+  const occlusion = pictureFor(def, def.ambient, scene, urlOf);
+  material.ambientTexture = occlusion;
+  material.ambientTextureStrength = def.ambientStrength ?? 1;
+
+  material.emissiveTexture = pictureFor(def, def.emissiveMap, scene, urlOf);
   material.emissiveColor = colorOf(def.emissive ?? 0x000000);
   material.emissiveIntensity = def.emissiveStrength ?? 0;
   material.alpha = def.alpha ?? 1;
