@@ -51,6 +51,56 @@ export async function writeMap(
 }
 
 /**
+ * Move or rename a folder under a game's assets/.
+ *
+ * The bytes first, the document afterwards through `setPath` — so a request
+ * that fails leaves the records saying where things really are, rather than
+ * the other way round, which is a library that looks right and 404s.
+ *
+ * Not undoable, and not queued until save. A folder is real: it is somewhere
+ * else the moment this returns, and a pending-move model would mean the tree
+ * showing a shape the disk disagreed with. Uploading a file has always worked
+ * this way too.
+ */
+export async function moveFolder(game: string, from: string, to: string): Promise<void> {
+  const response = await fetch('/__library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game, moves: [{ from, to }] }),
+  });
+  const body = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Could not move ${from}`);
+}
+
+/** Make an empty folder under a game's assets/. */
+export async function makeFolder(game: string, path: string): Promise<void> {
+  const response = await fetch('/__library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game, mkdirs: [path] }),
+  });
+  const body = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Could not make ${path}`);
+}
+
+/**
+ * Remove a folder and everything in it, or one file.
+ *
+ * The one call here that destroys something nothing else has a copy of, which
+ * is why whatever asks has to have asked the person first — `usedBy` on the
+ * document says what would break, and it can only speak for the rules.
+ */
+export async function removeFile(game: string, path: string, recursive = false): Promise<void> {
+  const response = await fetch('/__library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game, deletes: [{ path, recursive }] }),
+  });
+  const body = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Could not delete ${path}`);
+}
+
+/**
  * Write a document back: the rules as modules, the library as record files.
  *
  * Two requests, because the two halves live in different shapes on disk. The

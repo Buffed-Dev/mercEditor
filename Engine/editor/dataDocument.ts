@@ -176,6 +176,23 @@ function freshId(entries: readonly RuleRecord[], stem: string): string {
   }
 }
 
+/**
+ * One segment of a folder path, spelled as the dev server will accept it.
+ *
+ * The same rule as `SEGMENT` in vite-plugin-map-io.js, and deliberately a
+ * second copy: this one is here to tell you *before* the request that a name
+ * will not do, and that one is there because a client is not something a
+ * server may believe.
+ */
+const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/;
+
+/** Which field kind names a record of each library kind. */
+const NAMED_BY: Record<string, string> = {
+  materials: 'material',
+  vfx: 'vfx',
+  props: 'prop',
+};
+
 export function createDataDocument(rules: Partial<RulesData> = {}) {
   const history = createUndoable({
     attributes: rules.attributes ?? ATTRIBUTES,
@@ -825,6 +842,117 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       if (grants.has(effectId)) grants.delete(effectId);
       else grants.add(effectId);
       archetype.grants = [...grants];
+    },
+
+    // ------------------------------------------------------------- folders
+
+    /**
+     * What names this record, so that deleting it can say what it would break.
+     *
+     * The same walk `rename` makes, run as a question instead of a rewrite.
+     *
+     * It can only answer for the rules it holds. A map names objects, terrains
+     * and prefabs too, and maps are files this document has never opened — so
+     * an empty answer here means "nothing in the rules", not "nothing at all",
+     * and whatever asks has to say so.
+     */
+    usedBy(list: string, index: number): { list: string; id: string; label: string }[] {
+      const entry = entryAt(list, index);
+      const id = text(entry?.id);
+      if (!id) return [];
+      const wanted = NAMED_BY[list];
+      const found = new Map<string, { list: string; id: string; label: string }>();
+      // Keyed rather than pushed, because one record may name the same thing in
+      // several of its fields and it is still one record: a terrain whose top
+      // and sub are both this material is one terrain that would break, not
+      // two. Every terrain here is that -- `normalizeTerrain` fills `sub` from
+      // `top` when it is left empty.
+      const note = (name: string, record: RuleRecord) =>
+        found.set(`${name}:${text(record.id)}`, {
+          list: name,
+          id: text(record.id),
+          label: text(record.label) || text(record.id),
+        });
+
+      if (wanted) {
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of listOf(name)) {
+            for (const [key, field] of Object.entries(fields)) {
+              if (field.kind === wanted && record[key] === id) note(name, record);
+            }
+          }
+        }
+      }
+
+      // An ability names the flash it throws and the trail behind it. Spelled
+      // out because ABILITY_FIELDS is not one of the tables above, the same way
+      // `rename` spells it out.
+      if (list === 'vfx') {
+        for (const ability of listOf('abilities')) {
+          if (ability.vfx === id || ability.trail === id) note('abilities', ability);
+        }
+      }
+
+      return [...found.values()];
+    },
+
+    /**
+     * Move a record to another folder, or rename the one it is in.
+     *
+     * The same operation either way: a folder's name is the last part of where
+     * it is, so renaming is moving to a sibling.
+     *
+     * This is the document's half only — the bytes are moved by whoever calls
+     * it, through the dev server, and this is what makes the records agree
+     * afterwards. Called after the move succeeds, never before: a failed
+     * request must leave the document saying where things really are.
+     *
+     * Outside undo, through `rewrite`. See the comment there: the folder is on
+     * disk and undo cannot fetch it back, so a record whose path an undo
+     * restored would point at nothing.
+     */
+    setPath(list: string, index: number, to: string): string | null {
+      const entry = entryAt(list, index);
+      if (!entry) return 'Nothing selected';
+      const from = text(entry.path);
+      const next = String(to ?? '').trim().replace(/^\/+|\/+$/g, '');
+      if (next === from) return null;
+      if (!next) return 'A record needs a folder to live in';
+      const parts = next.split('/');
+      if (parts.length > 8) return 'That is too many folders deep';
+      if (!parts.every((part) => SEGMENT.test(part))) {
+        return 'Use letters, digits, spaces, dots and dashes';
+      }
+      // Compared case-blind: this is Windows as often as not, where Wood and
+      // wood are the same directory and the second record would land on the
+      // first's files.
+      const taken = listOf(list).some(
+        (other) => other !== entry && text(other.path).toLowerCase() === next.toLowerCase(),
+      );
+      if (taken) return `Something is already at "${next}"`;
+
+      const id = text(entry.id);
+      const rooted = `/${from}/`;
+      history.rewrite((state) => {
+        for (const record of (state as RulesData)[list] ?? []) {
+          if (text(record.id) === id) record.path = next;
+        }
+        // A file named with a leading slash is named from the assets root
+        // rather than from its own folder -- the escape hatch for one two
+        // records share. Those are the only references a move has to chase;
+        // everything else is relative and travels with the folder.
+        if (!from) return;
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of (state as RulesData)[name] ?? []) {
+            for (const [key, field] of Object.entries(fields)) {
+              const value = record[key];
+              if (field.kind !== 'file' || typeof value !== 'string') continue;
+              if (value.startsWith(rooted)) record[key] = `/${next}/${value.slice(rooted.length)}`;
+            }
+          }
+        }
+      });
+      return null;
     },
 
     undo: () => history.undo(),
