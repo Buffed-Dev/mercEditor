@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDataDocument } from '../Engine/editor/dataDocument.ts';
 import { libraryWrites } from '../Engine/editor/serializeData.ts';
-import { filterRows, libraryRows, visibleRows } from '../Engine/editor/rules/libraryTree.ts';
+import { filterRows, libraryRows, thumbFor, visibleRows } from '../Engine/editor/rules/libraryTree.ts';
 
 /**
  * The library as folders: where a record lives, what moving it costs, and what
@@ -252,4 +252,47 @@ test('a collapsed folder hides what is under it, and nothing else', () => {
   assert.ok(paths.includes('Materials/Wood'), 'the folder itself still shows');
   assert.ok(!paths.includes('Materials/Wood/diffuse.png'));
   assert.ok(paths.includes('Materials/Broken'), 'a sibling is untouched');
+});
+
+test('a row shows a picture it already has, or admits it has none', () => {
+  const held2 = {
+    materials: [
+      { id: 'wood', label: 'Wood', path: 'Materials/Wood', texture: 'diffuse.png' },
+      { id: 'plain', label: 'Plain', path: 'Materials/Plain', color: 0x336699 },
+    ],
+    terrains: [{ id: 'floor', label: 'Floor', path: 'Terrain/Floor', top: 'wood' }],
+    props: [{ id: 'crate', label: 'Crate', path: 'Objects/Crate', mesh: 'crate.glb' }],
+    vfx: [{ id: 'slash', label: 'Slash', path: 'Effects/Slash', sheet: { image: 'sheet.png' } }],
+  };
+  const rows = libraryRows(
+    {
+      tree: [
+        { path: 'Materials/Wood', dir: true },
+        { path: 'Materials/Wood/diffuse.png', size: 1 },
+        { path: 'Materials/Plain', dir: true },
+        { path: 'Terrain/Floor', dir: true },
+        { path: 'Objects/Crate', dir: true },
+        { path: 'Objects/Crate/crate.glb', size: 1 },
+        { path: 'Effects/Slash', dir: true },
+      ],
+      records: [],
+      errors: [],
+    },
+    held2,
+  );
+  const thumb = (path: string) => thumbFor(rows.find((row) => row.path === path)!, held2);
+
+  assert.deepEqual(thumb('Materials/Wood'), { src: 'Materials/Wood/diffuse.png' });
+  // A terrain has no picture of its own: it wears materials, so the thumbnail
+  // is one hop through the one it names.
+  assert.deepEqual(thumb('Terrain/Floor'), { src: 'Materials/Wood/diffuse.png' });
+  assert.deepEqual(thumb('Effects/Slash'), { src: 'Effects/Slash/sheet.png' });
+  // A material with no map is still a colour, which is all it looks like.
+  assert.deepEqual(thumb('Materials/Plain'), { color: 0x336699 });
+
+  // A file is its own picture, and a model is not a picture at all -- an object
+  // naming only a .glb keeps its glyph rather than being given a wrong one.
+  assert.deepEqual(thumb('Materials/Wood/diffuse.png'), { src: 'Materials/Wood/diffuse.png' });
+  assert.equal(thumb('Objects/Crate'), null);
+  assert.equal(thumb('Objects/Crate/crate.glb'), null);
 });

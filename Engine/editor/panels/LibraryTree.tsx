@@ -31,10 +31,12 @@ import {
   filterRows,
   hasChildren,
   libraryRows,
+  thumbFor,
   visibleRows,
   type LibraryRow,
   type LibraryScan,
 } from '../rules/libraryTree.ts';
+import { fileUrl } from '../../src/data/assets.ts';
 import styles from './LibraryTree.module.css';
 
 /**
@@ -64,6 +66,7 @@ const CHIPS: readonly { id: string; label: string }[] = [
 ];
 
 export function LibraryTree({
+  game,
   scan,
   records,
   selected,
@@ -74,6 +77,7 @@ export function LibraryTree({
   onNew,
   onRefresh,
 }: {
+  game: string;
   scan: LibraryScan | null;
   records: Partial<Record<LibraryKind, Record<string, unknown>[]>>;
   selected: string;
@@ -136,6 +140,8 @@ export function LibraryTree({
             <Row
               key={row.path}
               row={row}
+              thumb={thumbFor(row, records)}
+              game={game}
               open={!collapsed.has(row.path)}
               folder={row.row === 'folder' || row.row === 'record'}
               twisty={hasChildren(all, row.path)}
@@ -195,6 +201,8 @@ export function LibraryTree({
  */
 function Row({
   row,
+  thumb,
+  game,
   open,
   folder,
   twisty,
@@ -204,6 +212,8 @@ function Row({
   onImport,
 }: {
   row: LibraryRow;
+  thumb: { src: string } | { color: number } | null;
+  game: string;
   open: boolean;
   folder: boolean;
   twisty: boolean;
@@ -255,9 +265,27 @@ function Row({
         {twisty && <IconChevronRight size={12} />}
       </span>
 
-      <span className={styles.glyph}>
-        <Glyph size={14} />
-      </span>
+      {/* The picture the row already has, rather than one rendered for it.
+          See `thumbFor`. Lazily, by the browser's own rule: a list of forty
+          textures should not be forty fetches before you have scrolled. */}
+      {thumb && 'src' in thumb ? (
+        <img
+          className={styles.thumb}
+          src={thumb.src.startsWith('data:') ? thumb.src : fileUrl(thumb.src, game)}
+          alt=""
+          loading="lazy"
+          decoding="async"
+        />
+      ) : thumb ? (
+        <span
+          className={styles.swatch}
+          style={{ background: `#${thumb.color.toString(16).padStart(6, '0')}` }}
+        />
+      ) : (
+        <span className={styles.glyph}>
+          <Glyph size={14} />
+        </span>
+      )}
 
       <span className={`${styles.name} ${unimported ? styles.quiet : ''}`}>
         {row.row === 'record' ? row.label : row.name}

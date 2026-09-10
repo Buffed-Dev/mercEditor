@@ -171,6 +171,74 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
   return rows;
 }
 
+const IMAGE = /\.(png|jpg|jpeg|webp)$/i;
+
+/**
+ * A picture to stand in for a row, as a path under `assets/`.
+ *
+ * Every one of these is a file already on disk, found by following what the
+ * record itself names: a material's colour map, an effect's sheet, and for a
+ * terrain the colour map of the material it wears. So a thumbnail is an `<img>`
+ * the browser decodes and lazy-loads on its own.
+ *
+ * It is worth saying what this is *instead of*. The obvious build is an
+ * offscreen Babylon stage rendering each record and reading the canvas back —
+ * a queue, an observer, a cache, and one shared engine because a browser hands
+ * out only so many. At the size these are drawn, sixteen pixels in a row, a
+ * rendered material is its average colour and a rendered mesh is a smudge:
+ * all of that machinery to arrive at what the texture already looks like. If
+ * the browser ever grows a tile view with previews big enough to read, that is
+ * when the engine earns its keep.
+ *
+ * A mesh is the one thing with no cheap picture. An object that names only a
+ * `.glb` keeps its glyph, which is honest — there is nothing to show without
+ * drawing it.
+ */
+export function thumbFor(
+  row: LibraryRow,
+  records: Records,
+): { src: string } | { color: number } | null {
+  if (row.row === 'file') return IMAGE.test(row.name) ? { src: row.path } : null;
+  if (row.row !== 'record') return null;
+
+  const record = (records[row.list] ?? [])[row.index];
+  if (!record) return null;
+  const here = String(record.path ?? '');
+
+  /** A file this record names directly, if it is a picture. */
+  const own = (key: string): string => {
+    const named = record[key];
+    return typeof named === 'string' && IMAGE.test(named) ? filePath(here, named) : '';
+  };
+
+  if (row.list === 'vfx') {
+    const image = (record.sheet as { image?: unknown } | undefined)?.image;
+    // Still inline as base64: a data URL is not a file, but it is a picture,
+    // and the browser will draw it straight from the record.
+    if (typeof image === 'string' && image.startsWith('data:')) return { src: image };
+    return typeof image === 'string' && image ? { src: filePath(here, image) } : null;
+  }
+
+  const direct = own('texture');
+  if (direct) return { src: direct };
+
+  // A terrain has no picture of its own -- it wears materials -- and neither
+  // does an object that names one. One hop through the material it names.
+  const wears = String(record.material ?? record.top ?? '');
+  if (wears) {
+    const material = (records.materials ?? []).find((one) => one.id === wears);
+    const named = material?.texture;
+    if (material && typeof named === 'string' && IMAGE.test(named)) {
+      return { src: filePath(String(material.path ?? ''), named) };
+    }
+  }
+
+  // A material with no map is still a colour, which is the whole of what it
+  // looks like.
+  if (row.list === 'materials') return { color: Number(record.color ?? 0xffffff) };
+  return null;
+}
+
 /** Which folder a new record of this kind belongs under, for an Import. */
 export function kindOfFolder(path: string): LibraryKind | null {
   const top = path.split('/')[0];

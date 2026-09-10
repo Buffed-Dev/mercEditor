@@ -277,6 +277,7 @@ export function LibraryWorkspace() {
           onToggle={layout.toggleLeft}
         >
           <LibraryTree
+            game={gameId}
             scan={library.scan}
             records={byKind}
             selected={record ? pathOf(record) : ''}

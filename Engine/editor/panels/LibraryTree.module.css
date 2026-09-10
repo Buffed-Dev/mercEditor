@@ -173,3 +173,16 @@
   color: var(--e-fg-3);
   font-size: var(--e-fs-5);
 }
+
+/* Where the type glyph would be. Square and the same size, so a row with a
+   picture and a row without line up. */
+.thumb,
+.swatch {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 2px;
+  object-fit: cover;
+  /* A texture with transparency in it would otherwise be a hole in the row. */
+  background: var(--e-raised);
+}
