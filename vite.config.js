@@ -35,14 +35,23 @@ export default defineConfig({
      * Games/<game>/assets/ through the dev server. Vite watches everything it
      * serves, so without this the upload lands, the watcher fires a full
      * reload, and the editor comes back from disk having thrown away the
-     * unsaved work that the upload was part of — the asset record itself
-     * included, which is why the file would be there and the asset would not.
+     * unsaved work that the upload was part of — the record itself included,
+     * which is why the file would be there and the record would not.
      *
-     * Only the binaries. The rules and maps beside them are real modules, and
-     * a game page open in another tab should still pick them up when a save
-     * rewrites them.
+     * Only the binaries, and now spelled that way rather than as the whole
+     * folder. The records live in assets/ too — a material is a folder holding
+     * its own material.json beside its pictures — and those are real modules
+     * that library/*.js finds by glob. Ignoring the folder wholesale meant
+     * Vite never learned a record had changed, so a hand edit, a migration or
+     * another branch would be invisible until the server was restarted, and
+     * the editor would keep serving a transform of a file that no longer
+     * existed in that shape.
+     *
+     * A save still does not reload the page: handleHotUpdate in the map-io
+     * plugin swallows the update for everything under Games/. This only puts
+     * the file back in the watcher's sight so the module cache is dropped.
      */
-    watch: { ignored: ['**/Games/*/assets/**'] },
+    watch: { ignored: ['**/Games/*/assets/**/*.{glb,gltf,png,jpg,jpeg,webp}'] },
   },
   build: {
     target: 'es2022',
