@@ -12,7 +12,6 @@ import {
 import {
   IconAlertTriangle,
   IconBox,
-  IconChevronRight,
   IconFile,
   IconFolder,
   IconChevronDown,
@@ -31,7 +30,6 @@ import { LIBRARY_KINDS, type LibraryKind } from '../rules/library';
 import {
   crumbs,
   filterRows,
-  hasChildren,
   libraryRows,
   rowsIn,
   thumbFor,
@@ -46,9 +44,15 @@ import styles from './LibraryTree.module.css';
  * The assets folder, as the thing you browse.
  *
  * One folder at a time, the way a file manager is: crumbs across the top, what
- * is in this folder below them, and clicking a folder goes into it. Which kind
- * a row is, is a colour and a filter rather than a level of the hierarchy — the
- * folders are yours to arrange, which is the whole point of them being real.
+ * is in this folder below them as a grid of cards, and clicking a folder goes
+ * into it. Which kind a card is, is a colour and a filter rather than a level
+ * of the hierarchy — the folders are yours to arrange, which is the whole point
+ * of them being real.
+ *
+ * Cards rather than rows because the useful thing about most of these is what
+ * they look like. A name tells you `Grass-Sand_normal.png` from
+ * `Grass-Sand_base_color.png`; a picture tells you at a glance, and at this
+ * size it is the picture the file already is rather than anything rendered.
  *
  * The folder you are in is kept with the panel sizes, so it is per game and it
  * survives leaving for the map and coming back — which is most of the reason
@@ -100,18 +104,11 @@ export function LibraryTree({
   // Not memoized: the records arrive from a document edited in place, so their
   // identity is stable while their contents are not -- a memo over them would
   // never recompute and a rename would never reach this list.
-  const all = libraryRows(scan, records);
-  const rows = rowsIn(filterRows(all, wanted), folder);
+  const rows = rowsIn(filterRows(libraryRows(scan, records), wanted), folder);
 
-  // A pointer has to travel before a click becomes a drag, or selecting a row
+  // A pointer has to travel before a click becomes a drag, or selecting a card
   // by clicking it would start one every time.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
-
-  const toggle = (set: ReadonlySet<string>, id: string) => {
-    const next = new Set(set);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  };
 
   function onDragEnd(event: DragEndEvent) {
     const from = String(event.active.id);
@@ -149,7 +146,13 @@ export function LibraryTree({
             type="button"
             className={`${styles.chip} ${wanted.has(chip.id) ? styles.chipOn : ''}`}
             aria-pressed={wanted.has(chip.id)}
-            onClick={() => setWanted((set) => toggle(set, chip.id))}
+            onClick={() =>
+              setWanted((set) => {
+                const next = new Set(set);
+                if (!next.delete(chip.id)) next.add(chip.id);
+                return next;
+              })
+            }
           >
             {chip.label}
           </button>
@@ -157,15 +160,13 @@ export function LibraryTree({
       </div>
 
       <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
-        <div className={styles.tree}>
+        <div className={styles.grid}>
           {rows.map((row) => (
-            <Row
+            <Card
               key={row.path}
               row={row}
               thumb={thumbFor(row, records)}
               game={game}
-              folder={row.row === 'folder' || row.row === 'record'}
-              into={hasChildren(all, row.path) ? () => setFolder(row.path) : null}
               on={row.path === selected}
               onOpen={() => (row.row === 'folder' ? setFolder(row.path) : onOpen(row))}
               onImport={() => onImport(row.path)}
@@ -181,7 +182,7 @@ export function LibraryTree({
       </DndContext>
 
       <div className={styles.tools}>
-        {/* Which kind is a question here rather than a mode, because the tree
+        {/* Which kind is a question here rather than a mode, because the folder
             holds all of them at once -- there is no open shelf to infer it
             from any more. */}
         <DropdownMenu
@@ -215,17 +216,15 @@ export function LibraryTree({
 }
 
 /**
- * One row: draggable always, and a drop target when it is a folder.
+ * One card: draggable always, and a drop target when it is a folder.
  *
- * Both hooks on one element rather than a wrapper each, so the row that lights
- * up under the pointer is the row you are pointing at.
+ * Both hooks on one element rather than a wrapper each, so the card that lights
+ * up under the pointer is the card you are pointing at.
  */
-function Row({
+function Card({
   row,
   thumb,
   game,
-  folder,
-  into,
   on,
   onOpen,
   onImport,
@@ -234,14 +233,12 @@ function Row({
   row: LibraryRow;
   thumb: { src: string } | { color: number } | null;
   game: string;
-  folder: boolean;
-  /** Go inside it, if there is anything in there. */
-  into: (() => void) | null;
   on: boolean;
   onOpen: () => void;
   onImport: () => void;
   onDelete: () => void;
 }) {
+  const folder = row.row === 'folder';
   const drag = useDraggable({ id: row.path });
   const drop = useDroppable({ id: row.path, disabled: !folder });
 
@@ -264,8 +261,9 @@ function Row({
         drag.setNodeRef(node);
         if (folder) drop.setNodeRef(node);
       }}
-      className={`${styles.row} ${on ? styles.on : ''} ${drop.isOver ? styles.over : ''}`}
+      className={`${styles.card} ${on ? styles.on : ''} ${drop.isOver ? styles.over : ''}`}
       style={{ opacity: drag.isDragging ? 0.4 : 1 }}
+      title={row.row === 'record' ? `${row.label} — ${row.name}` : row.name}
       // dnd-kit's attributes already say this is a button and make it
       // focusable, so the spread goes first and what is ours goes after it --
       // the other way round it was quietly overwriting both.
@@ -274,27 +272,53 @@ function Row({
       onClick={onOpen}
       onKeyDown={(event) => event.key === 'Enter' && onOpen()}
     >
-      {/* The picture the row already has, rather than one rendered for it.
-          See `thumbFor`. Lazily, by the browser's own rule: a list of forty
+      {/* The picture the card already has, rather than one rendered for it.
+          See `thumbFor`. Lazily, by the browser's own rule: a folder of forty
           textures should not be forty fetches before you have scrolled. */}
-      {thumb && 'src' in thumb ? (
-        <img
-          className={styles.thumb}
-          src={thumb.src.startsWith('data:') ? thumb.src : fileUrl(thumb.src, game)}
-          alt=""
-          loading="lazy"
-          decoding="async"
-        />
-      ) : thumb ? (
-        <span
-          className={styles.swatch}
-          style={{ background: `#${thumb.color.toString(16).padStart(6, '0')}` }}
-        />
-      ) : (
-        <span className={styles.glyph}>
-          <Glyph size={14} />
+      <div className={`${styles.face} ${folder ? styles.faceFolder : ''}`}>
+        {thumb && 'src' in thumb ? (
+          <img
+            className={styles.thumb}
+            src={thumb.src.startsWith('data:') ? thumb.src : fileUrl(thumb.src, game)}
+            alt=""
+            loading="lazy"
+            decoding="async"
+          />
+        ) : thumb ? (
+          <span
+            className={styles.thumb}
+            style={{ background: `#${thumb.color.toString(16).padStart(6, '0')}` }}
+          />
+        ) : (
+          <Glyph size={28} className={styles.glyph} />
+        )}
+
+        {/* A folder wearing its record's picture would otherwise be
+            indistinguishable from the record. The corner says which it is. */}
+        {folder && thumb && <IconFolder size={12} className={styles.corner} />}
+
+        {/* Behind a menu, never as a button on the card: this is the one action
+            here that destroys something, and a card you click to select it is
+            not a card to put it on. */}
+        <span className={styles.more} onClick={(event) => event.stopPropagation()}>
+          <DropdownMenu
+            align="end"
+            trigger={
+              <button
+                type="button"
+                className={styles.moreButton}
+                aria-label={`Actions for ${row.name}`}
+              >
+                ⋯
+              </button>
+            }
+          >
+            <MenuItem danger onClick={onDelete}>
+              Delete
+            </MenuItem>
+          </DropdownMenu>
         </span>
-      )}
+      </div>
 
       <span className={`${styles.name} ${unimported ? styles.quiet : ''}`}>
         {row.row === 'record' ? row.label : row.name}
@@ -304,19 +328,16 @@ function Row({
           arrives -- but it is invisible to the game until something claims it,
           and that used to be the drift nobody could see. */}
       {unimported && (
-        <>
-          <span className={styles.badge}>unimported</span>
-          <button
-            type="button"
-            className={styles.import}
-            onClick={(event) => {
-              event.stopPropagation();
-              onImport();
-            }}
-          >
-            Import
-          </button>
-        </>
+        <button
+          type="button"
+          className={styles.import}
+          onClick={(event) => {
+            event.stopPropagation();
+            onImport();
+          }}
+        >
+          Import
+        </button>
       )}
 
       {row.row === 'record' && row.missing.length > 0 && (
@@ -333,40 +354,6 @@ function Row({
           will not parse
         </span>
       )}
-
-      {/* A record's folder holds its files, so there is a way into it that is
-          not "open the record" -- the row itself already means that one. */}
-      {into && row.row !== 'folder' && (
-        <button
-          type="button"
-          className={styles.into}
-          aria-label={`Open ${row.name} folder`}
-          onClick={(event) => {
-            event.stopPropagation();
-            into();
-          }}
-        >
-          <IconChevronRight size={13} />
-        </button>
-      )}
-
-      {/* Behind a menu, never as a button on the row: this is the one action
-          here that destroys something, and a row you click to select it is not
-          a row to put it on. */}
-      <span className={styles.more} onClick={(event) => event.stopPropagation()}>
-        <DropdownMenu
-          align="end"
-          trigger={
-            <button type="button" className={styles.moreButton} aria-label={`Actions for ${row.name}`}>
-              ⋯
-            </button>
-          }
-        >
-          <MenuItem danger onClick={onDelete}>
-            Delete
-          </MenuItem>
-        </DropdownMenu>
-      </span>
     </div>
   );
 }

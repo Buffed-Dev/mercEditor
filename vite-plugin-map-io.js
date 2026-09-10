@@ -66,16 +66,24 @@ export function mapIo({ dir = 'Games' } = {}) {
   // not worth renaming by hand.
   const filePattern = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,63}\.[A-Za-z0-9]{1,8}$/;
 
-  // A record is a file with a fixed name, one per kind, rather than one named
-  // after its label. Fixed, so "is this folder a material?" is a stat rather
-  // than a guess, and so each library index can carry one static glob.
-  const RECORD_FILES = new Map([
-    ['material.json', 'materials'],
-    ['object.json', 'props'],
-    ['terrain.json', 'terrains'],
-    ['effect.json', 'vfx'],
-    ['prefab.json', 'prefabs'],
+  // A record is `<id>.<kind>.json` -- `grass.material.json`. The kind is in the
+  // name so "is this a material?" is still a question about the filename and
+  // each library index can still carry one static glob; the id is in it so a
+  // folder read in a file manager says which material it holds.
+  const RECORD_SUFFIX = new Map([
+    ['material', 'materials'],
+    ['object', 'props'],
+    ['terrain', 'terrains'],
+    ['effect', 'vfx'],
+    ['prefab', 'prefabs'],
   ]);
+
+  /** Which kind a filename is a record of, or undefined for any other file. */
+  const kindOfRecord = (name) => {
+    const parts = String(name ?? '').split('.');
+    if (parts.length < 3 || parts.pop() !== 'json') return undefined;
+    return RECORD_SUFFIX.get(parts.pop());
+  };
 
   // The folders a game starts with, and the ones a move or a delete may never
   // take: they are the shape of the library rather than content in it.
@@ -203,7 +211,7 @@ export function mapIo({ dir = 'Games' } = {}) {
       }
       out.tree.push({ path: rel, dir: false, size, mtime });
 
-      const kind = RECORD_FILES.get(entry.name);
+      const kind = kindOfRecord(entry.name);
       if (!kind) continue;
       try {
         out.records.push({ path: base, kind, record: JSON.parse(await readFile(target, 'utf8')) });
@@ -534,7 +542,7 @@ export function mapIo({ dir = 'Games' } = {}) {
             const safe = assetRel(rel);
             if (!safe) return json(res, 400, { error: `Cannot write "${rel}"` });
             const name = safe.split('/').pop();
-            if (!RECORD_FILES.has(name)) {
+            if (!kindOfRecord(name)) {
               return json(res, 400, { error: `"${name}" is not a record file` });
             }
             const abs = await under(root, safe);
@@ -574,7 +582,7 @@ export function mapIo({ dir = 'Games' } = {}) {
             await walkAssets(root, '', found);
             for (const entry of found.tree) {
               if (entry.dir || entry.link) continue;
-              const kind = RECORD_FILES.get(entry.path.split('/').pop());
+              const kind = kindOfRecord(entry.path.split('/').pop());
               if (!kind || !wanted.has(kind)) continue;
               const abs = resolve(root, entry.path);
               if (keeping.has(abs)) continue;

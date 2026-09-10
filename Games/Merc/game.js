@@ -36,12 +36,12 @@ export const startMap = 'base';
 /**
  * The library: the records a map is drawn *with*, found rather than listed.
  *
- * Each one is a folder under `assets/` holding a fixed-name file beside the
+ * Each one is a folder under `assets/` holding a `<id>.<kind>.json` beside the
  * pictures and models it refers to, so the folder *is* the record — copy the
- * directory and you have copied the material, textures and all. The filename
- * is fixed rather than named after the record so that one glob can find every
- * one of a kind, and so "is this folder a material?" has an answer that does
- * not involve reading anything.
+ * directory and you have copied the material, textures and all. The kind is in
+ * the filename so that one glob can find every one of a kind without reading
+ * anything; the id is in front of it so a folder opened outside the editor says
+ * which material it holds.
  *
  * Found for the same reason the maps below are: the editor makes one of these
  * by writing a folder, so a list here would be a second place to remember. It
@@ -56,11 +56,11 @@ export const startMap = 'base';
 let found;
 try {
   found = {
-    materials: import.meta.glob('./assets/Materials/**/material.json', { eager: true, import: 'default' }),
-    props: import.meta.glob('./assets/Objects/**/object.json', { eager: true, import: 'default' }),
-    terrains: import.meta.glob('./assets/Terrain/**/terrain.json', { eager: true, import: 'default' }),
-    vfx: import.meta.glob('./assets/Effects/**/effect.json', { eager: true, import: 'default' }),
-    prefabs: import.meta.glob('./assets/Prefabs/**/prefab.json', { eager: true, import: 'default' }),
+    materials: import.meta.glob('./assets/Materials/**/*.material.json', { eager: true, import: 'default' }),
+    props: import.meta.glob('./assets/Objects/**/*.object.json', { eager: true, import: 'default' }),
+    terrains: import.meta.glob('./assets/Terrain/**/*.terrain.json', { eager: true, import: 'default' }),
+    vfx: import.meta.glob('./assets/Effects/**/*.effect.json', { eager: true, import: 'default' }),
+    prefabs: import.meta.glob('./assets/Prefabs/**/*.prefab.json', { eager: true, import: 'default' }),
   };
 } catch {
   found = {};
@@ -77,20 +77,20 @@ try {
  * Sorted, because a glob hands them back in the filesystem's order and a list
  * that reshuffled between two machines would make every save a diff.
  */
-const library = (modules = {}, file) =>
+const library = (modules = {}) =>
   Object.entries(modules)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, record]) => ({
       ...record,
-      // './assets/Materials/Grass/material.json' -> 'Materials/Grass'
-      path: key.slice('./assets/'.length, -(file.length + 1)),
+      // './assets/Materials/Grass/grass.material.json' -> 'Materials/Grass'
+      path: key.slice('./assets/'.length, key.lastIndexOf('/')),
     }));
 
-export const MATERIALS = library(found.materials, 'material.json');
-export const PROPS = library(found.props, 'object.json');
-export const TERRAINS = library(found.terrains, 'terrain.json');
-export const VFX = library(found.vfx, 'effect.json');
-export const PREFABS = library(found.prefabs, 'prefab.json');
+export const MATERIALS = library(found.materials);
+export const PROPS = library(found.props);
+export const TERRAINS = library(found.terrains);
+export const VFX = library(found.vfx);
+export const PREFABS = library(found.prefabs);
 
 /** Named exactly as the rules editor's lists are, because it hands them over. */
 export const rules = {

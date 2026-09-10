@@ -1,4 +1,5 @@
 import { filePath } from '../../src/data/assets.ts';
+import { kindOfRecord, recordFile } from '../serializeData.ts';
 import { LIBRARY_KINDS, libraryFields, type LibraryKind } from './library.ts';
 
 /**
@@ -22,22 +23,14 @@ export type LibraryScan = {
   errors: { path: string; message: string }[];
 };
 
-/** Which file holds a record of each kind. Mirrors LIBRARY_FILES in serializeData. */
-const RECORD_FILES: Record<string, LibraryKind> = {
-  'material.json': 'materials',
-  'object.json': 'props',
-  'terrain.json': 'terrains',
-  'effect.json': 'vfx',
-  'prefab.json': 'prefabs',
-};
-
 export type LibraryRow = {
   path: string;
   /** The last segment: what the row is called. */
   name: string;
 } & (
-  | { row: 'folder' }
-  /** A folder holding a record file: the folder *is* the material. */
+  /** `holds` names the record whose folder this is, if there is one. */
+  | { row: 'folder'; holds: { list: LibraryKind; index: number } | null }
+  /** The record file itself: `Grass/grass.material.json`. */
   | {
       row: 'record';
       list: LibraryKind;
@@ -104,12 +97,18 @@ function claimed(records: Records): { paths: Set<string>; byRecord: Map<string, 
 }
 
 /**
- * The tree, as rows in the order they are drawn.
+ * The folder, as rows in the order they are drawn.
  *
  * The document is the authority on records rather than the scan, because the
  * document is what has your unsaved edits in it — a material you have just
  * renamed should read the new name before you save, and a record you have just
  * added should appear at all.
+ *
+ * A folder and the record inside it are two rows, not one. They were one for a
+ * while — the folder *is* the material — and that reads well right up to the
+ * moment you want the textures beside it, which is a folder you can open and
+ * therefore a folder that has to be a folder. What survives of the idea is
+ * `holds`: a folder wearing its record's picture and its record's name.
  */
 export function libraryRows(scan: LibraryScan | null, records: Records): LibraryRow[] {
   if (!scan) return [];
@@ -127,27 +126,37 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     });
   }
 
+  /** One record's row, wherever its file is or is about to be. */
+  const rowFor = (
+    path: string,
+    here: { list: LibraryKind; index: number; record: Record<string, unknown> },
+  ): LibraryRow => ({
+    row: 'record',
+    path,
+    name: nameOf(path),
+    list: here.list,
+    id: String(here.record.id ?? ''),
+    index: here.index,
+    label: String(here.record.label ?? here.record.id ?? nameOf(path)),
+    missing: (byRecord.get(path.slice(0, path.lastIndexOf('/'))) ?? []).filter(
+      (file) => !onDisk.has(file),
+    ),
+  });
+
   const rows: LibraryRow[] = [];
+  const written = new Set<string>();
+
   for (const entry of scan.tree) {
     const { path } = entry;
     const name = nameOf(path);
 
     if (entry.dir) {
       const here = at.get(path);
-      if (!here) {
-        rows.push({ row: 'folder', path, name });
-        continue;
-      }
-      const missing = (byRecord.get(path) ?? []).filter((file) => !onDisk.has(file));
       rows.push({
-        row: 'record',
+        row: 'folder',
         path,
         name,
-        list: here.list,
-        id: String(here.record.id ?? ''),
-        index: here.index,
-        label: String(here.record.label ?? here.record.id ?? name),
-        missing,
+        holds: here ? { list: here.list, index: here.index } : null,
       });
       continue;
     }
@@ -157,11 +166,28 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
       continue;
     }
 
-    // The record file is not a row of its own: the folder holding it is already
-    // the record, and showing both would be the same thing said twice.
-    if (name in RECORD_FILES) continue;
+    // A record file is a record row, named by the document rather than by the
+    // filename -- so a rename reads right before it is saved, at which point
+    // the file itself catches up.
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const here = kindOfRecord(name) ? at.get(folder) : undefined;
+    if (here) {
+      written.add(folder);
+      rows.push(rowFor(path, here));
+      continue;
+    }
+    // A record file the document has no record for: it belongs to a kind the
+    // library does not load, or the document dropped it and has not saved.
+    if (kindOfRecord(name)) continue;
 
     rows.push({ row: 'file', path, name, used: used.has(path), size: entry.size ?? 0 });
+  }
+
+  // A record just added, or one whose id has changed: its file is not on disk
+  // under that name yet. Shown where it is going to be written.
+  for (const [folder, here] of at) {
+    if (written.has(folder)) continue;
+    rows.push(rowFor(`${folder}/${recordFile(here.list, here.record)}`, here));
   }
 
   return rows;
@@ -195,9 +221,11 @@ export function thumbFor(
   records: Records,
 ): { src: string } | { color: number } | null {
   if (row.row === 'file') return IMAGE.test(row.name) ? { src: row.path } : null;
-  if (row.row !== 'record') return null;
+  // A folder shows what is inside it, which for a record folder is the record.
+  const held = row.row === 'folder' ? row.holds : row.row === 'record' ? row : null;
+  if (!held) return null;
 
-  const record = (records[row.list] ?? [])[row.index];
+  const record = (records[held.list] ?? [])[held.index];
   if (!record) return null;
   const here = String(record.path ?? '');
 
@@ -207,7 +235,7 @@ export function thumbFor(
     return typeof named === 'string' && IMAGE.test(named) ? filePath(here, named) : '';
   };
 
-  if (row.list === 'vfx') {
+  if (held.list === 'vfx') {
     const image = (record.sheet as { image?: unknown } | undefined)?.image;
     // Still inline as base64: a data URL is not a file, but it is a picture,
     // and the browser will draw it straight from the record.
@@ -231,7 +259,7 @@ export function thumbFor(
 
   // A material with no map is still a colour, which is the whole of what it
   // looks like.
-  if (row.list === 'materials') return { color: Number(record.color ?? 0xffffff) };
+  if (held.list === 'materials') return { color: Number(record.color ?? 0xffffff) };
   return null;
 }
 
@@ -266,7 +294,13 @@ export function filterRows(
   const keep = new Set<string>();
   for (const row of rows) {
     const matches =
-      row.row === 'record' ? wanted.has(row.list) : row.row === 'file' ? wanted.has('files') : false;
+      row.row === 'record'
+        ? wanted.has(row.list)
+        : row.row === 'folder'
+          ? Boolean(row.holds && wanted.has(row.holds.list))
+          : row.row === 'file'
+            ? wanted.has('files')
+            : false;
     if (!matches) continue;
     keep.add(row.path);
     // Every folder on the way down to it, so the match has a path you can see.

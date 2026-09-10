@@ -15,6 +15,33 @@ import { literal } from './literal.ts';
  * cannot be one row of a file shared with forty others.
  */
 
+/**
+ * What a name is allowed to be, once it is an id.
+ *
+ * Here rather than beside the document that enforces it, because the same
+ * answer names the file a record is written to — and two rules for one question
+ * is how a record ends up in a file it cannot be found by.
+ */
+export const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]*$/;
+
+/** `Stone Wall` → `stoneWall`: the id a name asks for. Empty if it asks for none. */
+export function idFromLabel(label: unknown): string {
+  const words = String(label ?? '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  if (!words.length) return '';
+  const id = words
+    .map((word, i) =>
+      i === 0 ? word[0].toLowerCase() + word.slice(1) : word[0].toUpperCase() + word.slice(1),
+    )
+    .join('');
+  // An id has to start with a letter, so a name that starts with a digit gets
+  // one rather than being refused.
+  return ID_PATTERN.test(id) ? id : `a${id[0].toUpperCase()}${id.slice(1)}`;
+}
+
 /** One rules file: the constant it declares, and what to say above it. */
 type RuleFile = { constant: string; title: string; note: string };
 const RULE_FILES = {
@@ -89,19 +116,49 @@ export const ${spec.constant} = ${literal(list)};
 }
 
 /**
- * Where a record of each library kind is written, inside its own folder.
+ * What a record of each library kind is called, inside its own folder.
  *
- * Fixed names rather than one named after the record: it is what lets a single
- * glob find every material there is, and what makes "is this folder a
- * material?" a question the filesystem answers.
+ * `<id>.<kind>.json` — `grass.material.json`. The kind is in the name so a
+ * single glob still finds every material there is and "is this a material?"
+ * stays a question about the filename; the id is in it so a folder open in a
+ * file manager says which material it holds rather than five folders all
+ * saying `material.json`.
  */
-export const LIBRARY_FILES: Record<string, string> = {
-  materials: 'material.json',
-  props: 'object.json',
-  terrains: 'terrain.json',
-  vfx: 'effect.json',
-  prefabs: 'prefab.json',
+export const LIBRARY_SUFFIX: Record<string, string> = {
+  materials: 'material',
+  props: 'object',
+  terrains: 'terrain',
+  vfx: 'effect',
+  prefabs: 'prefab',
 };
+
+/**
+ * What a record's file is called: `grass.material.json`.
+ *
+ * Named from the label rather than the id, because the name is the thing you
+ * read in a file manager and the id is a key. They agree for anything made in
+ * the editor — `add` derives one from the other — and where they have drifted
+ * it is the name you would go looking for. Renaming a material renames its
+ * file: the save writes the new one and prunes the old, which is the same
+ * mechanism that already handles a record being deleted.
+ */
+export const recordFile = (kind: string, record: { id?: unknown; label?: unknown }) =>
+  `${idFromLabel(record.label) || String(record.id ?? 'record')}.${
+    LIBRARY_SUFFIX[kind] ?? kind
+  }.json`;
+
+/**
+ * Which kind a record file belongs to, by its name, or null for any other file.
+ *
+ * The suffix rather than the whole name, which is what the id in front costs:
+ * one split instead of one lookup.
+ */
+export function kindOfRecord(name: string): string | null {
+  const parts = name.split('.');
+  if (parts.length < 3 || parts.pop() !== 'json') return null;
+  const suffix = parts.pop();
+  return Object.keys(LIBRARY_SUFFIX).find((kind) => LIBRARY_SUFFIX[kind] === suffix) ?? null;
+}
 
 /** The top folder a kind's records are made in. */
 export const LIBRARY_FOLDERS: Record<string, string> = {
@@ -112,7 +169,7 @@ export const LIBRARY_FOLDERS: Record<string, string> = {
   prefabs: 'Prefabs',
 };
 
-export const LIBRARY_KINDS_SAVED = Object.keys(LIBRARY_FILES);
+export const LIBRARY_KINDS_SAVED = Object.keys(LIBRARY_SUFFIX);
 
 /**
  * Every library record as a file to write, and the kinds to prune afterwards.
@@ -129,7 +186,7 @@ export function libraryWrites(
   data: Partial<Record<string, unknown>>,
 ): { path: string; record: unknown }[] {
   const out: { path: string; record: unknown }[] = [];
-  for (const [kind, file] of Object.entries(LIBRARY_FILES)) {
+  for (const kind of Object.keys(LIBRARY_SUFFIX)) {
     for (const entry of (data[kind] as Record<string, unknown>[] | undefined) ?? []) {
       const { path, ...record } = entry;
       if (typeof path !== 'string' || !path) continue;
@@ -140,7 +197,7 @@ export function libraryWrites(
       for (const [key, value] of Object.entries(record)) {
         if (Array.isArray(value) && !value.length) delete record[key];
       }
-      out.push({ path: `${path}/${file}`, record });
+      out.push({ path: `${path}/${recordFile(kind, record)}`, record });
     }
   }
   return out;

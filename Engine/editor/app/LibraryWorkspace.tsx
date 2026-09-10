@@ -4,6 +4,7 @@ import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
 import { makeFolder, moveFolder, removeFile, writeRules } from '../save.ts';
+import { recordFile } from '../serializeData.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -44,6 +45,8 @@ const EMPTY: never[] = [];
 function describe(row: LibraryRow): { label: string; path: string; what: string } {
   if (row.row === 'record') {
     const kind = LIBRARY_KINDS.find((one) => one.id === row.list);
+    // Only the record file. The pictures beside it are somebody's bytes, and
+    // deleting a record is not a reason to take them.
     return { label: row.label, path: row.path, what: kind?.singular ?? 'record' };
   }
   return {
@@ -253,9 +256,13 @@ export function LibraryWorkspace() {
   async function onMove(from: string, toFolder: string) {
     if (!doc) return;
     const to = `${toFolder}/${from.slice(from.lastIndexOf('/') + 1)}`;
+    // A folder is its own path; a record file says its folder moved only if
+    // the file itself is what was dragged, which it is not -- dragging the
+    // record file out of its folder moves the file and the record with it.
+    const said = from.includes('.') ? from.slice(0, from.lastIndexOf('/')) : from;
     const found = LIBRARY_KINDS.flatMap((kind) => {
       const index = (doc.list(kind.id) as Record<string, unknown>[]).findIndex(
-        (entry) => String(entry.path ?? '') === from,
+        (entry) => String(entry.path ?? '') === said,
       );
       return index >= 0 ? [{ list: kind.id, index }] : [];
     })[0];
@@ -266,7 +273,7 @@ export function LibraryWorkspace() {
       return say((error as Error).message, 'error');
     }
     if (found) {
-      const why = doc.setPath(found.list, found.index, to);
+      const why = doc.setPath(found.list, found.index, from === said ? to : toFolder);
       if (why) say(why, 'error');
     }
     say(`Moved to ${to}`, 'good');
@@ -314,12 +321,16 @@ export function LibraryWorkspace() {
     }
 
     try {
-      await removeFile(gameId, row.path, row.row !== 'file');
+      await removeFile(gameId, row.path, row.row === 'folder');
       say(`Deleted ${row.name}`, 'good');
     } catch (error) {
       say((error as Error).message, 'error');
     }
-    if (record && row.path === pathOf(record)) void navigate(`/${gameId}/library`);
+    // The record you were looking at, or the folder it lived in.
+    const here = pathOf(record ?? {});
+    if (record && (row.path === here || row.path.startsWith(`${here}/`))) {
+      void navigate(`/${gameId}/library`);
+    }
     void library.refresh();
   }
 
@@ -373,7 +384,7 @@ export function LibraryWorkspace() {
             game={gameId}
             scan={library.scan}
             records={byKind}
-            selected={record ? pathOf(record) : ''}
+            selected={record ? `${pathOf(record)}/${recordFile(active, record)}` : ''}
             onOpen={onOpen}
             onImport={onImport}
             onMove={(from, to) => void onMove(from, to)}

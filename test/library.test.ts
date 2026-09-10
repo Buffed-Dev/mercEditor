@@ -120,7 +120,10 @@ test('a new record is given a folder, so a save cannot skip it', () => {
   // And it is written where that says, with `path` stripped: the folder says
   // where the record is, so a copy inside it would be a second answer.
   const written = libraryWrites(d.data);
-  const mine = written.find((one) => one.path === `${String(record.path)}/material.json`);
+  // Named after the record, so five materials are not five `material.json`.
+  const mine = written.find(
+    (one) => one.path === `${String(record.path)}/${String(record.id)}.material.json`,
+  );
   assert.ok(mine, 'the new record was written');
   assert.ok(!('path' in (mine.record as Record<string, unknown>)), '`path` was not written');
 });
@@ -138,15 +141,15 @@ const scan = {
   tree: [
     { path: 'Materials', dir: true },
     { path: 'Materials/Wood', dir: true },
-    { path: 'Materials/Wood/material.json', size: 300 },
+    { path: 'Materials/Wood/wood.material.json', size: 300 },
     { path: 'Materials/Wood/diffuse.png', size: 900 },
     { path: 'Materials/Wood/spare.png', size: 40 },
     { path: 'Materials/Broken', dir: true },
-    { path: 'Materials/Broken/material.json', size: 12 },
+    { path: 'Materials/Broken/bad.material.json', size: 12 },
     { path: 'loose.png', size: 10 },
   ],
   records: [],
-  errors: [{ path: 'Materials/Broken/material.json', message: 'Unexpected token }' }],
+  errors: [{ path: 'Materials/Broken/bad.material.json', message: 'Unexpected token }' }],
 };
 
 const held = {
@@ -159,12 +162,14 @@ test('the tree says which files nothing has claimed, and which are missing', () 
   const rows = libraryRows(scan, held);
   const at = (path: string) => rows.find((row) => row.path === path);
 
-  // A folder holding a record file *is* the record: one row, named by the
-  // record, not two rows saying the same thing.
-  const wood = at('Materials/Wood');
+  // The folder is a folder you can open, and the record is the file inside it
+  // -- named by the document, so a rename reads right before it is saved.
+  const folder = at('Materials/Wood');
+  assert.equal(folder?.row, 'folder');
+  assert.equal(folder?.row === 'folder' && folder.holds?.list, 'materials');
+  const wood = at('Materials/Wood/wood.material.json');
   assert.equal(wood?.row, 'record');
   assert.equal(wood?.row === 'record' && wood.label, 'Wood');
-  assert.equal(at('Materials/Wood/material.json'), undefined, 'the record file is not its own row');
 
   // The two disagreements this panel exists to show.
   const claimed = at('Materials/Wood/diffuse.png');
@@ -174,10 +179,11 @@ test('the tree says which files nothing has claimed, and which are missing', () 
   assert.deepEqual(wood?.row === 'record' && wood.missing, ['Materials/Wood/gone.png']);
 
   // A record that will not parse is a row that says so, not a thrown error.
-  assert.equal(at('Materials/Broken/material.json')?.row, 'broken');
-  // And the folder above it is still a plain folder, because the document has
-  // no record for it -- which is exactly what "will not parse" means.
-  assert.equal(at('Materials/Broken')?.row, 'folder');
+  assert.equal(at('Materials/Broken/bad.material.json')?.row, 'broken');
+  // And the folder above it holds nothing, because the document has no record
+  // for it -- which is exactly what "will not parse" means.
+  const empty = at('Materials/Broken');
+  assert.equal(empty?.row === 'folder' && empty.holds, null);
 });
 
 test('an effect claims the picture it plays, which no field table declares', () => {
@@ -252,8 +258,12 @@ test('a folder shows what is in it, and nothing deeper', () => {
   const inside = rowsIn(rows, 'Materials/Wood').map((row) => row.path);
   assert.deepEqual(
     inside.sort(),
-    ['Materials/Wood/diffuse.png', 'Materials/Wood/spare.png'],
-    'a record folder shows its own files, not itself',
+    [
+      'Materials/Wood/diffuse.png',
+      'Materials/Wood/spare.png',
+      'Materials/Wood/wood.material.json',
+    ],
+    'a record folder shows the record and the files beside it',
   );
 
   assert.deepEqual(

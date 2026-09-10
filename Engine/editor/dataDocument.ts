@@ -18,7 +18,11 @@ import {
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
 import { PREFABS, defaultPrefab, normalizePrefab } from '../src/data/prefabs.ts';
-import { LIBRARY_FOLDERS } from './serializeData.ts';
+import { ID_PATTERN, idFromLabel, LIBRARY_FOLDERS } from './serializeData.ts';
+
+// Where a name becomes an id lives beside where it becomes a filename, so
+// the two cannot drift. Re-exported because this is where callers look.
+export { idFromLabel };
 import { createUndoable } from './undoable.ts';
 
 /**
@@ -81,7 +85,6 @@ const LISTS = [
   'prefabs',
 ];
 
-const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]*$/;
 
 /**
  * The lists that name assets and materials, and the field descriptions that say
@@ -97,23 +100,6 @@ const REFERENCE_FIELDS: Record<string, Record<string, { kind?: string }>> = {
   materials: MATERIAL_FIELDS,
 };
 
-/** `Stone Wall` → `stoneWall`: the id a name asks for. Empty if it asks for none. */
-export function idFromLabel(label: unknown): string {
-  const words = String(label ?? '')
-    .replace(/[^a-zA-Z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean);
-  if (!words.length) return '';
-  const id = words
-    .map((word, i) =>
-      i === 0 ? word[0].toLowerCase() + word.slice(1) : word[0].toUpperCase() + word.slice(1),
-    )
-    .join('');
-  // An id has to start with a letter, so a name that starts with a digit gets
-  // one rather than being refused.
-  return ID_PATTERN.test(id) ? id : `a${id[0].toUpperCase()}${id.slice(1)}`;
-}
 
 /**
  * The lists whose records have a shape that has to hold, and what holds it.

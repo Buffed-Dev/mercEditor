@@ -1,10 +1,10 @@
-/* One folder's contents as a flat list, with crumbs above it. No indent: every
-   row here is at the same depth, which is what makes it a place rather than a
-   tree. */
+/* One folder's contents as a grid of cards, with crumbs above it. Four across,
+   because that is the widest a panel this size can put a picture in and still
+   have it be a picture. */
 
-/* The panel's own body scrolls, which would take the chips and the toolbar
-   with it. This fills the body instead and hands the scrolling to the tree, so
-   the filter stays where you left it while you read the list. */
+/* The panel's own body scrolls, which would take the crumbs and the toolbar
+   with it. This fills the body instead and hands the scrolling to the grid, so
+   the filter stays where you left it while you read the folder. */
 .panel {
   display: flex;
   flex-direction: column;
@@ -13,35 +13,35 @@
   overflow: hidden;
 }
 
-.tree {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 4px 0;
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px 6px;
+  align-content: start;
   overflow: auto;
   flex: 1;
   min-height: 0;
 }
 
-.row {
+.card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  width: 100%;
+  gap: 3px;
   min-width: 0;
-  height: 22px;
-  padding: 0 8px;
+  padding: 4px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 4px;
   background: transparent;
   color: var(--e-fg-2);
   font: inherit;
-  font-size: var(--e-fs-2);
-  text-align: left;
+  font-size: var(--e-fs-5);
+  text-align: center;
   cursor: pointer;
 }
 
-.row:hover {
+.card:hover {
   background: var(--e-work);
   color: var(--e-fg);
 }
@@ -52,22 +52,49 @@
   color: var(--e-fg);
 }
 
-/* The drop target under a drag. Outlined rather than filled: the row keeps
+/* The drop target under a drag. Outlined rather than filled: the card keeps
    whatever it was already saying about itself. */
 .over {
   outline: 1px solid var(--e-accent, #e07a3c);
   outline-offset: -1px;
 }
 
-.glyph {
+/* The picture, and the square it sits in when there is none. Square so that a
+   card with a texture and a card with a glyph are the same size. */
+.face {
+  position: relative;
   display: flex;
-  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  /* A texture with transparency in it would otherwise be a hole in the card. */
+  background: var(--e-raised);
   color: var(--e-fg-3);
+  overflow: hidden;
+}
+
+.faceFolder {
+  background: transparent;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.corner {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  color: var(--e-fg);
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.9));
 }
 
 .name {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -81,13 +108,16 @@
 }
 
 .badge {
-  flex: none;
+  max-width: 100%;
   padding: 0 5px;
   border-radius: 8px;
   background: var(--e-work);
   color: var(--e-fg-3);
   font-size: var(--e-fs-5);
   line-height: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .warn {
@@ -101,7 +131,6 @@
 }
 
 .import {
-  flex: none;
   padding: 0 6px;
   height: 16px;
   border: 1px solid var(--e-line);
@@ -116,6 +145,42 @@
 .import:hover {
   color: var(--e-fg);
   border-color: var(--e-fg-3);
+}
+
+/* Where you are, and every way back up. */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--e-line);
+  font-size: var(--e-fs-2);
+}
+
+.crumb {
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.crumb:hover:not(:disabled) {
+  background: var(--e-work);
+  color: var(--e-fg);
+}
+
+/* The folder you are in is not a link to itself. */
+.crumb:disabled {
+  color: var(--e-fg);
+  cursor: default;
+}
+
+.slash {
+  color: var(--e-fg-3);
 }
 
 /* The type filter. Chips rather than tabs, because more than one can be on and
@@ -157,32 +222,21 @@
 }
 
 .empty {
-  padding: 12px 10px;
+  grid-column: 1 / -1;
+  padding: 12px 4px;
   color: var(--e-fg-3);
   font-size: var(--e-fs-5);
 }
 
-/* Where the type glyph would be. Square and the same size, so a row with a
-   picture and a row without line up. */
-.thumb,
-.swatch {
-  width: 15px;
-  height: 15px;
-  flex: none;
-  border-radius: 2px;
-  object-fit: cover;
-  /* A texture with transparency in it would otherwise be a hole in the row. */
-  background: var(--e-raised);
-}
-
-/* Only on the row under the pointer, so forty rows are not forty ⋯ marks. */
+/* Only on the card under the pointer, so forty cards are not forty ⋯ marks. */
 .more {
-  flex: none;
-  margin-left: auto;
+  position: absolute;
+  top: 0;
+  right: 0;
   opacity: 0;
 }
 
-.row:hover .more,
+.card:hover .more,
 .more:focus-within {
   opacity: 1;
 }
@@ -191,71 +245,13 @@
   padding: 0 4px;
   border: 0;
   border-radius: 3px;
-  background: transparent;
-  color: var(--e-fg-3);
+  background: color-mix(in srgb, var(--e-bg, #000) 70%, transparent);
+  color: var(--e-fg-2);
   font: inherit;
-  line-height: 1;
+  line-height: 1.2;
   cursor: pointer;
 }
 
 .moreButton:hover {
-  color: var(--e-fg);
-}
-
-/* Where you are, and every way back up. */
-.crumbs {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--e-line);
-  font-size: var(--e-fs-2);
-}
-
-.crumb {
-  padding: 1px 4px;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--e-fg-2);
-  font: inherit;
-  cursor: pointer;
-}
-
-.crumb:hover:not(:disabled) {
-  background: var(--e-work);
-  color: var(--e-fg);
-}
-
-/* The folder you are in is not a link to itself. */
-.crumb:disabled {
-  color: var(--e-fg);
-  cursor: default;
-}
-
-.slash {
-  color: var(--e-fg-3);
-}
-
-/* Into a record's own folder, where its files are. Only on hover, like the
-   actions menu: it is the second thing a record row can mean, not the first. */
-.into {
-  display: flex;
-  flex: none;
-  padding: 0 2px;
-  border: 0;
-  background: transparent;
-  color: var(--e-fg-3);
-  cursor: pointer;
-  opacity: 0;
-}
-
-.row:hover .into,
-.into:focus {
-  opacity: 1;
-}
-
-.into:hover {
   color: var(--e-fg);
 }
