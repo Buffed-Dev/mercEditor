@@ -11,6 +11,7 @@ import { createGrid, idx } from '../../src/data/terrain/grid.ts';
 import { DEFAULT_ENV } from '../../src/data/mapFormat.ts';
 import { LEVEL_H } from '../../src/data/dimensions.ts';
 import { normalizeProp } from '../../src/data/props.ts';
+import { normalizePrefab } from '../../src/data/prefabs.ts';
 import { normalizeTerrain } from '../../src/data/terrains.ts';
 import type { Light } from '@babylonjs/core/Lights/light.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
@@ -34,6 +35,8 @@ type LibraryRecord = Record<string, unknown>;
 type DrawContext = {
   kind?: string;
   materials?: readonly MaterialInput[];
+  /** The objects a prefab's contents name. Not needed for the other kinds. */
+  props?: readonly PropInput[];
   game?: string;
 };
 
@@ -145,10 +148,11 @@ export function createAssetPreview() {
       clear();
       if (!record) return;
 
-      const { kind = 'props', materials = [], game = '' } = context;
+      const { kind = 'props', materials = [], props = [], game = '' } = context;
 
       if (kind === 'props') return showProp(normalizeProp(record as PropInput));
       if (kind === 'terrains') return showBlock(normalizeTerrain(record as Partial<Terrain>));
+      if (kind === 'prefabs') return showPrefab(record);
       return;
 
       /**
@@ -161,6 +165,36 @@ export function createAssetPreview() {
         const ground = { heightAt: () => 0 };
         runtime = createPropRuntime(world, [def], game, materials);
         runtime.place({ gx: -0.5, gy: -0.5, id: def.id }, 0, ground, root, null);
+      }
+
+      /**
+       * A prefab: the objects in it, stood where it says, centred on the pad.
+       *
+       * Its objects only. A prefab may also carry walls, torches and lights,
+       * and those are drawn by the map's own layer rather than the object
+       * runtime -- which would mean standing up a whole map view on this
+       * stage, over the lights and the pad it already has. The place to see a
+       * prefab whole is the editor you build it in; this is the shelf.
+       */
+      function showPrefab(entry: LibraryRecord): void {
+        // Hoisted above the check in `draw`, so it is made again here.
+        if (!world || !root) return;
+        const prefab = normalizePrefab(entry);
+        const ground = { heightAt: () => 0 };
+        runtime = createPropRuntime(world, props.map(normalizeProp), game, materials);
+        // Centred on its own middle rather than its corner, so a wide prefab
+        // does not walk off the side of the pad.
+        const ox = prefab.w / 2;
+        const oy = prefab.h / 2;
+        prefab.props.forEach((child, index) => {
+          runtime?.place(
+            { ...child, gx: child.gx - ox, gy: child.gy - oy },
+            index,
+            ground,
+            root,
+            null,
+          );
+        });
       }
 
       /**

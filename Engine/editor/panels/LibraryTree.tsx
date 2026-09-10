@@ -19,6 +19,7 @@ import {
   IconFolderPlus,
   IconPlus,
   IconRefresh,
+  IconPackage,
   IconPaint,
   IconPhoto,
   IconSparkles,
@@ -57,6 +58,7 @@ const GLYPHS: Record<string, typeof IconBox> = {
   props: IconBox,
   terrains: IconStack2,
   vfx: IconSparkles,
+  prefabs: IconPackage,
 };
 
 /** The chips, in the order they are offered. Files last: it is the leftovers. */

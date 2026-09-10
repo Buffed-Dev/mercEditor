@@ -1,5 +1,6 @@
 import { MATERIAL_FIELDS } from '../../src/data/materials.ts';
 import { PROP_FIELDS } from '../../src/data/props.ts';
+import { PREFAB_FIELDS } from '../../src/data/prefabs.ts';
 import { TERRAIN_FIELDS } from '../../src/data/terrains.ts';
 import type { FieldSpec } from '../fields/types';
 
@@ -13,13 +14,14 @@ import type { FieldSpec } from '../fields/types';
  * at them.
  */
 
-export type LibraryKind = 'materials' | 'props' | 'terrains' | 'vfx';
+export type LibraryKind = 'materials' | 'props' | 'terrains' | 'vfx' | 'prefabs';
 
 export const LIBRARY_KINDS: readonly { id: LibraryKind; label: string; singular: string }[] = [
   { id: 'materials', label: 'Materials', singular: 'material' },
   { id: 'props', label: 'Objects', singular: 'object' },
   { id: 'terrains', label: 'Terrains', singular: 'terrain' },
   { id: 'vfx', label: 'Effects', singular: 'effect' },
+  { id: 'prefabs', label: 'Prefabs', singular: 'prefab' },
 ];
 
 type FieldTable = Record<string, { kind: string; label: string } & Record<string, unknown>>;
@@ -31,6 +33,9 @@ const TABLES: Record<LibraryKind, FieldTable> = {
   // An effect is emitter, particle, movement and sheet together, each its own
   // table — so its fields are gathered by the effect editor rather than here.
   vfx: {},
+  // A prefab is only its contents, which are edited by standing them on a grid
+  // rather than by typing at them. All it has here is its name.
+  prefabs: PREFAB_FIELDS as unknown as FieldTable,
 };
 
 /** Which fields a record shows. */

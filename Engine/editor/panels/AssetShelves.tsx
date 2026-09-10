@@ -5,6 +5,7 @@ import {
   IconFlame,
   IconGhost,
   IconHammer,
+  IconPackage,
   IconSparkles,
   IconStack2,
   IconSun,
@@ -45,6 +46,7 @@ const GLYPHS: Record<string, typeof IconBox> = {
   vfx: IconSparkles,
   station: IconHammer,
   prop: IconBox,
+  prefab: IconPackage,
   chunk: IconStack2,
   spawn: IconTargetArrow,
 };

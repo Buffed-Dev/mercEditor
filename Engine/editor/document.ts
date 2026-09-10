@@ -137,6 +137,10 @@ export const BRUSHES: Brush[] = [
   { id: 'station', label: 'Station', list: 'stations', group: 'fixtures', icon: 'hammer' },
   { id: 'prop', label: 'Object', list: 'props', group: 'fixtures', icon: 'box' },
 
+  // Which prefab is chosen in the inspector, the same way an object's and an
+  // effect's are: the shelf has no picker, so placing is placing and choosing
+  // is choosing.
+  { id: 'prefab', label: 'Prefab', list: 'prefabs', group: 'layout', icon: 'package' },
   { id: 'chunk', label: 'Chunk', list: 'chunks', group: 'layout', icon: 'stack-2' },
   // Where the player comes up. Not one of the named spawns beside it: those are
   // where a portal puts you, and every map has exactly one of these.

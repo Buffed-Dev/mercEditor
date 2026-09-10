@@ -23,6 +23,7 @@ import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import { createAssetPreview } from '../preview/assetPreview.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
+import type { PropInput } from '../../src/data/props.ts';
 import { createMaterialPreview } from '../preview/materialPreview.ts';
 import { createVfxPreview } from '../preview/vfxPreview.ts';
 import { VfxDetail } from '../panels/VfxDetail';
@@ -89,6 +90,7 @@ export function LibraryWorkspace() {
   // changes when one replaces it — which is exactly what the effect below wants
   // to hear about, and cheaper than rebuilding a context object per render.
   const materials = doc?.list('materials') ?? EMPTY;
+  const props = doc?.list('props') ?? EMPTY;
 
   /**
    * Every kind's records, for the tree to merge with what is on disk.
@@ -113,12 +115,15 @@ export function LibraryWorkspace() {
       // The rules lists are loose records (see dataDocument); which list holds
       // what is known here and nowhere the checker can see.
       materials: materials as unknown as readonly MaterialInput[],
+      // A prefab's contents name objects, so the preview needs the list to
+      // look them up. The other kinds ignore it.
+      props: props as unknown as readonly PropInput[],
       game: gameId,
       kind: active,
       shape,
       urlOf,
     });
-  }, [ready, preview, active, record, shape, urlOf, materials, gameId, doc?.revision]);
+  }, [ready, preview, active, record, shape, urlOf, materials, props, gameId, doc?.revision]);
 
   async function onSave() {
     if (!doc) return;

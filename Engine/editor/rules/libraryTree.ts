@@ -28,6 +28,7 @@ const RECORD_FILES: Record<string, LibraryKind> = {
   'object.json': 'props',
   'terrain.json': 'terrains',
   'effect.json': 'vfx',
+  'prefab.json': 'prefabs',
 };
 
 export type LibraryRow = {
@@ -251,6 +252,7 @@ const TOP: Record<string, string> = {
   props: 'Objects',
   terrains: 'Terrain',
   vfx: 'Effects',
+  prefabs: 'Prefabs',
 };
 
 /**
