@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { toolById as terrainToolById } from '../terrain/tools.ts';
-import { ASSETS } from '../document.ts';
+import { BRUSHES } from '../document.ts';
 import type { MapDocument } from '../document.ts';
 import type { MapObject } from '../../src/data/mapFormat.ts';
 import type { CursorMode, MapEditor } from '../editor.ts';
@@ -161,7 +161,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
     };
 
     const placeAt = (current: MapDoc, tile: Tile) => {
-      const brush = ASSETS.find((asset: { id: string }) => asset.id === live.current.brushId);
+      const brush = BRUSHES.find((asset: { id: string }) => asset.id === live.current.brushId);
       if (!brush) {
         say('Pick something to place from the Assets tab', 'warn');
         return false;

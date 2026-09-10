@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { SLOT_KEYS, TOOLS, useTools } from './tools';
-import { ASSETS } from '../document.ts';
+import { BRUSHES } from '../document.ts';
 import { useSelection } from './selection';
 
 /**
@@ -78,7 +78,7 @@ export function useShortcuts(handlers: Handlers) {
       // wish, and making them two keystrokes only ever has one answer.
       const slot = SLOT_KEYS.indexOf(key);
       if (slot >= 0) {
-        const brush = (ASSETS as { id: string }[])[slot];
+        const brush = (BRUSHES as { id: string }[])[slot];
         if (brush) {
           setBrush(brush.id);
           setTool('place');

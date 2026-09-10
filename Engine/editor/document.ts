@@ -94,25 +94,28 @@ type DocState = Omit<MapDoc, 'terrain'>;
  * it is stored is the format's business, not the palette's.
  */
 /**
- * The asset catalogue: everything that can be put on a map.
+ * The brush catalogue: everything that can be put on a map.
  *
  * One flat list with a `group` on each, rather than a set of lists the panel
  * knows the names of — so a new kind of thing is a line here and appears in the
  * editor without the editor being told about it. `list` is where an instance of
  * it is stored and `kind` is which sort of that list's thing it is; between
- * them, placing is one path however many assets there are.
+ * them, placing is one path however many brushes there are.
  *
  * `group` is only how the panel arranges them. It carries no meaning further
- * in: two assets in one group have nothing in common but a heading.
+ * in: two brushes in one group have nothing in common but a heading.
+ *
+ * Called brushes rather than assets because an asset is a file in the library —
+ * these are the tools you draw with, and the two lists were both `ASSETS`.
  */
-export const ASSET_GROUPS = [
+export const BRUSH_GROUPS = [
   ['structure', 'Structure'],
   ['actors', 'Actors'],
   ['fixtures', 'Fixtures'],
   ['layout', 'Layout'],
 ];
 
-export const ASSETS: Brush[] = [
+export const BRUSHES: Brush[] = [
   { id: 'wall', label: 'Wall', list: 'walls', group: 'structure', icon: 'stack-2' },
   { id: 'door', label: 'Door', list: 'doors', group: 'structure', icon: 'door' },
   { id: 'portal', label: 'Portal', list: 'portals', group: 'structure', icon: 'door' },
