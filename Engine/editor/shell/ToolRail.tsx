@@ -8,7 +8,7 @@ import {
   IconTexture,
   IconMountain,
 } from '@tabler/icons-react';
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { IconButton } from '../ui/Button';
 import { Tooltip } from '../ui/Tooltip';
 import { TOOLS, useTools, type ToolId } from '../state/tools';
@@ -29,8 +29,14 @@ const GLYPHS: Record<ToolId, typeof IconPointer> = {
  * @param only which tools to offer, or all of them. The prefab screen has no
  *   terrain to shape, and a tool that edited scenery thrown away on save would
  *   be work that silently went nowhere.
+ * @param actions things you *do*, as opposed to modes you are in. A slot rather
+ *   than a list of props, so the rail goes on being about tools and whatever
+ *   screen it is on decides what it can do.
  */
-export function ToolRail({ only }: { only?: readonly ToolId[] } = {}) {
+export function ToolRail({
+  only,
+  actions,
+}: { only?: readonly ToolId[]; actions?: ReactNode } = {}) {
   const tool = useTools((state) => state.tool);
   const setTool = useTools((state) => state.setTool);
   const brush = useTools((state) => state.brush);
@@ -54,6 +60,13 @@ export function ToolRail({ only }: { only?: readonly ToolId[] } = {}) {
           </Fragment>
         );
       })}
+
+      {actions && (
+        <>
+          <div className={styles.divider} />
+          {actions}
+        </>
+      )}
 
       <Tooltip label={brush ? `Brush: ${brush}` : 'No brush chosen'} side="top">
         <div className={styles.brush}>

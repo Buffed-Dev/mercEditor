@@ -168,24 +168,3 @@
   color: var(--e-fg);
 }
 
-/* Only there when something is picked, so it never sits in the way of the
-   list it is about. */
-.makePrefab {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin: 0 6px 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--e-line);
-  border-radius: var(--e-r);
-  background: var(--e-raised);
-  color: var(--e-fg);
-  font: inherit;
-  font-size: var(--e-fs-5);
-  cursor: pointer;
-}
-
-.makePrefab:hover {
-  border-color: var(--e-fg-3);
-}

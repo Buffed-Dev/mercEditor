@@ -20,7 +20,6 @@ import {
   IconFlame,
   IconGhost,
   IconHammer,
-  IconPackage,
   IconSparkles,
   IconStack2,
   IconSun,
@@ -112,15 +111,9 @@ const filtered = (rows: Row[], filter: string) => {
 export function ObjectTree({
   doc,
   onChanged,
-  onMakePrefab,
 }: {
   doc: MapDoc | null;
   onChanged: () => void;
-  /**
-   * Turn what is picked into a prefab. Absent on the prefab screen, where a
-   * prefab made of a prefab is a thing nothing offers.
-   */
-  onMakePrefab?: (picked: ReadonlySet<string>) => void;
 }) {
   const selection = useSelection((state) => state.selection);
   const picked = useSelection((state) => state.picked);
@@ -231,19 +224,6 @@ export function ObjectTree({
         aria-label="Filter objects"
         onChange={(event) => setFilter(event.target.value)}
       />
-
-      {/* Only with something picked. An arrangement is the thing worth keeping,
-          and you have already said which one it is by choosing the rows. */}
-      {onMakePrefab && picked.size > 0 && (
-        <button
-          type="button"
-          className={styles.makePrefab}
-          onClick={() => onMakePrefab(picked)}
-        >
-          <IconPackage size={13} />
-          Make a prefab of {picked.size}
-        </button>
-      )}
 
       <DndContext
         sensors={sensors}

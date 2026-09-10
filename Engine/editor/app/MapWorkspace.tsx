@@ -15,7 +15,7 @@ import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import styles from './MapWorkspace.module.css';
 import { useTools } from '../state/tools';
-import { IconAngle } from '@tabler/icons-react';
+import { IconAngle, IconPackage } from '@tabler/icons-react';
 import { IconButton } from '../ui/Button';
 import { DEBUG_LAYERS, layerById } from '../terrain/debugLayers.ts';
 import { TURN_STEP } from '../viewport/heading';
@@ -131,6 +131,7 @@ export function MapWorkspace() {
   const rules = useDocument(game?.rules ?? null);
   const hover = useHoveredTile(editor);
   const selection = useSelection((state) => state.selection);
+  const picked = useSelection((state) => state.picked);
   const clearSelection = useSelection((state) => state.clear);
 
   // What a click on the map means. The tool decides, which is the whole of the
@@ -297,11 +298,7 @@ export function MapWorkspace() {
           onToggle={layout.toggleLeft}
         >
           {leftTab === 'objects' && (
-            <ObjectTree
-              doc={doc}
-              onChanged={() => editor?.invalidate()}
-              onMakePrefab={onMakePrefab}
-            />
+            <ObjectTree doc={doc} onChanged={() => editor?.invalidate()} />
           )}
           {leftTab === 'assets' && (
             <AssetShelves
@@ -321,7 +318,28 @@ export function MapWorkspace() {
       viewport={
         <Viewport
           hostRef={host}
-          overlay={<ToolRail />}
+          overlay={
+            <ToolRail
+              actions={
+                /* Always there, disabled until there is something to make one
+                   of. A button that appears when you pick a row would move the
+                   rail under the pointer at the moment you were reaching for
+                   it, and would only be discoverable by accident. */
+                <IconButton
+                  label={
+                    picked.size
+                      ? `Make a prefab of ${picked.size} ${picked.size === 1 ? 'object' : 'objects'}`
+                      : 'Make a prefab — pick some objects first'
+                  }
+                  side="top"
+                  disabled={picked.size === 0}
+                  onClick={() => onMakePrefab(picked)}
+                >
+                  <IconPackage size={21} />
+                </IconButton>
+              }
+            />
+          }
           gridVisible={gridVisible}
           onToggleGrid={() => setGridVisible((on) => !on)}
           onFrameAll={() => editor?.frameAll()}
