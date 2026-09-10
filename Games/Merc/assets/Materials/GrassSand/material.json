@@ -1,0 +1,20 @@
+{
+  "id": "material4",
+  "label": "grass-sand",
+  "texture": "Grass-Sand_base_color.png",
+  "bump": "Grass-Sand_normal.png",
+  "color": 16777215,
+  "uScale": 1,
+  "vScale": 1,
+  "uOffset": 0,
+  "vOffset": 0,
+  "roughness": 0.8,
+  "metallic": 0,
+  "bumpStrength": 1,
+  "emissive": 0,
+  "emissiveStrength": 0,
+  "alpha": 1,
+  "transparent": false,
+  "backFaces": false,
+  "unlit": false
+}

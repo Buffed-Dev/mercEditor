@@ -1,0 +1,20 @@
+{
+  "id": "material",
+  "label": "material",
+  "texture": "Test_base_color.png",
+  "bump": "Test_normal.png",
+  "color": 16767626,
+  "uScale": 1,
+  "vScale": 1,
+  "uOffset": 0,
+  "vOffset": 0,
+  "roughness": 0.78,
+  "metallic": 0.75,
+  "bumpStrength": 1,
+  "emissive": 0,
+  "emissiveStrength": 0,
+  "alpha": 1,
+  "transparent": false,
+  "backFaces": false,
+  "unlit": false
+}

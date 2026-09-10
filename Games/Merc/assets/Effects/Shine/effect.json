@@ -1,0 +1,66 @@
+{
+  "id": "shine",
+  "label": "Shine",
+  "kind": "particles",
+  "emitter": {
+    "modifiers": [],
+    "shape": "cone",
+    "radius": 0.22,
+    "height": 1,
+    "sizeX": 1,
+    "sizeY": 1,
+    "sizeZ": 1,
+    "spread": 25,
+    "lift": 0.35,
+    "mode": "continuous",
+    "count": 14,
+    "duration": 0
+  },
+  "particle": {
+    "modifiers": [
+      {
+        "kind": "overTime",
+        "scaleFrom": 1,
+        "scaleTo": 0,
+        "scaleCurve": "linear",
+        "fadeFrom": 1,
+        "fadeTo": 0,
+        "fadeCurve": "linear",
+        "colorFrom": 16771488,
+        "colorTo": 16756768,
+        "colorCurve": "linear"
+      }
+    ],
+    "shape": "dot",
+    "image": "",
+    "color": 16771488,
+    "glow": 1,
+    "opacity": 1,
+    "raw": true,
+    "life": 1.1,
+    "size": 0.09,
+    "speed": 0.35,
+    "gravity": -0.15
+  },
+  "sheet": {
+    "modifiers": [],
+    "shape": "plane",
+    "facing": "camera",
+    "image": "",
+    "columns": 4,
+    "rows": 4,
+    "frames": 0,
+    "fps": 16,
+    "loop": true,
+    "color": 0,
+    "glow": true,
+    "opacity": 1,
+    "raw": true,
+    "lift": 0.5,
+    "duration": 0,
+    "width": 1,
+    "height": 1,
+    "depth": 1,
+    "radius": 0.6
+  }
+}

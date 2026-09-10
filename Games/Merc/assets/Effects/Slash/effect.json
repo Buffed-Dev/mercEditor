@@ -1,0 +1,68 @@
+{
+  "id": "effect3",
+  "label": "Slash",
+  "kind": "sheet",
+  "emitter": {
+    "modifiers": [],
+    "shape": "cone",
+    "radius": 0.2,
+    "height": 1,
+    "sizeX": 1,
+    "sizeY": 1,
+    "sizeZ": 1,
+    "spread": 40,
+    "lift": 0.3,
+    "mode": "continuous",
+    "count": 60,
+    "duration": 0
+  },
+  "particle": {
+    "modifiers": [],
+    "shape": "dot",
+    "image": "",
+    "color": 16762982,
+    "glow": 1,
+    "opacity": 1,
+    "raw": true,
+    "life": 0.8,
+    "size": 0.18,
+    "speed": 1.4,
+    "gravity": 0
+  },
+  "sheet": {
+    "modifiers": [
+      {
+        "kind": "transform",
+        "posX": 0,
+        "posY": 0,
+        "posZ": 1,
+        "rotX": 0,
+        "rotY": 0,
+        "rotZ": 0,
+        "scaleX": 2,
+        "scaleY": 2,
+        "scaleZ": 2
+      }
+    ],
+    "shape": "plane",
+    "facing": "ground",
+    "image": "sheet.png",
+    "columns": 5,
+    "rows": 5,
+    "frameFrom": 10,
+    "frames": 16,
+    "fps": 60,
+    "loop": false,
+    "color": 0,
+    "glow": true,
+    "opacity": 1,
+    "raw": true,
+    "lift": 0.2,
+    "duration": 0,
+    "width": 3,
+    "height": 3,
+    "depth": 1,
+    "radius": 0.6,
+    "frameTo": 13
+  }
+}
