@@ -12,9 +12,11 @@ export { kindOfFile } from '../src/data/assets.ts';
 /**
  * Getting a file into a game folder.
  *
- * The file goes to `Games/<game>/assets/` and a record names it. A model is not
- * something a rules file can hold, and the effects editor proved what happens
- * when you try: a megabyte of base64 for pictures a hundred pixels across.
+ * The file goes into the folder of whatever will name it —
+ * `Games/<game>/assets/Materials/Grass/`, say — and the record there names it
+ * by filename alone. A model is not something a rules file can hold, and the
+ * effects editor proved what happens when you try: a megabyte of base64 for
+ * pictures a hundred pixels across.
  *
  * Lifted out of the old assets mode so both editors write files the same way.
  */
@@ -70,19 +72,26 @@ export const stemOf = (name: string): string => name.replace(/\.[^.]+$/, '');
  */
 export type UploadResult = { name: string } | { error: string };
 
-export async function uploadAsset(game: string, file: File): Promise<UploadResult> {
+export async function uploadAsset(
+  game: string,
+  file: File,
+  folder = '',
+): Promise<UploadResult> {
   const name = safeFileName(file.name);
   if (!name) return { error: `${file.name} is not a kind of file this can use` };
+  const path = folder ? `${folder}/${name}` : name;
 
   try {
     const response = await fetch('/__assets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ game, name, data: await readFile(file) }),
+      body: JSON.stringify({ game, path, data: await readFile(file) }),
     });
     const body = (await response.json()) as { error?: string };
     if (!response.ok) return { error: body.error ?? `Could not store ${file.name}` };
-    assetRewritten(name);
+    // Keyed by the path, which is what the caches downstream are keyed by: two
+    // folders may each hold a `base_color.png` and they are different pictures.
+    assetRewritten(path);
     return { name };
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);

@@ -1,6 +1,7 @@
 // The maps of whichever game this was built for. Finding the files is the
 // game folder's own job — see Games/<Name>/game.js — so this only holds them.
 import { maps as GAME_MAPS, startMap } from '#game';
+import { expandPrefabs } from '../prefabs.ts';
 import type { GameMap } from '../mapFormat.ts';
 
 // `#game` is content, outside the type checker. Naming the two shapes once
@@ -74,7 +75,25 @@ export function destinationIds(): string[] {
 }
 
 /**
- * The map behind an id.
+ * Every map that has already had its prefabs expanded, by the map it came from.
+ *
+ * Weak, so a run that is thrown away takes its expansion with it rather than
+ * this holding the whole dungeon alive to be helpful.
+ */
+const expanded = new WeakMap<GameMap, GameMap>();
+
+/**
+ * The map behind an id, with its prefab placements turned into objects.
+ *
+ * The one place that expands, so everything downstream — what blocks a tile,
+ * what can be stood on, the portals, the monsters, the lights, the view — reads
+ * lists that simply have the children in them and never learns prefabs exist.
+ * Expanding where the map is *drawn* instead would fix what you see and leave
+ * the player walking through a prefab's boulder.
+ *
+ * After the run rather than before it, so an assembled dungeon expands the
+ * prefabs its chunks brought along; a map with none is handed straight back by
+ * `expandPrefabs` itself, so this costs nothing until something uses one.
  */
 export function getMap(id: string): GameMap {
   const map = MAPS[id];
@@ -82,7 +101,13 @@ export function getMap(id: string): GameMap {
   // A generated map resolves to the run you are on: assembled the first time
   // you go in and kept after that, so stepping out to base and back is the same
   // dungeon. `endRun` is what makes the next one different.
-  return isGenerated(map) ? currentRun(id) : map;
+  const found = isGenerated(map) ? currentRun(id) : map;
+
+  const already = expanded.get(found);
+  if (already) return already;
+  const out = expandPrefabs(found);
+  expanded.set(found, out);
+  return out;
 }
 
 // At the bottom, and imported rather than re-exported for a reason: generate.js

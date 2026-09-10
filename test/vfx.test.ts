@@ -14,7 +14,6 @@ import {
 } from '../Engine/src/data/vfx.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../Engine/src/data/mapFormat.ts';
 import { abilityFields, normalizeAbility } from '../Engine/src/data/abilities.ts';
-import { serializeRules } from '../Engine/editor/serializeData.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
@@ -197,17 +196,19 @@ test('a sheet shows only its own shape"s geometry, and counts its cells', () => 
   assert.equal(sheetFrames({ columns: 4, rows: 4, frameFrom: 15, frames: 0 }).count, 1);
 });
 
-test('the rules file it is written to parses back to what went in', async () => {
+test('the record file it is written to parses back to what went in', () => {
   const effect = defaultVfx('shine');
   effect.emitter.modifiers = [defaultModifier('transform'), defaultModifier('movement', 'orbit')];
   effect.particle.modifiers = [defaultModifier('overTime'), defaultModifier('randomize')];
   effect.sheet.modifiers = [defaultModifier('movement', 'drift')];
 
-  const source = serializeRules('vfx', [effect]);
-  const module = await import(`data:text/javascript,${encodeURIComponent(source)}`);
-  assert.deepEqual(module.VFX[0], effect);
+  // An effect is Effects/<name>/effect.json now rather than one row of a
+  // shared module -- which is how a 1.1 MB rules file became five small ones
+  // and a picture you can open.
+  const read = JSON.parse(JSON.stringify(effect));
+  assert.deepEqual(read, effect);
   // And reading it back changes nothing, which is what makes a save idempotent.
-  assert.deepEqual(normalizeVfx(module.VFX[0]), effect);
+  assert.deepEqual(normalizeVfx(read), effect);
 });
 
 test('an ability carries an effect and a trail, and none by default', () => {

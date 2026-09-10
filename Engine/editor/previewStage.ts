@@ -5,6 +5,8 @@ import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import { Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
+import { skyEnvironment } from '../src/render/environment.ts';
+import { DEFAULT_ENV } from '../src/data/mapFormat.ts';
 
 /**
  * A canvas of one's own, for the previews that open over the map.
@@ -72,6 +74,10 @@ export function createPreviewStage({
       stage.useRightHandedSystem = true;
       stage.clearColor = new Color4(0.04, 0.05, 0.07, 1);
       stage.skipPointerMovePicking = true;
+      // The same thing a map gives its materials to reflect, so a metal tuned
+      // here is the metal you get out there. Without it `surface` leaves the
+      // environment at zero and every metallic preview is a black shape.
+      stage.environmentTexture = skyEnvironment(stage, DEFAULT_ENV.sky, DEFAULT_ENV.soilColor);
 
       camera = new TargetCamera('previewIso', CAMERA_OFFSET.clone(), stage);
       camera.mode = Camera.ORTHOGRAPHIC_CAMERA;

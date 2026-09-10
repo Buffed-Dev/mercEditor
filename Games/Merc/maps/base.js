@@ -11,7 +11,7 @@ export const BASE = {
   name: 'Base',
   startZ: 1,
   stepHeight: 6,
-  terrainKeys: { 'gr': 'grass', 'sa': 'sand', 'te': 'terrain' },
+  terrainKeys: { 'gr': 'grass', 'sa': 'sand' },
 
   height: [
     '........................',

@@ -1,14 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  ASSET_FIELDS,
-  ASSET_KIND_KEYS,
-  assetFrames,
-  assetKeys,
-  defaultAsset,
-  kindOfFile,
-  normalizeAsset,
-} from '../Engine/src/data/assets.ts';
+import { assetFrames, filePath, fileUrl, kindOfFile } from '../Engine/src/data/assets.ts';
 import {
   blockedTiles,
   defaultProp,
@@ -16,48 +8,49 @@ import {
   standHeights,
 } from '../Engine/src/data/props.ts';
 import type { PropInput } from '../Engine/src/data/props.ts';
-import type { RuleKind } from '../Engine/editor/serializeData.ts';
+import { normalizeMaterial } from '../Engine/src/data/materials.ts';
 import { safeFileName } from '../Engine/editor/uploadAsset.ts';
-import { serializeRules } from '../Engine/editor/serializeData.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
 /**
- * The parts of the assets feature that are not Babylon: what a record is, what
- * a filename is allowed to be, which tiles an object closes off, and the two
- * files all of it has to survive a round trip through.
+ * The parts of the assets feature that are not Babylon: how a record's
+ * filename becomes a path, what a filename is allowed to be, which tiles an
+ * object closes off, and the round trip a record has to survive.
  *
  * Whether a model *looks* right is not testable here and is not worth
  * pretending otherwise; that is what the stage in the workspace is for.
  */
 
-test('an asset carries only the fields of the kind it is', () => {
-  const mesh = normalizeAsset({ id: 'rock', kind: 'mesh', file: 'rock.glb' });
-  assert.ok(assetKeys(mesh).includes('scale'));
-  assert.ok(!assetKeys(mesh).includes('uScale'));
+test('a file is named relative to the folder of the record naming it', () => {
+  assert.equal(filePath('Materials/Grass', 'Grass_base_color.png'),
+    'Materials/Grass/Grass_base_color.png');
+  // Nested as deep as it likes; the record only ever says the bare name.
+  assert.equal(filePath('Materials/Stone/Mossy', 'moss.png'), 'Materials/Stone/Mossy/moss.png');
 
-  // Switching kind drops the old kind's settings rather than carrying them:
-  // a texture has no rotation, and a key nobody reads is a key in every diff.
-  const asTexture = normalizeAsset({ ...mesh, kind: 'texture' });
-  assert.equal(asTexture.rotX, undefined);
-  assert.equal(asTexture.uScale, 1);
-  // What it is and where it lives survive the change; only the dials go.
-  assert.equal(asTexture.id, 'rock');
-  assert.equal(asTexture.file, 'rock.glb');
+  // A leading slash means the assets root instead: the escape hatch for a file
+  // two records in different folders genuinely share.
+  assert.equal(filePath('Materials/Grass', '/Shared/noise.png'), 'Shared/noise.png');
 
-  // A kind nobody defines falls back rather than producing a record with no
-  // fields at all.
-  assert.equal(normalizeAsset({ id: 'x', kind: 'nonsense' }).kind, 'mesh');
+  // A record that names nothing resolves to nothing, rather than to its own
+  // folder -- which would be a url pointing at a directory.
+  assert.equal(filePath('Materials/Grass', ''), '');
+  assert.equal(filePath('Materials/Grass', undefined), '');
+
+  // No folder is the assets root, which is where a file nothing has claimed
+  // yet sits.
+  assert.equal(filePath('', 'wood.png'), 'wood.png');
+  assert.equal(filePath(undefined, 'wood.png'), 'wood.png');
 });
 
-test('every kind has a default for every field it declares', () => {
-  for (const kind of ASSET_KIND_KEYS) {
-    const made = defaultAsset('x', kind);
-    for (const key of Object.keys(ASSET_FIELDS[kind])) {
-      const fields = made as Record<string, unknown>;
-      assert.notEqual(fields[key], undefined, `${kind}.${key} has a default`);
-    }
-  }
+test('a file url keeps the whole path, not just the name', () => {
+  // Two folders may each hold a base_color.png and they are not the same
+  // picture -- which is the reason the manifest is keyed by path now.
+  assert.equal(
+    fileUrl('Materials/Grass/Grass_base_color.png', 'Merc'),
+    '/Games/Merc/assets/Materials/Grass/Grass_base_color.png',
+  );
+  assert.equal(fileUrl('', 'Merc'), '');
 });
 
 test('the kind of a file follows from its extension', () => {
@@ -135,23 +128,22 @@ test('only the objects that block close a tile off', () => {
   assert.equal(blockedTiles(undefined).size, 0);
 });
 
-test('both rules files parse back to what went in', async () => {
-  const assets = [
-    normalizeAsset({ id: 'rock', label: 'Rock', kind: 'mesh', file: 'rock.glb', scale: 2 }),
-    normalizeAsset({ id: 'bark', kind: 'texture', file: 'bark.png', uScale: 4 }),
-    normalizeAsset({ id: 'fire', kind: 'sheet', file: 'fire.png', columns: 5, rows: 5 }),
+test('a record survives the round trip through its own file', () => {
+  // What a save actually does now: JSON.stringify into the record's folder,
+  // and the glob reads it back through the normalizer on the way in. `path` is
+  // derived from where the file was found, so it is not written and not read.
+  const written = [
+    normalizeProp({ id: 'boulder', mesh: 'rock.glb', material: 'stone', blocks: true, scale: 2 }),
+    normalizeMaterial({ id: 'stone', texture: 'base.png', bump: 'normal.png', roughness: 0.3 }),
   ];
-  const props = [normalizeProp({ id: 'boulder', mesh: 'rock', texture: 'bark', blocks: true })];
 
-  const cases: [RuleKind, object[]][] = [
-    ['assets', assets],
-    ['props', props],
-  ];
-  for (const [kind, list] of cases) {
-    const source = serializeRules(kind, list);
-    const module = await import(`data:text/javascript,${encodeURIComponent(source)}`);
-    const read = Object.values(module)[0];
-    assert.deepEqual(read, list, `${kind} survived the round trip`);
+  for (const record of written) {
+    const { path: _path, ...body } = record;
+    const read = JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
+    const back = 'mesh' in record
+      ? normalizeProp({ ...read, path: record.path } as PropInput)
+      : normalizeMaterial({ ...read, path: record.path });
+    assert.deepEqual(back, record, `${record.id} survived the round trip`);
   }
 });
 

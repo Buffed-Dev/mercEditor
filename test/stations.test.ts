@@ -21,6 +21,7 @@ function part(id: string, extra: Partial<ChunkPart> = {}): ChunkPart {
     spawns: {},
     walls: [],
     portals: [],
+    prefabs: [],
     monsters: [{ gx: 1, gy: 3, kind: 'grunt' }],
     stations: [{ gx: 1, gy: 3, label: 'Bench' }],
     torches: [],

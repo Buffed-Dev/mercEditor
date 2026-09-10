@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
-import { ASSET_EXTENSIONS, assetById, assetUrl } from '../../src/data/assets.ts';
+import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
-import { writeRules } from '../save.ts';
+import { makeFolder, moveFolder, removeFile, writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
 import { TopBar } from '../shell/TopBar';
 import { FieldList } from '../fields/FieldList';
 import type { FieldSpec } from '../fields/types';
-import { LIBRARY_KINDS, libraryFields, type LibraryKind } from '../rules/library';
+import { LIBRARY_KINDS, libraryFields, pathOf, type LibraryKind } from '../rules/library';
+import { LibraryTree } from '../panels/LibraryTree';
+import { kindOfFolder, type LibraryRow } from '../rules/libraryTree.ts';
+import { useLibrary } from '../state/useLibrary';
+import { ConfirmDelete, type Users } from '../ui/ConfirmDelete';
 import { optionsForField } from '../rules/schema';
 import { Button } from '../ui/Button';
 import { useDocument } from '../state/useDocument';
@@ -19,8 +23,8 @@ import { useGame } from '../state/useGame';
 import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import { createAssetPreview } from '../preview/assetPreview.ts';
-import type { Asset } from '../../src/data/assets.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
+import type { PropInput } from '../../src/data/props.ts';
 import { createMaterialPreview } from '../preview/materialPreview.ts';
 import { createVfxPreview } from '../preview/vfxPreview.ts';
 import { VfxDetail } from '../panels/VfxDetail';
@@ -30,6 +34,24 @@ import styles from './LibraryWorkspace.module.css';
 
 /** One empty list, so "no document yet" does not look like a change. */
 const EMPTY: never[] = [];
+
+/**
+ * What a row is called, for the dialog that asks about deleting it.
+ *
+ * A function rather than a ternary in the markup: each branch narrows the row
+ * to the shape it is, which reading `row.list` off a union does not.
+ */
+function describe(row: LibraryRow): { label: string; path: string; what: string } {
+  if (row.row === 'record') {
+    const kind = LIBRARY_KINDS.find((one) => one.id === row.list);
+    return { label: row.label, path: row.path, what: kind?.singular ?? 'record' };
+  }
+  return {
+    label: row.name,
+    path: row.path,
+    what: row.row === 'folder' ? 'folder and everything in it' : 'file',
+  };
+}
 
 /**
  * The library: the records a map is drawn *with*.
@@ -50,6 +72,7 @@ export function LibraryWorkspace() {
   const layout = useLayout(gameId);
   const doc = useDocument(game?.rules ?? null);
   const edit = useEdit(doc, null);
+  const library = useLibrary(gameId);
 
   const active: LibraryKind = kind ?? 'materials';
   const records = (doc?.list(active) ?? []) as Record<string, unknown>[];
@@ -62,6 +85,14 @@ export function LibraryWorkspace() {
   // only way to watch a highlight move. Different questions, so it is a choice.
   const [shape, setShape] = useState('box');
 
+  /**
+   * What a Delete is waiting to be confirmed for, and what it would break.
+   *
+   * Held rather than asked with `window.confirm`, because "are you sure" is a
+   * question nobody reads and the useful thing to say is *what names it*.
+   */
+  const [pending, setPending] = useState<{ row: LibraryRow; users: Users } | null>(null);
+
   // One stage per kind of record, because they stand different things on it: a
   // material wears a shape, a model stands on a pad, an effect runs. Rebuilt
   // when the kind changes, which is also when the old one should be let go.
@@ -72,15 +103,8 @@ export function LibraryWorkspace() {
   }, [active]);
   const { host, ready } = usePreviewStage(preview);
 
-  /** A texture asset id, as a url the dev server will serve. */
-  const urlOf = useMemo(
-    () => (id: string) => {
-      const assets = (doc?.list('assets') ?? []) as { id: string }[];
-      const asset = assets.find((entry) => entry.id === id) ?? assetById(id);
-      return asset ? assetUrl(asset, gameId) : '';
-    },
-    [doc, gameId],
-  );
+  /** A file, by its path under assets/, as a url the dev server will serve. */
+  const urlOf = useMemo(() => (path: string) => fileUrl(path, gameId), [gameId]);
 
   // A handle on the preview, for the console — the same one the map workspace
   // publishes, and the only way to ask a running scene a question.
@@ -92,8 +116,21 @@ export function LibraryWorkspace() {
   // the array the document holds, so its identity is stable between edits and
   // changes when one replaces it — which is exactly what the effect below wants
   // to hear about, and cheaper than rebuilding a context object per render.
-  const assets = doc?.list('assets') ?? EMPTY;
   const materials = doc?.list('materials') ?? EMPTY;
+  const props = doc?.list('props') ?? EMPTY;
+
+  /**
+   * Every kind's records, for the tree to merge with what is on disk.
+   *
+   * Built fresh each render rather than memoized. The document is edited in
+   * place, so the arrays it hands back keep their identity while their contents
+   * change -- which means a memo over them would be a memo that never
+   * recomputed, and a rename would not reach the tree. Walking forty rows is
+   * not worth being wrong about.
+   */
+  const byKind = Object.fromEntries(
+    LIBRARY_KINDS.map((kind) => [kind.id, doc?.list(kind.id) ?? EMPTY]),
+  ) as Partial<Record<LibraryKind, Record<string, unknown>[]>>;
 
   // Redrawn whenever the record changes. The document is edited in place, so
   // its revision is what says it did.
@@ -104,75 +141,209 @@ export function LibraryWorkspace() {
     preview.draw(record, {
       // The rules lists are loose records (see dataDocument); which list holds
       // what is known here and nowhere the checker can see.
-      assets: assets as unknown as readonly Asset[],
       materials: materials as unknown as readonly MaterialInput[],
+      // A prefab's contents name objects, so the preview needs the list to
+      // look them up. The other kinds ignore it.
+      props: props as unknown as readonly PropInput[],
       game: gameId,
       kind: active,
       shape,
       urlOf,
     });
-  }, [ready, preview, active, record, shape, urlOf, assets, materials, gameId, doc?.revision]);
+  }, [ready, preview, active, record, shape, urlOf, materials, props, gameId, doc?.revision]);
 
   async function onSave() {
     if (!doc) return;
     try {
       const files = await writeRules(gameId, doc.data);
       doc.markSaved();
-      say(`Wrote ${files} rule files`, 'good');
+      say(`Wrote ${files} files`, 'good');
+      void library.refresh();
     } catch (error) {
       say(`Save failed: ${(error as Error).message}. Is the dev server running?`, 'error');
     }
   }
 
-  const fields = record ? libraryFields(active, record) : [];
+  const fields = record ? libraryFields(active) : [];
 
   /**
-   * Bring files into the game folder, one record per file.
+   * Bring files into the open record's own folder.
    *
-   * The kind is read off the extension — there is nothing to ask about a .glb,
-   * and a picture can be switched to a sheet in one click if that is what it
-   * is. The record is named after the file all the way down, rather than
-   * `asset7` wearing a name that says `rock`.
+   * No record is made for them. A file is named by whatever uses it — this
+   * material's colour map, that object's mesh — and it is that record's folder
+   * the bytes land in, which is what makes the folder copyable and the
+   * filename enough to say inside it.
+   *
+   * The first one is dropped into the field it fits, so the ordinary case —
+   * one picture, onto the material you are looking at — takes no second step.
    */
   async function onUpload(files: FileList | null) {
-    if (!doc || !files?.length) return;
-    let last = '';
-    let stored = 0;
+    if (!doc || !record || !files?.length) return;
+    const folder = pathOf(record);
+    let stored = '';
 
     for (const file of Array.from(files)) {
-      const result = await uploadAsset(gameId, file);
+      const result = await uploadAsset(gameId, file, folder);
       if ('error' in result) {
         say(result.error, 'error');
         continue;
       }
-      const made = doc.add('assets');
-      if (!made) continue;
-      const label = stemOf(result.name);
-      doc.update('assets', made.index, {
-        label,
-        kind: kindOfFile(result.name),
-        file: result.name,
-      });
-      last = String((doc.list('assets') as { id: string }[])[made.index]?.id ?? '');
-      stored += 1;
+      stored = result.name;
     }
 
     if (!stored) return;
-    say(`Stored ${stored} file${stored > 1 ? 's' : ''} in Games/${gameId}/assets/`, 'good');
-    void navigate(`/${gameId}/library/assets/${last}`);
+    const slot = fields.find(
+      (field) => field.kind === 'file' && field.accept === kindOfFile(stored),
+    );
+    if (slot && !record[slot.key]) doc.update(active, index, { [slot.key]: stored });
+    say(`Stored ${stemOf(stored)} in ${folder || 'assets'}/`, 'good');
+    void library.refresh();
   }
 
-  /** Replace the bytes behind the open record, keeping the record itself. */
-  async function onReplace(files: FileList | null) {
-    if (!doc || !record || !files?.length) return;
-    const result = await uploadAsset(gameId, files[0]);
-    if ('error' in result) return say(result.error, 'error');
-    doc.update('assets', index, { file: result.name });
-    say(`Replaced with ${result.name}`, 'good');
+  /** Open whatever the row is: a record in the inspector, a folder open. */
+  function onOpen(row: LibraryRow) {
+    if (row.row !== 'record') return;
+    void navigate(`/${gameId}/library/${row.list}/${row.id}`);
+  }
+
+  /**
+   * Claim a file nothing names, by making the record that names it.
+   *
+   * Which kind is decided by the top folder it is under, because that is the
+   * one thing the folder already says. Dropped straight into the field it
+   * fits, so importing a normal map does not then ask which slot it was.
+   */
+  function onImport(path: string) {
+    if (!doc) return;
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const list = kindOfFolder(path);
+    if (!list) {
+      return say('Put it under Materials, Objects, Terrain or Effects first', 'error');
+    }
+    const name = path.slice(path.lastIndexOf('/') + 1);
+
+    // A record already living in this folder takes the file rather than a
+    // second record being made beside it: a folder is one record.
+    const here = (doc.list(list) as Record<string, unknown>[]).findIndex(
+      (entry) => String(entry.path ?? '') === folder,
+    );
+    const at = here >= 0 ? here : (doc.add(list)?.index ?? -1);
+    if (at < 0) return;
+
+    const record = (doc.list(list) as Record<string, unknown>[])[at];
+    if (here < 0) doc.update(list, at, { label: stemOf(name), path: folder });
+
+    const slot = libraryFields(list).find(
+      (field) => field.kind === 'file' && field.accept === kindOfFile(name) && !record[field.key],
+    );
+    if (slot) doc.update(list, at, { [slot.key]: name });
+    else say(`${name} is in ${folder}, but ${String(record.label)} has no free slot for it`, 'warn');
+
+    void navigate(`/${gameId}/library/${list}/${String(record.id)}`);
+    void library.refresh();
+  }
+
+  /**
+   * Drag a folder into another one.
+   *
+   * The bytes move first and the document follows, so a request that fails
+   * leaves the records saying where things really are. Outside undo, because
+   * the folder is real: see `rewrite` in undoable.ts.
+   */
+  async function onMove(from: string, toFolder: string) {
+    if (!doc) return;
+    const to = `${toFolder}/${from.slice(from.lastIndexOf('/') + 1)}`;
+    const found = LIBRARY_KINDS.flatMap((kind) => {
+      const index = (doc.list(kind.id) as Record<string, unknown>[]).findIndex(
+        (entry) => String(entry.path ?? '') === from,
+      );
+      return index >= 0 ? [{ list: kind.id, index }] : [];
+    })[0];
+
+    try {
+      await moveFolder(gameId, from, to);
+    } catch (error) {
+      return say((error as Error).message, 'error');
+    }
+    if (found) {
+      const why = doc.setPath(found.list, found.index, to);
+      if (why) say(why, 'error');
+    }
+    say(`Moved to ${to}`, 'good');
+    void library.refresh();
+  }
+
+  /**
+   * Ask before deleting, and say what would break.
+   *
+   * A record is asked about with what names it; a file and a folder are asked
+   * about plainly. A file is not blocked by anything naming it -- a record
+   * pointing at a file that is gone shows as "missing" on its own row, which is
+   * a state you can see and fix, unlike an id pointing at nothing.
+   */
+  function onAskDelete(row: LibraryRow) {
+    if (!doc) return;
+    const users = row.row === 'record' ? (doc.usedBy(row.list, row.index) as Users) : [];
+    setPending({ row, users });
+  }
+
+  /**
+   * Do it: the record out of the document, the folder off the disk.
+   *
+   * The bytes go last. A document that has dropped a record whose folder is
+   * still there is a folder the browser shows as unimported; the other way
+   * round is a record naming files that are gone, which is worse.
+   */
+  async function onConfirmDelete() {
+    const asked = pending;
+    setPending(null);
+    if (!asked || !doc) return;
+
+    const { row } = asked;
+    if (row.row === 'record') doc.drop(row.list, row.index);
+    // A folder may hold records deeper down. Each of those is a record the
+    // document still believes in, so they go too rather than being left naming
+    // a folder that is not there.
+    if (row.row === 'folder') {
+      for (const kind of LIBRARY_KINDS) {
+        const held = doc.list(kind.id) as Record<string, unknown>[];
+        for (let at = held.length - 1; at >= 0; at -= 1) {
+          if (String(held[at].path ?? '').startsWith(`${row.path}/`)) doc.drop(kind.id, at);
+        }
+      }
+    }
+
+    try {
+      await removeFile(gameId, row.path, row.row !== 'file');
+      say(`Deleted ${row.name}`, 'good');
+    } catch (error) {
+      say((error as Error).message, 'error');
+    }
+    if (record && row.path === pathOf(record)) void navigate(`/${gameId}/library`);
+    void library.refresh();
+  }
+
+  async function onNewFolder() {
+    const name = window.prompt('New folder, as a path under assets/', 'Materials/New');
+    if (!name) return;
+    try {
+      await makeFolder(gameId, name);
+      say(`Made ${name}`, 'good');
+      void library.refresh();
+    } catch (error) {
+      say((error as Error).message, 'error');
+    }
   }
 
   return (
-    <Shell
+    <>
+      <ConfirmDelete
+        target={pending ? describe(pending.row) : null}
+        users={pending?.users ?? []}
+        onCancel={() => setPending(null)}
+        onConfirm={() => void onConfirmDelete()}
+      />
+      <Shell
       game={gameId}
       topBar={
         <TopBar
@@ -194,66 +365,24 @@ export function LibraryWorkspace() {
           collapsed={layout.leftCollapsed}
           onToggle={layout.toggleLeft}
         >
-          <nav className={styles.kinds} aria-label="Library">
-            {LIBRARY_KINDS.map((entry) => (
-              <NavLink
-                key={entry.id}
-                to={`/${gameId}/library/${entry.id}`}
-                className={styles.kind}
-              >
-                <span className={styles.kindLabel}>{entry.label}</span>
-                <span className={styles.count}>{doc?.list(entry.id).length ?? 0}</span>
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className={styles.records}>
-            {records.map((entry) => (
-              <button
-                key={String(entry.id)}
-                type="button"
-                className={`${styles.record} ${entry.id === recordId ? styles.on : ''}`}
-                onClick={() => void navigate(`/${gameId}/library/${active}/${String(entry.id)}`)}
-              >
-                <span className={styles.name}>{String(entry.label ?? entry.id)}</span>
-                <span className={styles.id}>{String(entry.id)}</span>
-              </button>
-            ))}
-            {/* A file is not made, it is brought in — so the Files shelf asks
-                for one instead of adding an empty record that names nothing. */}
-            {active === 'assets' ? (
-              <label className={styles.add}>
-                <IconUpload size={13} />
-                Add files…
-                <input
-                  type="file"
-                  multiple
-                  accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
-                  className={styles.file}
-                  onChange={(event) => {
-                    void onUpload(event.target.files);
-                    event.target.value = '';
-                  }}
-                />
-              </label>
-            ) : (
-              <Button
-                variant="quiet"
-                className={styles.add}
-                onClick={() => {
-                  const made = doc?.add(active);
-                  if (made) {
-                    const list = doc?.list(active) ?? [];
-                    void navigate(
-                      `/${gameId}/library/${active}/${String(list[made.index]?.id ?? '')}`,
-                    );
-                  }
-                }}
-              >
-                New {LIBRARY_KINDS.find((entry) => entry.id === active)?.singular}
-              </Button>
-            )}
-          </div>
+          <LibraryTree
+            game={gameId}
+            scan={library.scan}
+            records={byKind}
+            selected={record ? pathOf(record) : ''}
+            onOpen={onOpen}
+            onImport={onImport}
+            onMove={(from, to) => void onMove(from, to)}
+            onRefresh={() => void library.refresh()}
+            onDelete={onAskDelete}
+            onNewFolder={() => void onNewFolder()}
+            onNew={(kind) => {
+              const made = doc?.add(kind);
+              if (!made) return;
+              const list = doc?.list(kind) ?? [];
+              void navigate(`/${gameId}/library/${kind}/${String(list[made.index]?.id ?? '')}`);
+            }}
+          />
         </DockPanel>
       }
       viewport={
@@ -294,28 +423,44 @@ export function LibraryWorkspace() {
                 </span>
                 <span className={styles.recordId}>{String(record.id)}</span>
               </header>
-              {active === 'assets' && (
+              {/* A prefab is contents rather than settings, so the way to
+                  edit one is a stage, not this form. */}
+              {active === 'prefabs' && (
                 <div className={styles.fileRow}>
-                  <span className={styles.fileName}>{String(record.file ?? 'no file')}</span>
-                  <label className={styles.replace}>
-                    Replace…
-                    <input
-                      type="file"
-                      accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
-                      className={styles.file}
-                      onChange={(event) => {
-                        void onReplace(event.target.files);
-                        event.target.value = '';
-                      }}
-                    />
-                  </label>
+                  <span className={styles.fileName}>
+                    {(record.props as unknown[] | undefined)?.length ?? 0} objects
+                  </span>
+                  <Button
+                    variant="primary"
+                    onClick={() => void navigate(`/${gameId}/prefabs/${String(record.id)}`)}
+                  >
+                    Open in editor
+                  </Button>
                 </div>
               )}
+              <div className={styles.fileRow}>
+                <span className={styles.fileName}>{pathOf(record) || 'assets'}/</span>
+                <label className={styles.replace}>
+                  <IconUpload size={13} />
+                  Add files…
+                  <input
+                    type="file"
+                    multiple
+                    accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
+                    className={styles.file}
+                    onChange={(event) => {
+                      void onUpload(event.target.files);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <FieldList
                 fields={fields.map((field) => {
-                  // A material slot names a texture asset, and a terrain names
-                  // a material. Both are pickers over the document's own lists,
-                  // and the asset one narrows to the kind of file that belongs.
+                  // A terrain names a material, an ability an effect: pickers
+                  // over the document's own lists. A `file` field is not one of
+                  // them — it names a file in this record's folder, which the
+                  // document knows nothing about.
                   const options = optionsForField(
                     field as { kind: string; assetKind?: string },
                     doc,
@@ -339,6 +484,7 @@ export function LibraryWorkspace() {
         </DockPanel>
       }
       statusBar={<StatusBar />}
-    />
+      />
+    </>
   );
 }

@@ -5,6 +5,7 @@ import {
   IconFlame,
   IconGhost,
   IconHammer,
+  IconPackage,
   IconSparkles,
   IconStack2,
   IconSun,
@@ -12,7 +13,7 @@ import {
 } from '@tabler/icons-react';
 import { destinationIds } from '../../src/data/maps/index.ts';
 import { LIGHT_TYPES } from '../../src/data/lights.ts';
-import { ASSETS, ASSET_GROUPS } from '../document.ts';
+import { BRUSHES, BRUSH_GROUPS } from '../document.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { Section } from '../ui/Section';
@@ -45,6 +46,7 @@ const GLYPHS: Record<string, typeof IconBox> = {
   vfx: IconSparkles,
   station: IconHammer,
   prop: IconBox,
+  prefab: IconPackage,
   chunk: IconStack2,
   spawn: IconTargetArrow,
 };
@@ -93,10 +95,13 @@ export type TerrainRecord = { id: string; label?: string; char?: string };
 export function AssetShelves({
   terrains,
   onEditTerrain,
+  without,
 }: {
   terrains: readonly TerrainRecord[];
   /** Open a terrain's own record, where what it is made of is decided. */
   onEditTerrain: (id: string) => void;
+  /** Brushes this screen has no business offering. See PrefabWorkspace. */
+  without?: readonly string[];
 }) {
   const tool = useTools((state) => state.tool);
   const terrainId = useTools((state) => state.terrainId);
@@ -188,9 +193,9 @@ export function AssetShelves({
         </div>
       )}
 
-      {(ASSET_GROUPS as [string, string][]).map(([group, label]) => {
-        const inGroup = (ASSETS as { id: string; label: string; group: string }[]).filter(
-          (asset) => asset.group === group,
+      {(BRUSH_GROUPS as [string, string][]).map(([group, label]) => {
+        const inGroup = (BRUSHES as { id: string; label: string; group: string }[]).filter(
+          (asset) => asset.group === group && !without?.includes(asset.id),
         );
         // A shelf with nothing on it is not drawn, so adding a group costs
         // nothing until something is put in it.
@@ -204,7 +209,7 @@ export function AssetShelves({
                 // Where a brush sits in the catalogue is the digit it answers
                 // to; past the tenth there is no digit left to give.
                 const slot = SLOT_KEYS[
-                  (ASSETS as { id: string }[]).findIndex((entry) => entry.id === asset.id)
+                  (BRUSHES as { id: string }[]).findIndex((entry) => entry.id === asset.id)
                 ];
                 return (
                   <Tooltip

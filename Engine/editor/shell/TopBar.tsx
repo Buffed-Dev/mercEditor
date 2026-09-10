@@ -3,6 +3,9 @@ import {
   IconArrowBackUp,
   IconArrowForwardUp,
   IconChevronDown,
+  IconDatabase,
+  IconFolders,
+  IconMap2,
   IconPlayerPlay,
 } from '@tabler/icons-react';
 import { Button, IconButton } from '../ui/Button';
@@ -89,34 +92,43 @@ export function TopBar({
             the stylesheet lights up — the state is the accessible name for it,
             not a class that happens to look selected. */}
         <NavLink to={`/${game}/map`} className={styles.tab}>
-          Map
+          <IconMap2 size={17} />
+          Map Design
+        </NavLink>
+        <NavLink to={`/${game}/library`} className={styles.tab}>
+          <IconFolders size={17} />
+          Asset Library
         </NavLink>
         <NavLink to={`/${game}/rules`} className={styles.tab}>
-          Rules
+          <IconDatabase size={17} />
+          Game Data
         </NavLink>
       </nav>
 
-      <span className={styles.spacer} />
-
-      <IconButton label="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>
-        <IconArrowBackUp size={16} />
-      </IconButton>
-      <IconButton label="Redo (Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo}>
-        <IconArrowForwardUp size={16} />
-      </IconButton>
-      <Button variant="quiet" onClick={onPlaytest}>
-        <IconPlayerPlay size={15} />
-        Playtest
-      </Button>
-      {dirty && (
-        <span className={styles.dirty}>
-          <span className={styles.dirtyDot} />
-          Unsaved
-        </span>
-      )}
-      <Button variant="primary" onClick={onSave} title="Save (Ctrl+S)">
-        Save
-      </Button>
+      {/* Equal flex on the crumbs and on this, so the tabs between them sit in
+          the middle of the bar rather than wherever the game's name leaves
+          them. A single spacer cannot centre anything. */}
+      <div className={styles.actions}>
+        <IconButton label="Undo (Ctrl+Z)" onClick={onUndo} disabled={!canUndo}>
+          <IconArrowBackUp size={16} />
+        </IconButton>
+        <IconButton label="Redo (Ctrl+Shift+Z)" onClick={onRedo} disabled={!canRedo}>
+          <IconArrowForwardUp size={16} />
+        </IconButton>
+        <Button variant="quiet" onClick={onPlaytest}>
+          <IconPlayerPlay size={15} />
+          Playtest
+        </Button>
+        {dirty && (
+          <span className={styles.dirty}>
+            <span className={styles.dirtyDot} />
+            Unsaved
+          </span>
+        )}
+        <Button variant="primary" onClick={onSave} title="Save (Ctrl+S)">
+          Save
+        </Button>
+      </div>
     </header>
   );
 }

@@ -86,6 +86,28 @@ export function createUndoable<T>(initial: T) {
       return true;
     },
 
+    /**
+     * Change the present and the past together, for something undo cannot take
+     * back.
+     *
+     * Moving a folder is a filesystem act: the bytes are somewhere else the
+     * moment it returns, and nothing here can put them back. Written only into
+     * the present, the next undo would restore a record still pointing at the
+     * folder it used to be in — a path to nothing, and no error anywhere to say
+     * why the picture stopped loading.
+     *
+     * So it is written into every snapshot as well. Undo goes on working for
+     * everything it *can* reverse; where the record lives is simply not one of
+     * the things it has an opinion about.
+     */
+    rewrite(change: (state: T) => void): void {
+      change(state);
+      for (const entry of undoStack) change(entry);
+      for (const entry of redoStack) change(entry);
+      dirty = true;
+      notify();
+    },
+
     markSaved(): void {
       dirty = false;
       notify();

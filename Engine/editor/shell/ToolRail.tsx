@@ -25,14 +25,19 @@ const GLYPHS: Record<ToolId, typeof IconPointer> = {
   'terrain.select': IconSelect,
 };
 
-export function ToolRail() {
+/**
+ * @param only which tools to offer, or all of them. The prefab screen has no
+ *   terrain to shape, and a tool that edited scenery thrown away on save would
+ *   be work that silently went nowhere.
+ */
+export function ToolRail({ only }: { only?: readonly ToolId[] } = {}) {
   const tool = useTools((state) => state.tool);
   const setTool = useTools((state) => state.setTool);
   const brush = useTools((state) => state.brush);
 
   return (
     <div className={styles.rail} role="toolbar" aria-orientation="horizontal" aria-label="Tools">
-      {TOOLS.map((entry, index) => {
+      {TOOLS.filter((entry) => !only || only.includes(entry.id)).map((entry, index) => {
         const Glyph = GLYPHS[entry.id];
         const newGroup = index > 0 && TOOLS[index - 1].group !== entry.group;
         return (

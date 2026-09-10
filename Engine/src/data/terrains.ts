@@ -1,4 +1,4 @@
-import { TERRAINS as GAME_TERRAINS } from '#game/rules/terrains.js';
+import { TERRAINS as GAME_TERRAINS } from '#game';
 
 /**
  * A terrain type: what a patch of ground is made of.
@@ -55,6 +55,17 @@ export const TERRAIN_SLOTS = ['top', 'sub'] as const;
 export type Terrain = {
   id: string;
   label: string;
+  /**
+   * The folder this record was found in, under `assets/`.
+   *
+   * Not a field anybody edits: it comes from where the file was, and every
+   * file the record names is relative to it. Carried on the record because the
+   * renderer needs it to turn a filename into a url, and stripped again on the
+   * way out — a record that stated its own address could disagree with where
+   * it actually was, and a folder rename would have to chase it.
+   */
+  path: string;
+
   char: string;
   top: string;
   sub: string;
@@ -84,6 +95,7 @@ export function defaultTerrain(id = 'terrain'): Terrain {
   return {
     id,
     label: id,
+    path: '',
     // Two terrains sharing a key would make rows that cannot be read back, so a
     // fresh one takes the first two letters of its id and the editor moves it
     // out of the way if that is taken.

@@ -176,10 +176,10 @@ export type OptionSource = {
   lootTableOptions: () => [string, string][];
   vfxOptions: () => [string, string][];
   propOptions: () => [string, string][];
+  prefabOptions: () => [string, string][];
   materialOptions: () => [string, string][];
   surfaceOptions: () => [string, string][];
   /** Narrowed by asset kind: a colour map offers pictures, not models. */
-  assetOptions: (kind?: string) => [string, string][];
 };
 
 const SOURCES: Record<string, keyof OptionSource> = {
@@ -192,6 +192,7 @@ const SOURCES: Record<string, keyof OptionSource> = {
   loot: 'lootTableOptions',
   vfx: 'vfxOptions',
   prop: 'propOptions',
+  prefab: 'prefabOptions',
   /**
    * A field of kind `material` names a *surface* — what a block or a prop is
    * drawn with. Not `materialOptions`, which is a different thing under a
@@ -210,18 +211,17 @@ const SOURCES: Record<string, keyof OptionSource> = {
  * enumerate about itself — so the document answers, and the field components
  * stay ignorant of what a category is.
  *
- * Takes the whole descriptor rather than just its kind, because one of them
- * narrows further: an `asset` field declares which kind of file belongs in it,
- * so a colour map offers pictures and never a model.
+ * A `file` field is not here: it names a file in the record's own folder
+ * rather than another record, and the folder is the filesystem's business
+ * rather than the document's.
  */
 export function optionsForField(
-  field: { kind: string; assetKind?: string },
+  field: { kind: string },
   doc: OptionSource,
 ): readonly (readonly [string, string])[] | null {
-  if (field.kind === 'asset') return doc.assetOptions(field.assetKind);
   const source = SOURCES[field.kind];
   return source ? doc[source]() : null;
 }
 
 /** Kinds a picker can answer for. Anything else is an ordinary control. */
-export const isReferenceKind = (kind: string) => kind === 'asset' || kind in SOURCES;
+export const isReferenceKind = (kind: string) => kind in SOURCES;

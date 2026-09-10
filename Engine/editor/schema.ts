@@ -126,6 +126,18 @@ export const OBJECT_LISTS: Record<string, ListSpec> = {
     describe: (entry) => text(entry.id) || 'No effect',
   },
 
+  prefabs: {
+    label: 'Prefab',
+    fields: [
+      { key: 'id', kind: 'prefab', label: 'Prefab' },
+      // Quarter turns, and the step says so. The children of a prefab sit on
+      // whole tiles, so there is nowhere to put them at forty-five degrees --
+      // a finer step here would offer an angle that cannot be represented.
+      { key: 'rot', kind: 'range', label: 'Turn (deg)', min: 0, max: 270, step: 90 },
+    ],
+    describe: (entry) => text(entry.id) || 'No prefab',
+  },
+
   props: {
     label: 'Object',
     // The picker's options are the game's own object list, which lives in the
@@ -238,6 +250,7 @@ export const LIST_ORDER = [
   'lights',
   'vfx',
   'props',
+  'prefabs',
   'portals',
   'monsters',
   'stations',

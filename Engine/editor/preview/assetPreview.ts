@@ -4,20 +4,18 @@ import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { unlit } from '../../src/render/materials.ts';
 import { createPropRuntime } from '../../src/render/props.ts';
 import { createTerrainLayer } from '../../src/render/terrainLayer.ts';
 import { createGrid, idx } from '../../src/data/terrain/grid.ts';
 import { DEFAULT_ENV } from '../../src/data/mapFormat.ts';
 import { LEVEL_H } from '../../src/data/dimensions.ts';
-import { assetFrames, normalizeAsset } from '../../src/data/assets.ts';
 import { normalizeProp } from '../../src/data/props.ts';
+import { normalizePrefab } from '../../src/data/prefabs.ts';
 import { normalizeTerrain } from '../../src/data/terrains.ts';
 import type { Light } from '@babylonjs/core/Lights/light.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { Scene } from '@babylonjs/core/scene.js';
-import type { Asset, AssetInput } from '../../src/data/assets.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
 import type { Prop, PropInput } from '../../src/data/props.ts';
 import type { Terrain } from '../../src/data/terrains.ts';
@@ -36,24 +34,27 @@ type LibraryRecord = Record<string, unknown>;
 /** What the library is showing, and the rules to draw it against. */
 type DrawContext = {
   kind?: string;
-  assets?: readonly Asset[];
   materials?: readonly MaterialInput[];
+  /** The objects a prefab's contents name. Not needed for the other kinds. */
+  props?: readonly PropInput[];
   game?: string;
 };
 
 /**
- * The files a game brings with it, and the things built out of them.
+ * The things a game is drawn with, on a stage of their own.
  *
  * Each kind is drawn by the path that draws it for real: an object through the
- * game's own prop runtime, a block through the map's block layer. An asset has
- * no such path of its own, so it is drawn as the smallest thing that would show
- * it — a mesh becomes a nameless prop wearing nothing, a picture a plane.
+ * game's own prop runtime, a block through the map's block layer.
  *
- * Lifted out of the old assets mode unchanged. Drawing these the game's way
- * rather than the tool's is the whole point: an object is placed by the origin
- * it was exported with, a block is measured and centred on its own bounds, and
- * a preview that split the difference disagreed with the map about the one
- * thing it was opened to check.
+ * Drawing these the game's way rather than the tool's is the whole point: an
+ * object is placed by the origin it was exported with, a block is measured and
+ * centred on its own bounds, and a preview that split the difference disagreed
+ * with the map about the one thing it was opened to check.
+ *
+ * There used to be a third branch, for a record about a file — a mesh as a
+ * nameless prop, a picture on a plane. Files have no records now, so nothing
+ * asks; when the browser wants a thumbnail for a loose texture it wants an
+ * offscreen one it can read back as an image, which is not this.
  */
 export function createAssetPreview() {
   let scene: Scene | null = null;
@@ -147,18 +148,12 @@ export function createAssetPreview() {
       clear();
       if (!record) return;
 
-      const { kind = 'assets', assets = [], materials = [], game = '' } = context;
-      const urlOf = (entry: { file?: string } | null | undefined) =>
-        entry?.file ? `/Games/${game}/assets/${entry.file}` : '';
+      const { kind = 'props', materials = [], props = [], game = '' } = context;
 
       if (kind === 'props') return showProp(normalizeProp(record as PropInput));
       if (kind === 'terrains') return showBlock(normalizeTerrain(record as Partial<Terrain>));
-
-      const asset = normalizeAsset(record as AssetInput);
-      if (asset.kind === 'mesh') {
-        return showProp({ ...normalizeProp({ id: '__preview' }), mesh: asset.id });
-      }
-      return showPicture(asset);
+      if (kind === 'prefabs') return showPrefab(record);
+      return;
 
       /**
        * The game's own path: the same runtime, the same definitions, standing
@@ -168,8 +163,38 @@ export function createAssetPreview() {
         // Hoisted above the check in `draw`, so it is made again here.
         if (!world || !root) return;
         const ground = { heightAt: () => 0 };
-        runtime = createPropRuntime(world, [def], assets, game, materials);
+        runtime = createPropRuntime(world, [def], game, materials);
         runtime.place({ gx: -0.5, gy: -0.5, id: def.id }, 0, ground, root, null);
+      }
+
+      /**
+       * A prefab: the objects in it, stood where it says, centred on the pad.
+       *
+       * Its objects only. A prefab may also carry walls, torches and lights,
+       * and those are drawn by the map's own layer rather than the object
+       * runtime -- which would mean standing up a whole map view on this
+       * stage, over the lights and the pad it already has. The place to see a
+       * prefab whole is the editor you build it in; this is the shelf.
+       */
+      function showPrefab(entry: LibraryRecord): void {
+        // Hoisted above the check in `draw`, so it is made again here.
+        if (!world || !root) return;
+        const prefab = normalizePrefab(entry);
+        const ground = { heightAt: () => 0 };
+        runtime = createPropRuntime(world, props.map(normalizeProp), game, materials);
+        // Centred on its own middle rather than its corner, so a wide prefab
+        // does not walk off the side of the pad.
+        const ox = prefab.w / 2;
+        const oy = prefab.h / 2;
+        prefab.props.forEach((child, index) => {
+          runtime?.place(
+            { ...child, gx: child.gx - ox, gy: child.gy - oy },
+            index,
+            ground,
+            root,
+            null,
+          );
+        });
       }
 
       /**
@@ -189,7 +214,6 @@ export function createAssetPreview() {
         const patch = { terrain: grid, terrainIds: [terrain.id], map: {} };
         blockView = createTerrainLayer(world, patch, DEFAULT_ENV, {
           terrains: [terrain],
-          assets,
           materials,
           game,
         });
@@ -200,58 +224,6 @@ export function createAssetPreview() {
         blockView.root.position.set(-1.5, LEVEL_H, -1.5);
       }
 
-      /** A texture or a sheet, on a plane standing up out of the pad. */
-      function showPicture(entry: Asset): void {
-        // Hoisted above the check in `draw`, so it is made again here.
-        if (!world || !root) return;
-        const url = urlOf(entry);
-        if (!url) return;
-
-        const plane = MeshBuilder.CreatePlane('assetPicture', { size: 2 }, world);
-        plane.position.y = 1.05;
-        plane.isPickable = false;
-        plane.parent = root;
-
-        // Black, because an unlit material *adds* its emissive colour to its
-        // emissive texture rather than multiplying — white here is a white
-        // plane with the picture nowhere to be seen.
-        const material = unlit('assetPicture', world, { color: 0x000000 });
-        const texture = new Texture(url, world);
-        material.emissiveTexture = texture;
-        material.opacityTexture = entry.transparent || entry.kind === 'sheet' ? texture : null;
-        material.backFaceCulling = false;
-        plane.material = material;
-        showing = plane;
-
-        if (entry.kind !== 'sheet') {
-          texture.uScale = entry.uScale ?? 1;
-          texture.vScale = entry.vScale ?? 1;
-          texture.uOffset = entry.uOffset ?? 0;
-          texture.vOffset = entry.vOffset ?? 0;
-          return;
-        }
-
-        // One cell of the grid, stepped in order. `invertY` is Babylon's default
-        // and the row maths below assumes it: v counts up from the bottom, so
-        // the top row is the last one, not the first.
-        const { columns, rows, first, count } = assetFrames(entry);
-        texture.uScale = 1 / columns;
-        texture.vScale = 1 / rows;
-
-        let frame = 0;
-        const show = (): void => {
-          const cell = first + (frame % count);
-          texture.uOffset = (cell % columns) / columns;
-          texture.vOffset = 1 - (Math.floor(cell / columns) + 1) / rows;
-          frame += 1;
-          if (!entry.loop && frame >= count) {
-            clearInterval(ticker);
-            ticker = 0;
-          }
-        };
-        show();
-        ticker = setInterval(show, 1000 / Math.max(0.5, entry.fps ?? 12));
-      }
     },
   };
 }

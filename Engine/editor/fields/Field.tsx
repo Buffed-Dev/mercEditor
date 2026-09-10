@@ -108,7 +108,8 @@ export function Field({ field, value, onInput, onChange, resolveOptions, used }:
     case 'select':
     case 'maps':
     case 'vfx':
-    case 'prop': {
+    case 'prop':
+    case 'prefab': {
       const options = optionsFor(field, resolveOptions);
       return (
         <FieldRow label={name}>
@@ -143,7 +144,9 @@ function optionsFor(
   // The map registry is something this file can answer for itself; the rules
   // lists are not, because they are the document the panel is editing.
   if (field.kind === 'maps') return destinationIds().map((id: string) => [id, id] as const);
-  if (field.kind === 'vfx' || field.kind === 'prop') return resolve?.(field) ?? [];
+  if (field.kind === 'vfx' || field.kind === 'prop' || field.kind === 'prefab') {
+    return resolve?.(field) ?? [];
+  }
   return field.options ?? [];
 }
 

@@ -1,0 +1,16 @@
+{
+  "id": "blockCorner",
+  "label": "block-corner",
+  "mesh": "Block-corner.glb",
+  "material": "",
+  "texture": "",
+  "sheet": "",
+  "billboard": true,
+  "tint": 16777215,
+  "scale": 1,
+  "rotY": 0,
+  "lift": 0.5,
+  "blocks": false,
+  "top": 0,
+  "shadow": true
+}

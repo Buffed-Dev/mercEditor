@@ -1,21 +1,37 @@
 /* Three zones: where you are, what you are looking at it with, and what you can
    do to the document. Each has one job, so nothing in the middle has to fight
-   for room with a save button. */
+   for room with a save button.
+
+   The outer two both take `flex: 1`, which is what puts the workspace tabs in
+   the actual middle of the bar. A single spacer on one side only pushes -- the
+   tabs would then sit wherever the game's name happened to leave them, and
+   move every time you opened a game with a longer one.
+
+   No gap on the bar itself: each zone owns its own spacing, or the gap here
+   would be added on top of theirs. */
 
 .bar {
   display: flex;
   align-items: center;
-  gap: 6px;
   padding: 0 var(--e-gap);
   height: var(--e-bar);
 }
 
 .crumbs {
   display: flex;
+  flex: 1;
   align-items: center;
   gap: 4px;
   min-width: 0;
   font-size: var(--e-fs-2);
+}
+
+.actions {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .sep {
@@ -35,15 +51,21 @@
   border: 1px solid var(--e-line);
 }
 
+/* Bigger than the controls either side of it on purpose: this is the one
+   choice on the bar that changes what the whole window is for. */
 .tab {
-  height: 20px;
-  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 14px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: var(--e-fg-2);
   font: inherit;
-  font-size: var(--e-fs-2);
+  font-size: var(--e-fs-1);
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background var(--e-t) var(--e-ease),
@@ -59,9 +81,6 @@
   color: var(--e-fg);
 }
 
-.spacer {
-  flex: 1;
-}
 
 /* Unsaved work, said in words. It used to be a 6px dot, which is not a lot of
    warning for the one piece of state you would mind losing. */

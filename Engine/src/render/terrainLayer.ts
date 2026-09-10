@@ -18,7 +18,7 @@ import {
 } from './materials.ts';
 import { keep } from './sceneCache.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
-import { assetById, assetUrl } from '../data/assets.ts';
+import { fileUrl } from '../data/assets.ts';
 import { materialById } from '../data/materials.ts';
 import { buildTemplates, shapeOf } from '../data/terrain/templates.ts';
 import { topologyOf, subSides } from '../data/terrain/mask.ts';
@@ -65,7 +65,6 @@ import { TERRAINS, terrainsById, slotMaterial, type Terrain } from '../data/terr
 type Content = {
   terrains?: readonly Terrain[];
   materials?: readonly { id?: string }[];
-  assets?: readonly { id?: string }[];
   game?: string;
 };
 
@@ -103,14 +102,11 @@ export function createTerrainLayer(
   // draws them in the fallback colour rather than losing them.
   const terrainOf = (kind: number): Terrain | null => byId.get(world.terrainIds[kind - 1]) ?? null;
 
-  const assetOf = (id: string) =>
-    (content.assets ? content.assets.find((a) => a.id === id) : assetById(id)) ?? null;
   const materialOf = (id: string) =>
     (content.materials ? content.materials.find((m) => m.id === id) : materialById(id)) ?? null;
-  const urlOf = (id: string) => {
-    const asset = assetOf(id);
-    return asset ? assetUrl(asset, content.game) : '';
-  };
+  // A path under assets/, not an asset id: a material names its pictures
+  // relative to its own folder and resolves them before asking for a url.
+  const urlOf = (path: string) => fileUrl(path, content.game);
 
   let templates = buildTemplates(normalizeRim(world.map?.terrainRim), LEVEL_H);
   const buckets = new Map<string, Bucket>();

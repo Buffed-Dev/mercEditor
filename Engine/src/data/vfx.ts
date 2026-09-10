@@ -1,4 +1,4 @@
-import { VFX as GAME_VFX } from '#game/rules/vfx.js';
+import { VFX as GAME_VFX } from '#game';
 
 /**
  * Visual effects: a puff of particles, described as data.
@@ -582,6 +582,8 @@ export type VfxSheet = {
 export type Vfx = {
   id: string;
   label: string;
+  /** The folder this record was found in. See `path` on Material. */
+  path: string;
   kind: VfxKind;
   emitter: VfxEmitter;
   particle: VfxParticle;
@@ -610,6 +612,7 @@ type Loose<T> = Omit<Partial<T>, 'shape' | 'modifiers'> & {
 export type VfxInput = {
   id?: string;
   label?: string;
+  path?: string;
   kind?: string;
   emitter?: Loose<VfxEmitter> | string;
   particle?: Loose<VfxParticle>;
@@ -846,6 +849,7 @@ export function defaultVfx(id = 'newEffect'): Vfx {
   return {
     id,
     label: 'New effect',
+    path: '',
     kind: 'particles',
     emitter: defaultEmitter(),
     particle: defaultParticle(),
@@ -940,6 +944,7 @@ function upconvert(def: VfxInput): Vfx {
   return {
     id: def.id ?? 'newEffect',
     label: def.label ?? 'New effect',
+    path: def.path ?? '',
     kind: 'particles',
     emitter,
     particle,
@@ -995,6 +1000,7 @@ export function normalizeVfx(def: VfxInput = {}): Vfx {
   return {
     id: def.id ?? 'newEffect',
     label: def.label ?? 'New effect',
+    path: def.path ?? '',
     kind: def.kind === 'sheet' ? 'sheet' : 'particles',
     emitter,
     particle,

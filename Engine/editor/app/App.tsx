@@ -4,6 +4,7 @@ import { TooltipProvider } from '../ui/Tooltip';
 import { Home } from './Home';
 import { MapWorkspace } from './MapWorkspace';
 import { LibraryWorkspace } from './LibraryWorkspace';
+import { PrefabWorkspace } from './PrefabWorkspace';
 import { RulesWorkspace } from './RulesWorkspace';
 
 /**
@@ -34,6 +35,9 @@ export function App() {
         {/* The records a map is drawn with, as opposed to the rules it is
             played by. Reached from the asset browser, and linkable like the
             rest. */}
+        {/* A prefab is built on a stage of its own: it is objects without a
+            map, so there is no map for it to be a mode of. */}
+        <Route path="/:gameId/prefabs/:prefabId" element={<PrefabWorkspace />} />
         <Route path="/:gameId/library" element={<LibraryWorkspace />} />
         <Route path="/:gameId/library/:kind" element={<LibraryWorkspace />} />
         <Route path="/:gameId/library/:kind/:recordId" element={<LibraryWorkspace />} />

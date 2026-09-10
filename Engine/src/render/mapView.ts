@@ -18,7 +18,6 @@ import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGener
 import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import type { World } from '../game/world.ts';
-import type { Asset } from '../data/assets.ts';
 import type { MaterialInput } from '../data/materials.ts';
 import type { Prop } from '../data/props.ts';
 import type { Terrain } from '../data/terrains.ts';
@@ -35,7 +34,16 @@ import type { Placement } from './props.ts';
 export type MapContent = {
   vfx?: readonly VfxInput[];
   props?: readonly Prop[];
-  assets?: readonly Asset[];
+  /**
+   * The prefabs being edited.
+   *
+   * Nothing in here reads them: a map arrives with its placements already
+   * turned into objects (see data/prefabs.ts), and by then a prefab is not a
+   * thing the view has heard of. They travel with the rest because the editor
+   * expands the map itself, from the same table it draws it with — and a
+   * second way to hand that over would be a second thing to keep in step.
+   */
+  prefabs?: readonly unknown[];
   terrains?: readonly Terrain[];
   materials?: readonly MaterialInput[];
   game?: string;
@@ -47,6 +55,7 @@ import { applyFog } from './fog.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { createPropRuntime } from './props.ts';
 import { createTerrainLayer } from './terrainLayer.ts';
+import { skyEnvironment } from './environment.ts';
 import { VFX } from '../data/vfx.ts';
 
 /**
@@ -78,7 +87,7 @@ const FACE_DIRS: Record<string, Facing> = {
  * @param {Scene} scene the one scene
  * @param {import('../game/world.ts').World} world
  * @param {object} [content] the rules the map is drawn against — its effects,
- *   objects, assets, materials and blocks, plus which game folder to fetch
+ *   objects, materials and blocks, plus which game folder to fetch
  *   files from.
  *   Anything left out falls back to the list the engine was built with, which
  *   is what the game itself relies on: only the editor knows about rules being
@@ -89,7 +98,6 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
   const {
     vfx: vfxDefs,
     props: propDefs,
-    assets: assetDefs,
     terrains: terrainDefs,
     materials: materialDefs,
     game,
@@ -115,6 +123,10 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
    */
   function applyEnvironment() {
     scene.clearColor = new Color4(sky.r, sky.g, sky.b, 1);
+    // What a metal in this map has to reflect: its own sky and its own soil.
+    // Without one, `surface` leaves every PBR material's environment at zero
+    // and metallic is a dial that does nothing.
+    scene.environmentTexture = skyEnvironment(scene, env.sky, env.soilColor);
     // Not distance fog: the camera is orthographic, so every pixel is about as
     // far from it as every other and linear fog only ever tinted the lot.
     scene.fogMode = Scene.FOGMODE_NONE;
@@ -192,7 +204,7 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
     scene,
     world,
     env,
-    { terrains: terrainDefs, materials: materialDefs, assets: assetDefs, game },
+    { terrains: terrainDefs, materials: materialDefs, game },
     shadows,
     decals,
   );
@@ -384,7 +396,7 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
   // Unlike everything else here these arrive asynchronously — a model is a file
   // over the network — so each one gets its node now and its geometry when it
   // lands. A map torn down first is what the runtime's own `alive` flag is for.
-  const propRuntime = createPropRuntime(scene, propDefs, assetDefs, game, materialDefs);
+  const propRuntime = createPropRuntime(scene, propDefs, game, materialDefs);
   const placedProps = (map.props ?? [])
     .map((entry, index) => propRuntime.place(entry, index, world, root, shadows))
     .filter((placed): placed is Placement => placed !== null);

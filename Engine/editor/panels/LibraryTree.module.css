@@ -1,0 +1,215 @@
+/* One list of rows, indented by how deep the folder is. A tree drawn as rows
+   rather than as nested lists, because the drop targets are the rows and a
+   nested list would put a folder's box behind its children's. */
+
+/* The panel's own body scrolls, which would take the chips and the toolbar
+   with it. This fills the body instead and hands the scrolling to the tree, so
+   the filter stays where you left it while you read the list. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 0;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--e-work);
+  color: var(--e-fg);
+}
+
+.on,
+.on:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+/* The drop target under a drag. Outlined rather than filled: the row keeps
+   whatever it was already saying about itself. */
+.over {
+  outline: 1px solid var(--e-accent, #e07a3c);
+  outline-offset: -1px;
+}
+
+.twisty {
+  display: flex;
+  width: 12px;
+  flex: none;
+  color: var(--e-fg-3);
+  transition: transform var(--e-t) var(--e-ease);
+}
+
+.open {
+  transform: rotate(90deg);
+}
+
+.glyph {
+  display: flex;
+  flex: none;
+  color: var(--e-fg-3);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A file nothing has claimed, and a record naming a file that is gone. Both
+   are disagreements between the folder and the records in it, which is the one
+   thing this panel exists to show. */
+.quiet {
+  color: var(--e-fg-3);
+}
+
+.badge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--e-work);
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  line-height: 15px;
+}
+
+.warn {
+  background: color-mix(in srgb, var(--e-warn) 22%, transparent);
+  color: var(--e-warn);
+}
+
+.bad {
+  background: color-mix(in srgb, var(--e-bad, #d9534f) 22%, transparent);
+  color: var(--e-bad, #d9534f);
+}
+
+.import {
+  flex: none;
+  padding: 0 6px;
+  height: 16px;
+  border: 1px solid var(--e-line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.import:hover {
+  color: var(--e-fg);
+  border-color: var(--e-fg-3);
+}
+
+/* The type filter. Chips rather than tabs, because more than one can be on and
+   because "all of them" is the state with none pressed. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 6px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--e-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.chip:hover {
+  color: var(--e-fg);
+}
+
+.chipOn {
+  background: var(--e-raised);
+  border-color: var(--e-fg-3);
+  color: var(--e-fg);
+}
+
+.tools {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid var(--e-line);
+}
+
+.empty {
+  padding: 12px 10px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}
+
+/* Where the type glyph would be. Square and the same size, so a row with a
+   picture and a row without line up. */
+.thumb,
+.swatch {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: 2px;
+  object-fit: cover;
+  /* A texture with transparency in it would otherwise be a hole in the row. */
+  background: var(--e-raised);
+}
+
+/* Only on the row under the pointer, so forty rows are not forty ⋯ marks. */
+.more {
+  flex: none;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.row:hover .more,
+.more:focus-within {
+  opacity: 1;
+}
+
+.moreButton {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.moreButton:hover {
+  color: var(--e-fg);
+}

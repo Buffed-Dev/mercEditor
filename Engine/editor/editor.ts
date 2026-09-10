@@ -19,6 +19,7 @@ import { normalizeLight } from '../src/data/lights.ts';
 import { kindOf } from '../src/game/monsters.ts';
 import { World } from '../src/game/world.ts';
 import { createDocument } from './document.ts';
+import { expandPrefabs, normalizePrefab, prefabById } from '../src/data/prefabs.ts';
 import { pickOf, tagPick } from '../src/render/pick.ts';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
@@ -30,6 +31,7 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import type { PickTag } from '../src/render/pick.ts';
 import type { MapContent } from '../src/render/mapView.ts';
+import type { Prefab } from '../src/data/prefabs.ts';
 import type { RimRing } from '../src/data/terrain/profile.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
 import type { GameMap, MapObject, Placed } from '../src/data/mapFormat.ts';
@@ -138,6 +140,44 @@ export function createEditor({
   content?: () => MapContent;
 }) {
   let doc: MapDocument | null = null;
+
+  /**
+   * The map as it is *drawn*: the document's own lists with every prefab
+   * placement turned into the objects it stands for.
+   *
+   * Kept here and never on the document, because it is derived. On the document
+   * an undo would restore a snapshot with the children baked into it, and the
+   * next rebuild would expand them again on top.
+   *
+   * It is also what the picking below has to be read against. The scene tags a
+   * wall with its index in the list it was built from, and that list is this
+   * one -- the document's is a different array the moment any prefab
+   * contributes a wall.
+   */
+  let shown: GameMap | null = null;
+
+  /**
+   * The prefabs as the editor holds them, so one being drafted answers rather
+   * than the version that was on disk when the page loaded.
+   *
+   * Rebuilt into a map rather than looked up by scanning: the document asks
+   * this for every tile it tests, which is every tile under the pointer.
+   */
+  let drafts = new Map<string, Prefab>();
+  const prefabOf = (id: string): Prefab | null => drafts.get(id) ?? prefabById(id);
+
+  /**
+   * The prefab placement that drew an object, if one did.
+   *
+   * A prefab's children are drawn and can be hit, but they are not things you
+   * can select: there is nothing about a child to edit that is not the
+   * prefab's. So a pick on one resolves to the single entry it came from.
+   */
+  function drawnBy(list: string, index: number | undefined): number | null {
+    if (typeof index !== 'number') return null;
+    const entry = (shown as Record<string, MapObject[]> | null)?.[list]?.[index];
+    return typeof entry?.prefab === 'number' ? entry.prefab : null;
+  }
   let mapView: ReturnType<typeof buildMapView> | null = null;
   // Kept from the last rebuild so the cursor can ask how high the ground is
   // under a tile without parsing the map again every frame.
@@ -437,9 +477,16 @@ export function createEditor({
       if (!pick || !(node instanceof TransformNode)) continue;
       if (pick.instances) {
         const index = pick.instances[hit.thinInstanceIndex];
-        return index === undefined ? null : { list: pick.list, index, object: node, hit };
+        if (index === undefined) return null;
+        const owner = drawnBy(pick.list, index);
+        return owner === null
+          ? { list: pick.list, index, object: node, hit }
+          : { list: 'prefabs', index: owner, object: node, hit };
       }
-      return { ...pick, object: node, hit };
+      const owner = drawnBy(pick.list, pick.index);
+      return owner === null
+        ? { ...pick, object: node, hit }
+        : { list: 'prefabs', index: owner, object: node, hit };
     }
     return null;
   }
@@ -1050,7 +1097,13 @@ export function createEditor({
     // they were on disk when the page loaded. Absent — a test, a check script —
     // the view falls back to the game the engine was built against.
     const now = content?.() ?? {};
-    world = new World(doc.map, 'default', now.props);
+    drafts = new Map(
+      ((now.prefabs ?? []) as { id?: string }[])
+        .map((one) => normalizePrefab(one))
+        .map((one) => [one.id, one]),
+    );
+    shown = expandPrefabs(doc.map, prefabOf);
+    world = new World(shown, 'default', now.props);
     mapView = buildMapView(scene, world, now);
     mapView.root.parent = root;
     // Not part of the map's own subtree: the pipeline is the renderer's, so the
@@ -1083,11 +1136,18 @@ export function createEditor({
       if (!pick) continue;
       const at = pick.key ?? pick.index;
       if (at === undefined) continue;
-      node.setEnabled(!hidden.has(`${pick.list}:${at}`));
+      // Hidden as the placement, not as the child: switching off a prefab has
+      // to take everything it drew with it, and the panel only ever offers you
+      // the one row.
+      const owner = drawnBy(pick.list, pick.index);
+      const id = owner === null ? `${pick.list}:${at}` : `prefabs:${owner}`;
+      node.setEnabled(!hidden.has(id));
     }
 
     (mapView?.lights ?? []).forEach((entry, index) => {
-      entry.light?.setEnabled(!hidden.has(`lights:${index}`));
+      const owner = drawnBy('lights', index);
+      const id = owner === null ? `lights:${index}` : `prefabs:${owner}`;
+      entry.light?.setEnabled(!hidden.has(id));
     });
   }
 
@@ -1123,7 +1183,11 @@ export function createEditor({
           // The wall the block belongs to, so a face shared by two tiles
           // belongs to the block it is a face of rather than to whichever tile
           // the boundary rounds towards.
-          const wall = doc?.map.walls[instances[hit.thinInstanceIndex]];
+          // Read against what was *drawn*, not against the document. The
+          // instance index is an index into the list the mesh was built from,
+          // and the moment a prefab contributes a wall those two lists differ —
+          // so this looked the right shape and silently found another wall.
+          const wall = shown?.walls?.[instances[hit.thinInstanceIndex]];
           const found = wall && inBounds(wall.gx, wall.gy);
           if (found) return found;
         } else if (hit.pickedPoint) {
@@ -1395,7 +1459,7 @@ export function createEditor({
       selection = null;
       focus = null;
       applyFocus();
-      doc = createDocument(map);
+      doc = createDocument(map, prefabOf);
       root.setEnabled(true);
       rebuild();
       frame();

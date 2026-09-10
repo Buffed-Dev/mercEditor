@@ -8,6 +8,7 @@ import {
   type MapObject,
   type Placed,
 } from '../mapFormat.ts';
+import { turnEntry, turnLists } from './rotate.ts';
 import type { ChunkPart } from './chunks.ts';
 
 /** Which edge of a part a doorway sits on. */
@@ -141,17 +142,21 @@ export function doorsOf(part: ChunkPart): Doorway[] {
 
 // --------------------------------------------------------------- rotation
 
-/** Where a face points after one quarter turn clockwise. */
-const TURN_FACE: Record<string, string> = { '+x': '+y', '+y': '-x', '-x': '-y', '-y': '+x' };
-
 /**
  * A part turned a quarter of the way round, `k` times.
  *
- * Everything that carries a direction has to turn with the grid or it comes out
- * of a rotated part pointing at a wall: a torch's mounting face, a sun's
- * compass bearing. Under one clockwise turn a tile at (gx, gy) lands at
- * (rows - 1 - gy, gx) and a direction (dx, dy) becomes (-dy, dx), and every
- * line below is one of those two facts applied to a different field.
+ * The tiles and everything standing on them go through ../rotate.ts, which is
+ * the same turn a prefab takes and is where the two facts live: where a tile
+ * lands, and that anything carrying a direction has to turn with it or it comes
+ * out of a rotated part pointing at a wall.
+ *
+ * What is left here is the two things only a chunk has — the terrain rows, and
+ * the named spawns.
+ *
+ * Every list turns, rather than the seven that used to be written out by hand.
+ * That is what lets a chunk carry a prefab: `MAP_LISTS` gained one, and a list
+ * this function had not been told about would have come out of a rotated room
+ * sitting where it was before the room turned.
  */
 export function rotatePart(part: ChunkPart, k = 0): ChunkPart {
   const turns = ((k % 4) + 4) % 4;
@@ -165,40 +170,16 @@ export function rotatePart(part: ChunkPart, k = 0): ChunkPart {
     Array.from({ length: rows }, (_, gx) => part.rows[rows - 1 - gx][gy]).join(''),
   );
 
-  const turn = <T extends Placed>({ gx, gy, ...rest }: T): T =>
-    ({ ...rest, gx: rows - 1 - gy, gy: gx }) as T;
-  const list = (name: (typeof MAP_LISTS)[number]) => (part[name] ?? []).map(turn);
+  const lists: Record<string, MapObject[]> = {};
+  for (const name of MAP_LISTS) lists[name] = [...(part[name] ?? [])];
+  const turned = turnLists(lists, cols, rows, 1);
 
   const spawns: Record<string, Placed> = {};
-  for (const [name, spawn] of Object.entries(part.spawns ?? {})) spawns[name] = turn(spawn);
+  for (const [name, spawn] of Object.entries(part.spawns ?? {})) {
+    spawns[name] = turnEntry(spawn, rows);
+  }
 
-  return {
-    ...part,
-    rows: grid,
-    spawns,
-    walls: list('walls'),
-    portals: list('portals'),
-    monsters: list('monsters'),
-    doors: list('doors'),
-    stations: list('stations'),
-    // `face` is narrowed rather than cast: a placed thing is a position plus
-    // whatever else its file gave it, so the format cannot promise this is a
-    // side, only this function can check that it is.
-    torches: (part.torches ?? []).map((torch) => ({
-      ...turn(torch),
-      face: typeof torch.face === 'string' ? (TURN_FACE[torch.face] ?? torch.face) : torch.face,
-    })),
-    lights: (part.lights ?? []).map((light) => {
-      const turned = turn(light);
-      // The sun's bearing is an angle on the same compass the tiles live on:
-      // its offset is (sin a, cos a), and turning that vector clockwise is the
-      // same as taking ninety degrees off the angle.
-      const azimuth = light.azimuth;
-      return typeof azimuth !== 'number'
-        ? turned
-        : { ...turned, azimuth: (((azimuth - 90) % 360) + 360) % 360 };
-    }),
-  };
+  return { ...part, rows: grid, spawns, ...turned.lists } as ChunkPart;
 }
 
 // --------------------------------------------------------------- the run

@@ -20,9 +20,18 @@ export type FieldKind =
   | 'select'
   /** The map registry, filled in from `destinationIds()`. */
   | 'maps'
+  /**
+   * A file in this record's own folder, by name.
+   *
+   * Not a picker yet: it draws as the plain text of the filename, which is
+   * what it is. `accept` says which sort of file belongs, for the browser to
+   * narrow by once it can offer them.
+   */
+  | 'file'
   /** Filled in by the panel from the rules document being edited. */
   | 'vfx'
   | 'prop'
+  | 'prefab'
   /** A glyph an item or a category wears. See ui/IconPicker.tsx. */
   | 'icon';
 
@@ -37,6 +46,8 @@ export type FieldSpec = {
   max?: number;
   step?: number;
   curve?: Curve;
+  /** Which sort of file a `file` field takes. See `ASSET_KINDS`. */
+  accept?: string;
   /** `[id, label]` pairs, as every picker in the data files writes them. */
   options?: readonly (readonly [string, string])[];
   maxLength?: number;

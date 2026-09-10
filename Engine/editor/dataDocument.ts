@@ -9,7 +9,6 @@ import { defaultCost } from '../src/data/costs.ts';
 import { LOOT_TABLES, defaultLootRoll, defaultLootTable } from '../src/data/lootTables.ts';
 import { BASE_LEVELS, defaultBaseLevel } from '../src/data/baseLevels.ts';
 import { VFX, defaultVfx } from '../src/data/vfx.ts';
-import { ASSETS, defaultAsset, normalizeAsset } from '../src/data/assets.ts';
 import { TERRAINS, TERRAIN_FIELDS, defaultTerrain, normalizeTerrain } from '../src/data/terrains.ts';
 import {
   MATERIALS,
@@ -18,6 +17,8 @@ import {
   normalizeMaterial,
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
+import { PREFABS, defaultPrefab, normalizePrefab } from '../src/data/prefabs.ts';
+import { LIBRARY_FOLDERS } from './serializeData.ts';
 import { createUndoable } from './undoable.ts';
 
 /**
@@ -74,10 +75,10 @@ const LISTS = [
   'lootTables',
   'baseLevels',
   'vfx',
-  'assets',
   'materials',
   'terrains',
   'props',
+  'prefabs',
 ];
 
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]*$/;
@@ -124,10 +125,10 @@ export function idFromLabel(label: unknown): string {
  * to change, and made three blocks answer to the same letter.
  */
 const cleaners: Record<string, ((entry: RuleRecord) => unknown) | undefined> = {
-  assets: normalizeAsset,
   materials: normalizeMaterial,
   terrains: normalizeTerrain,
   props: normalizeProp,
+  prefabs: normalizePrefab,
 };
 
 const makers: Record<string, ((id: string) => unknown) | undefined> = {
@@ -141,11 +142,34 @@ const makers: Record<string, ((id: string) => unknown) | undefined> = {
   lootTables: defaultLootTable,
   baseLevels: defaultBaseLevel,
   vfx: defaultVfx,
-  assets: defaultAsset,
   materials: defaultMaterial,
   terrains: defaultTerrain,
   props: defaultProp,
+  prefabs: defaultPrefab,
 };
+
+/**
+ * `Stone Wall` → `StoneWall`: a label as the folder its record will live in.
+ *
+ * Only the first name it gets. Renaming the record afterwards does not move
+ * the folder — the two are separate on purpose, so that filing something under
+ * a name you later change does not rewrite paths under it.
+ */
+function folderFor(list: string, entries: readonly RuleRecord[], label: string): string {
+  const top = LIBRARY_FOLDERS[list];
+  if (!top) return '';
+  const stem =
+    String(label)
+      .split(/[^A-Za-z0-9]+/)
+      .filter(Boolean)
+      .map((word) => word[0].toUpperCase() + word.slice(1))
+      .join('') || 'Record';
+  const taken = new Set(entries.map((entry) => String(entry.path ?? '').toLowerCase()));
+  for (let n = 1; ; n += 1) {
+    const path = `${top}/${stem}${n > 1 ? n : ''}`;
+    if (!taken.has(path.toLowerCase())) return path;
+  }
+}
 
 /** `attribute`, `attribute2`, `attribute3`… — the first id not already taken. */
 function freshId(entries: readonly RuleRecord[], stem: string): string {
@@ -155,6 +179,23 @@ function freshId(entries: readonly RuleRecord[], stem: string): string {
     if (!taken.has(`${stem}${n}`)) return `${stem}${n}`;
   }
 }
+
+/**
+ * One segment of a folder path, spelled as the dev server will accept it.
+ *
+ * The same rule as `SEGMENT` in vite-plugin-map-io.js, and deliberately a
+ * second copy: this one is here to tell you *before* the request that a name
+ * will not do, and that one is there because a client is not something a
+ * server may believe.
+ */
+const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$/;
+
+/** Which field kind names a record of each library kind. */
+const NAMED_BY: Record<string, string> = {
+  materials: 'material',
+  vfx: 'vfx',
+  props: 'prop',
+};
 
 export function createDataDocument(rules: Partial<RulesData> = {}) {
   const history = createUndoable({
@@ -168,14 +209,14 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
     lootTables: rules.lootTables ?? LOOT_TABLES,
     baseLevels: rules.baseLevels ?? BASE_LEVELS,
     vfx: rules.vfx ?? VFX,
-    // Read through their normalizers, unlike the lists above: an asset's
-    // fields depend on what kind it is, so a record that changed kind before
-    // the editor learned to clear the old kind's keys still carries them. This
-    // is where they stop travelling — the next save writes what is read here.
-    assets: (rules.assets ?? ASSETS).map(normalizeAsset),
+    // Read through their normalizers, unlike the lists above, so that a record
+    // a file left half-written arrives with every field it should have. This
+    // is where a missing one stops travelling — the next save writes what is
+    // read here.
     materials: (rules.materials ?? MATERIALS).map(normalizeMaterial),
     terrains: (rules.terrains ?? TERRAINS).map(normalizeTerrain),
     props: (rules.props ?? PROPS).map(normalizeProp),
+    prefabs: (rules.prefabs ?? PREFABS).map(normalizePrefab),
   });
 
   const data = (): RulesData => history.state as RulesData;
@@ -291,18 +332,15 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
     },
 
     /** Visual effect ids, for anything that can name one. */
-    /**
-     * The assets a picker may offer, narrowed to one kind: a mesh slot that
-     * listed the textures too would be a list you have to read to use.
-     */
-    assetOptions(kind?: string): [string, string][] {
-      return listOf('assets')
-        .filter((asset) => !kind || asset.kind === kind)
-        .map((asset): [string, string] => [text(asset.id), text(asset.label) || text(asset.id)]);
-    },
-
     propOptions(): [string, string][] {
       return listOf('props').map((prop): [string, string] => [text(prop.id), text(prop.label) || text(prop.id)]);
+    },
+
+    prefabOptions(): [string, string][] {
+      return listOf('prefabs').map((one): [string, string] => [
+        text(one.id),
+        text(one.label) || text(one.id),
+      ]);
     },
 
     vfxOptions(): [string, string][] {
@@ -345,16 +383,21 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
         lootTables: 'lootTable',
         baseLevels: 'baseLevel',
         vfx: 'effect',
-        assets: 'asset',
         materials: 'material',
         terrains: 'terrain',
         props: 'prop',
+        prefabs: 'prefab',
       };
       const make = makers[list];
       if (!make) return null;
       const id = freshId(listOf(list), stem[list] ?? list);
       history.checkpoint();
       const entry = make(id) as RuleRecord;
+      // A library record is a folder, so it gets one now rather than at save:
+      // a record with nowhere to live is one a save would have to skip, and a
+      // save that quietly skips something is the worst kind.
+      const path = folderFor(list, listOf(list), id);
+      if (path) entry.path = path;
       data()[list].push(entry);
       return { list, index: data()[list].length - 1 };
     },
@@ -474,11 +517,14 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
         }
       }
 
-      // A block, a prop or a material names the assets it draws itself out of,
-      // and a block or a prop names the material it wears. Left behind, the
-      // record keeps working and comes up as an untextured box — which is the
-      // worst way to find out an asset was renamed.
-      const wanted = ({ assets: 'asset', materials: 'material' } as Record<string, string>)[list];
+      // A block or a prop names the material it wears. Left behind, the record
+      // keeps working and comes up as an untextured box — which is the worst
+      // way to find out a material was renamed.
+      //
+      // Only materials now. The files a record draws itself out of are named
+      // by filename inside its own folder, so they have no id to chase and a
+      // rename of one is the filesystem's business rather than this walk's.
+      const wanted = ({ materials: 'material' } as Record<string, string>)[list];
       if (wanted) {
         for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
           for (const entry of listOf(name)) {
@@ -809,6 +855,162 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       if (grants.has(effectId)) grants.delete(effectId);
       else grants.add(effectId);
       archetype.grants = [...grants];
+    },
+
+    // ------------------------------------------------------------- folders
+
+    /**
+     * What names this record, so that deleting it can say what it would break.
+     *
+     * The same walk `rename` makes, run as a question instead of a rewrite.
+     *
+     * It can only answer for the rules it holds. A map names objects, terrains
+     * and prefabs too, and maps are files this document has never opened — so
+     * an empty answer here means "nothing in the rules", not "nothing at all",
+     * and whatever asks has to say so.
+     */
+    usedBy(list: string, index: number): { list: string; id: string; label: string }[] {
+      const entry = entryAt(list, index);
+      const id = text(entry?.id);
+      if (!id) return [];
+      const wanted = NAMED_BY[list];
+      const found = new Map<string, { list: string; id: string; label: string }>();
+      // Keyed rather than pushed, because one record may name the same thing in
+      // several of its fields and it is still one record: a terrain whose top
+      // and sub are both this material is one terrain that would break, not
+      // two. Every terrain here is that -- `normalizeTerrain` fills `sub` from
+      // `top` when it is left empty.
+      const note = (name: string, record: RuleRecord) =>
+        found.set(`${name}:${text(record.id)}`, {
+          list: name,
+          id: text(record.id),
+          label: text(record.label) || text(record.id),
+        });
+
+      if (wanted) {
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of listOf(name)) {
+            for (const [key, field] of Object.entries(fields)) {
+              if (field.kind === wanted && record[key] === id) note(name, record);
+            }
+          }
+        }
+      }
+
+      // An ability names the flash it throws and the trail behind it. Spelled
+      // out because ABILITY_FIELDS is not one of the tables above, the same way
+      // `rename` spells it out.
+      if (list === 'vfx') {
+        for (const ability of listOf('abilities')) {
+          if (ability.vfx === id || ability.trail === id) note('abilities', ability);
+        }
+      }
+
+      return [...found.values()];
+    },
+
+    /**
+     * Delete a record, and clear what named it.
+     *
+     * A reference left behind is the worst kind of broken: the record keeps
+     * working and comes up as an untextured box, and nothing says why. So the
+     * fields that named this one are emptied rather than left pointing at
+     * nothing -- which is a visible "none" in the inspector instead.
+     *
+     * Outside undo, through `rewrite`, for the same reason a move is: the
+     * folder is gone from disk by the time this is called, and a record an undo
+     * brought back would name a folder that is not there.
+     *
+     * The caller has already asked. `usedBy` is what it asked with.
+     */
+    drop(list: string, index: number): boolean {
+      const entry = entryAt(list, index);
+      if (!entry) return false;
+      const id = text(entry.id);
+      const wanted = NAMED_BY[list];
+
+      history.rewrite((state) => {
+        const held = (state as RulesData)[list];
+        const at = held?.findIndex((one) => text(one.id) === id) ?? -1;
+        if (at >= 0) held.splice(at, 1);
+        if (!wanted || !id) return;
+
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of (state as RulesData)[name] ?? []) {
+            for (const [key, field] of Object.entries(fields)) {
+              if (field.kind === wanted && record[key] === id) record[key] = '';
+            }
+          }
+        }
+        // Spelled out, the way `rename` and `usedBy` spell it out: an ability's
+        // effect and its trail are not in any of the tables above.
+        if (list === 'vfx') {
+          for (const ability of (state as RulesData).abilities ?? []) {
+            if (ability.vfx === id) ability.vfx = '';
+            if (ability.trail === id) ability.trail = '';
+          }
+        }
+      });
+      return true;
+    },
+
+    /**
+     * Move a record to another folder, or rename the one it is in.
+     *
+     * The same operation either way: a folder's name is the last part of where
+     * it is, so renaming is moving to a sibling.
+     *
+     * This is the document's half only — the bytes are moved by whoever calls
+     * it, through the dev server, and this is what makes the records agree
+     * afterwards. Called after the move succeeds, never before: a failed
+     * request must leave the document saying where things really are.
+     *
+     * Outside undo, through `rewrite`. See the comment there: the folder is on
+     * disk and undo cannot fetch it back, so a record whose path an undo
+     * restored would point at nothing.
+     */
+    setPath(list: string, index: number, to: string): string | null {
+      const entry = entryAt(list, index);
+      if (!entry) return 'Nothing selected';
+      const from = text(entry.path);
+      const next = String(to ?? '').trim().replace(/^\/+|\/+$/g, '');
+      if (next === from) return null;
+      if (!next) return 'A record needs a folder to live in';
+      const parts = next.split('/');
+      if (parts.length > 8) return 'That is too many folders deep';
+      if (!parts.every((part) => SEGMENT.test(part))) {
+        return 'Use letters, digits, spaces, dots and dashes';
+      }
+      // Compared case-blind: this is Windows as often as not, where Wood and
+      // wood are the same directory and the second record would land on the
+      // first's files.
+      const taken = listOf(list).some(
+        (other) => other !== entry && text(other.path).toLowerCase() === next.toLowerCase(),
+      );
+      if (taken) return `Something is already at "${next}"`;
+
+      const id = text(entry.id);
+      const rooted = `/${from}/`;
+      history.rewrite((state) => {
+        for (const record of (state as RulesData)[list] ?? []) {
+          if (text(record.id) === id) record.path = next;
+        }
+        // A file named with a leading slash is named from the assets root
+        // rather than from its own folder -- the escape hatch for one two
+        // records share. Those are the only references a move has to chase;
+        // everything else is relative and travels with the folder.
+        if (!from) return;
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of (state as RulesData)[name] ?? []) {
+            for (const [key, field] of Object.entries(fields)) {
+              const value = record[key];
+              if (field.kind !== 'file' || typeof value !== 'string') continue;
+              if (value.startsWith(rooted)) record[key] = `/${next}/${value.slice(rooted.length)}`;
+            }
+          }
+        }
+      });
+      return null;
     },
 
     undo: () => history.undo(),
