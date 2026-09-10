@@ -7,6 +7,8 @@ import {
   prefabObjects,
 } from '../Engine/src/data/prefabs.ts';
 import { turnEntry } from '../Engine/src/data/maps/rotate.ts';
+import { rotatePart } from '../Engine/src/data/maps/generate.ts';
+import type { ChunkPart } from '../Engine/src/data/maps/chunks.ts';
 import type { GameMap, MapObject } from '../Engine/src/data/mapFormat.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
@@ -212,4 +214,40 @@ test('a prefab is one thing however many lists it reaches into', () => {
   assert.equal(out.torches?.length, 1);
   assert.deepEqual([out.torches?.[0].gx, out.torches?.[0].gy], [2, 1]);
   assert.equal(out.torches?.[0].prefab, 0);
+});
+
+test('a chunk carries its prefabs, and turns them with the room', () => {
+  // The failure this guards is the one test/stations.test.ts was written for:
+  // a list the rotation had not been told about is carried through unrotated,
+  // with no error either way. Every list turns now, rather than seven written
+  // out by hand, so `prefabs` joining MAP_LISTS was enough.
+  const room: ChunkPart = {
+    id: 'room',
+    name: 'room',
+    role: '',
+    rows: ['111', '1.1', '111'],
+    spawns: {},
+    env: {},
+    walls: [],
+    portals: [],
+    monsters: [],
+    torches: [],
+    stations: [],
+    lights: [],
+    doors: [],
+    prefabs: [{ gx: 0, gy: 0, id: 'camp', rot: 0 }],
+  };
+
+  const turned = rotatePart(room, 1);
+  // Inside a 3-tall box: (0,0) -> (2,0), and the placement's own turn follows.
+  assert.deepEqual(
+    turned.prefabs.map((one) => [one.gx, one.gy, one.rot]),
+    [[2, 0, 270]],
+  );
+
+  // And all the way round is where it started.
+  assert.deepEqual(
+    rotatePart(room, 4).prefabs.map((one) => [one.gx, one.gy, one.rot]),
+    [[0, 0, 0]],
+  );
 });

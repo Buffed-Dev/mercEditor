@@ -178,9 +178,6 @@ export function prefabFootprint(prefab: Prefab, at: PlacedPrefab): { w: number; 
     : { w: prefab.h, h: prefab.w };
 }
 
-/** A map, plus the prefab placements standing on it. */
-type WithPrefabs = GameMap & { prefabs?: readonly MapObject[] };
-
 /** How deep a prefab may reach through other prefabs. */
 const MAX_DEPTH = 4;
 
@@ -209,7 +206,7 @@ export function expandPrefabs(
   lookup: PrefabLookup = prefabById,
   depth = 0,
 ): GameMap {
-  const placements = (map as WithPrefabs).prefabs;
+  const placements = map.prefabs;
   if (!placements?.length || depth > MAX_DEPTH) return map;
 
   const out = { ...map } as Record<string, unknown>;

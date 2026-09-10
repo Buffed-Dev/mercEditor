@@ -142,7 +142,15 @@ export type MapVfx = Placed & { id: string };
 /** What assembling a run recorded about itself. See ./maps/generate.ts. */
 export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
 
-/** The lists a map keeps of things standing somewhere. */
+/**
+ * The lists a map keeps of things standing somewhere.
+ *
+ * `prefabs` is one entry standing for several: an arrangement of objects placed
+ * as a unit, turned back into loose ones when the map is opened. See
+ * ../prefabs.ts. It belongs here rather than beside `props` because everything
+ * driven by this list should carry it — cutting a chunk out, most of all, since
+ * a room with a campfire in it is a room with a campfire in it.
+ */
 export const MAP_LISTS = [
   'walls',
   'portals',
@@ -151,6 +159,7 @@ export const MAP_LISTS = [
   'stations',
   'lights',
   'doors',
+  'prefabs',
 ] as const;
 
 export type MapList = (typeof MAP_LISTS)[number];
