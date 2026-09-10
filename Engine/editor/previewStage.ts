@@ -25,22 +25,27 @@ import { DEFAULT_ENV } from '../src/data/mapFormat.ts';
  *
  * @param {{
  *   frustum?: number,
+ *   loop?: boolean,
  *   onMount?: (scene: unknown) => void,
  *   onUnmount?: () => void,
  * }} options `frustum` is how many world units the view is tall, `onMount`
  *   builds the stage and puts something on it, and `onUnmount` lets go of
- *   whatever that was.
+ *   whatever that was. `loop` off draws only when `render()` is called, for a
+ *   stage whose picture is taken rather than watched.
  */
 export function createPreviewStage({
   frustum = 6,
+  loop = true,
   onMount,
   onUnmount,
 }: {
   frustum?: number;
+  loop?: boolean;
   onMount?: (scene: Scene) => void;
   onUnmount?: () => void;
 }) {
   let engine: Engine | null = null;
+  let scene: Scene | null = null;
   let camera: TargetCamera | null = null;
   let watcher: ResizeObserver | null = null;
 
@@ -69,8 +74,12 @@ export function createPreviewStage({
   return {
     mount(canvas: HTMLCanvasElement): void {
       if (engine) return;
-      engine = new Engine(canvas, true, { stencil: false }, true);
+      // `preserveDrawingBuffer`, or `toDataURL` on a stage that draws once
+      // hands back an empty picture: the browser is free to clear the buffer
+      // the moment the frame is presented, and does.
+      engine = new Engine(canvas, true, { stencil: false, preserveDrawingBuffer: !loop }, true);
       const stage = new Scene(engine);
+      scene = stage;
       stage.useRightHandedSystem = true;
       stage.clearColor = new Color4(0.04, 0.05, 0.07, 1);
       stage.skipPointerMovePicking = true;
@@ -92,8 +101,13 @@ export function createPreviewStage({
       watcher = new ResizeObserver(fit);
       watcher.observe(canvas);
 
-      engine.runRenderLoop(() => stage.render());
+      if (loop) engine.runRenderLoop(() => stage.render());
       onMount?.(stage);
+    },
+
+    /** Draw one frame, for a stage with no loop of its own. */
+    render(): void {
+      scene?.render();
     },
 
     /** Give the device back. A browser has only so many of them. */
@@ -104,6 +118,7 @@ export function createPreviewStage({
       watcher = null;
       engine.dispose();
       engine = null;
+      scene = null;
       camera = null;
     },
   };

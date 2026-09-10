@@ -37,6 +37,7 @@ import {
   type LibraryScan,
 } from '../rules/libraryTree.ts';
 import { useLayout } from '../state/layout';
+import { useMaterialThumb } from '../preview/thumbnails.ts';
 import { fileUrl } from '../../src/data/assets.ts';
 import styles from './LibraryTree.module.css';
 
@@ -51,8 +52,9 @@ import styles from './LibraryTree.module.css';
  *
  * Cards rather than rows because the useful thing about most of these is what
  * they look like. A name tells you `Grass-Sand_normal.png` from
- * `Grass-Sand_base_color.png`; a picture tells you at a glance, and at this
- * size it is the picture the file already is rather than anything rendered.
+ * `Grass-Sand_base_color.png`; a picture tells you at a glance. Mostly that
+ * picture is the file itself; a material is drawn on a sphere, because what a
+ * material looks like is what light does to it.
  *
  * The folder you are in is kept with the panel sizes, so it is per game and it
  * survives leaving for the map and coming back — which is most of the reason
@@ -65,6 +67,19 @@ const GLYPHS: Record<string, typeof IconBox> = {
   terrains: IconStack2,
   vfx: IconSparkles,
   prefabs: IconPackage,
+};
+
+/**
+ * How a file path becomes a url, one function per game.
+ *
+ * Kept rather than built per render because `useMaterialThumb` watches it: a
+ * fresh function every render would be a fresh reason to redraw every sphere.
+ */
+const URL_OF = new Map<string, (path: string) => string>();
+const urlOfGame = (game: string) => {
+  const held = URL_OF.get(game) ?? ((path: string) => fileUrl(path, game));
+  URL_OF.set(game, held);
+  return held;
 };
 
 /** The chips, in the order they are offered. Files last: it is the leftovers. */
@@ -231,7 +246,7 @@ function Card({
   onDelete,
 }: {
   row: LibraryRow;
-  thumb: { src: string } | { color: number } | null;
+  thumb: ReturnType<typeof thumbFor>;
   game: string;
   on: boolean;
   onOpen: () => void;
@@ -276,7 +291,9 @@ function Card({
           See `thumbFor`. Lazily, by the browser's own rule: a folder of forty
           textures should not be forty fetches before you have scrolled. */}
       <div className={`${styles.face} ${folder ? styles.faceFolder : ''}`}>
-        {thumb && 'src' in thumb ? (
+        {thumb && 'material' in thumb ? (
+          <MaterialFace record={thumb.material} game={game} fallback={<Glyph size={28} />} />
+        ) : thumb && 'src' in thumb ? (
           <img
             className={styles.thumb}
             src={thumb.src.startsWith('data:') ? thumb.src : fileUrl(thumb.src, game)}
@@ -290,7 +307,7 @@ function Card({
             style={{ background: `#${thumb.color.toString(16).padStart(6, '0')}` }}
           />
         ) : (
-          <Glyph size={28} className={styles.glyph} />
+          <Glyph size={28} />
         )}
 
         {/* A folder wearing its record's picture would otherwise be
@@ -356,4 +373,25 @@ function Card({
       )}
     </div>
   );
+}
+
+/**
+ * A material, drawn on a sphere.
+ *
+ * Its own component so the hook has somewhere to live: only some cards are
+ * materials, and a hook cannot be called only some of the time. The glyph
+ * stands in until the picture arrives, which is one frame for a material
+ * already drawn and a texture load for one that is not.
+ */
+function MaterialFace({
+  record,
+  game,
+  fallback,
+}: {
+  record: Record<string, unknown>;
+  game: string;
+  fallback: React.ReactNode;
+}) {
+  const made = useMaterialThumb(record, urlOfGame(game));
+  return made ? <img className={styles.thumb} src={made} alt="" /> : <>{fallback}</>;
 }

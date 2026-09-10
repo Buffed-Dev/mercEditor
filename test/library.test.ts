@@ -301,13 +301,14 @@ test('a row shows a picture it already has, or admits it has none', () => {
   );
   const thumb = (path: string) => thumbFor(rows.find((row) => row.path === path)!, held2);
 
-  assert.deepEqual(thumb('Materials/Wood'), { src: 'Materials/Wood/diffuse.png' });
+  // A material hands back the record rather than a path: what it looks like is
+  // what light does to it, which is drawn on a sphere rather than looked up.
+  assert.deepEqual(thumb('Materials/Wood'), { material: held2.materials[0] });
+  assert.deepEqual(thumb('Materials/Plain'), { material: held2.materials[1] });
   // A terrain has no picture of its own: it wears materials, so the thumbnail
   // is one hop through the one it names.
   assert.deepEqual(thumb('Terrain/Floor'), { src: 'Materials/Wood/diffuse.png' });
   assert.deepEqual(thumb('Effects/Slash'), { src: 'Effects/Slash/sheet.png' });
-  // A material with no map is still a colour, which is all it looks like.
-  assert.deepEqual(thumb('Materials/Plain'), { color: 0x336699 });
 
   // A file is its own picture, and a model is not a picture at all -- an object
   // naming only a .glb keeps its glyph rather than being given a wrong one.

@@ -203,23 +203,19 @@ const IMAGE = /\.(png|jpg|jpeg|webp)$/i;
  * terrain the colour map of the material it wears. So a thumbnail is an `<img>`
  * the browser decodes and lazy-loads on its own.
  *
- * It is worth saying what this is *instead of*. The obvious build is an
- * offscreen Babylon stage rendering each record and reading the canvas back —
- * a queue, an observer, a cache, and one shared engine because a browser hands
- * out only so many. At the size these are drawn, sixteen pixels in a row, a
- * rendered material is its average colour and a rendered mesh is a smudge:
- * all of that machinery to arrive at what the texture already looks like. If
- * the browser ever grows a tile view with previews big enough to read, that is
- * when the engine earns its keep.
+ * A material is the exception, and says so by handing back the record instead
+ * of a path: what a material looks like is what light does to it, which its
+ * colour map cannot say — a rough stone and a wet metal made from one map are
+ * the same swatch. That one is drawn, by `useMaterialThumb`, on a sphere.
  *
- * A mesh is the one thing with no cheap picture. An object that names only a
- * `.glb` keeps its glyph, which is honest — there is nothing to show without
- * drawing it.
+ * A mesh is the one thing with no picture either way. An object that names only
+ * a `.glb` keeps its glyph, which is honest — there is nothing to show without
+ * standing it up and lighting it.
  */
 export function thumbFor(
   row: LibraryRow,
   records: Records,
-): { src: string } | { color: number } | null {
+): { src: string } | { color: number } | { material: Record<string, unknown> } | null {
   if (row.row === 'file') return IMAGE.test(row.name) ? { src: row.path } : null;
   // A folder shows what is inside it, which for a record folder is the record.
   const held = row.row === 'folder' ? row.holds : row.row === 'record' ? row : null;
@@ -228,6 +224,9 @@ export function thumbFor(
   const record = (records[held.list] ?? [])[held.index];
   if (!record) return null;
   const here = String(record.path ?? '');
+
+  // Drawn rather than looked up. See the note above.
+  if (held.list === 'materials') return { material: record };
 
   /** A file this record names directly, if it is a picture. */
   const own = (key: string): string => {
@@ -257,9 +256,6 @@ export function thumbFor(
     }
   }
 
-  // A material with no map is still a colour, which is the whole of what it
-  // looks like.
-  if (held.list === 'materials') return { color: Number(record.color ?? 0xffffff) };
   return null;
 }
 
