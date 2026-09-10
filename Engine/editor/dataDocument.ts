@@ -17,6 +17,7 @@ import {
   normalizeMaterial,
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
+import { PREFABS, defaultPrefab, normalizePrefab } from '../src/data/prefabs.ts';
 import { LIBRARY_FOLDERS } from './serializeData.ts';
 import { createUndoable } from './undoable.ts';
 
@@ -77,6 +78,7 @@ const LISTS = [
   'materials',
   'terrains',
   'props',
+  'prefabs',
 ];
 
 const ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9]*$/;
@@ -126,6 +128,7 @@ const cleaners: Record<string, ((entry: RuleRecord) => unknown) | undefined> = {
   materials: normalizeMaterial,
   terrains: normalizeTerrain,
   props: normalizeProp,
+  prefabs: normalizePrefab,
 };
 
 const makers: Record<string, ((id: string) => unknown) | undefined> = {
@@ -142,6 +145,7 @@ const makers: Record<string, ((id: string) => unknown) | undefined> = {
   materials: defaultMaterial,
   terrains: defaultTerrain,
   props: defaultProp,
+  prefabs: defaultPrefab,
 };
 
 /**
@@ -212,6 +216,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
     materials: (rules.materials ?? MATERIALS).map(normalizeMaterial),
     terrains: (rules.terrains ?? TERRAINS).map(normalizeTerrain),
     props: (rules.props ?? PROPS).map(normalizeProp),
+    prefabs: (rules.prefabs ?? PREFABS).map(normalizePrefab),
   });
 
   const data = (): RulesData => history.state as RulesData;
@@ -331,6 +336,13 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       return listOf('props').map((prop): [string, string] => [text(prop.id), text(prop.label) || text(prop.id)]);
     },
 
+    prefabOptions(): [string, string][] {
+      return listOf('prefabs').map((one): [string, string] => [
+        text(one.id),
+        text(one.label) || text(one.id),
+      ]);
+    },
+
     vfxOptions(): [string, string][] {
       return listOf('vfx').map((effect): [string, string] => [text(effect.id), text(effect.label) || text(effect.id)]);
     },
@@ -374,6 +386,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
         materials: 'material',
         terrains: 'terrain',
         props: 'prop',
+        prefabs: 'prefab',
       };
       const make = makers[list];
       if (!make) return null;

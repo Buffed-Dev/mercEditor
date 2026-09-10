@@ -31,6 +31,7 @@ export type FieldKind =
   /** Filled in by the panel from the rules document being edited. */
   | 'vfx'
   | 'prop'
+  | 'prefab'
   /** A glyph an item or a category wears. See ui/IconPicker.tsx. */
   | 'icon';
 

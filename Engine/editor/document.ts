@@ -1,5 +1,6 @@
 import { defaultLight } from '../src/data/lights.ts';
 import { defaultChunk } from '../src/data/maps/chunks.ts';
+import { prefabById, prefabFootprint } from '../src/data/prefabs.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import { decodeTerrain } from '../src/data/terrain/codec.ts';
 import { resizeGrid, idx, levelAt, kindAt, EMPTY } from '../src/data/terrain/grid.ts';
@@ -7,6 +8,7 @@ import { createHistory } from './history.ts';
 import { beginStroke } from './terrain/stroke.ts';
 import type { ChunkInput } from '../src/data/maps/chunks.ts';
 import type { LightInput } from '../src/data/lights.ts';
+import type { PlacedPrefab, PrefabLookup } from '../src/data/prefabs.ts';
 import type { GameMap, MapEnv, MapObject, MapVfx, Placed } from '../src/data/mapFormat.ts';
 import type { RimRing } from '../src/data/terrain/profile.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
@@ -25,6 +27,7 @@ export type Brush = {
 /** What a placement was told about the thing being placed. */
 export type PlaceOptions = {
   propId?: string;
+  prefabId?: string;
   vfxId?: string;
   lightType?: string;
   face?: string;
@@ -53,6 +56,8 @@ export type MapDoc = {
   torches: MapObject[];
   stations: MapObject[];
   chunks: ChunkInput[];
+  /** One entry standing for several. See ../src/data/prefabs.ts. */
+  prefabs: MapObject[];
   lights: LightInput[];
   /** Always carries its effect id, which is what the editor writes. */
   vfx: MapVfx[];
@@ -182,7 +187,13 @@ export function blankMap(id: string, cols = 24, rows = 24): GameMap {
   };
 }
 
-export function createDocument(map: GameMap) {
+/**
+ * @param map the map to edit, deep-copied on the way in
+ * @param prefabOf how a prefab id is looked up. The game's own by default; the
+ *   editor hands its own so a prefab being drafted answers instead of the one
+ *   that was on disk when the page loaded.
+ */
+export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById) {
   // The terrain grid is decoded once and then never replaced, only written
   // into. Its identity has to be stable because undo entries hold a reference
   // to it: swapping the object under them would leave older entries writing
@@ -215,6 +226,7 @@ export function createDocument(map: GameMap) {
     // The most a step can rise and still be walkable, in levels.
     stepHeight: map.stepHeight ?? 1,
     chunks: [...(map.chunks ?? [])],
+    prefabs: [...(map.prefabs ?? [])],
     doors: [...(map.doors ?? [])],
     portals: [...(map.portals ?? [])],
     monsters: [...(map.monsters ?? [])],
@@ -294,14 +306,46 @@ export function createDocument(map: GameMap) {
   const inBounds = (gx: number, gy: number) =>
     gx >= 0 && gy >= 0 && gx < terrain.cols && gy < terrain.rows;
 
+  /**
+   * The prefab placement covering a tile, or -1.
+   *
+   * By footprint rather than by corner: a prefab is the several tiles it
+   * stands on, so clicking the far end of one has to find it and dropping
+   * something on the far end has to be refused.
+   *
+   * The box is the bounding rectangle, so an L-shaped prefab reserves the
+   * notch it does not fill. Correct and mildly annoying.
+   * ponytail: bounding box, per-tile occupancy if L-shapes get common.
+   *
+   * A placement naming a prefab that is gone covers its own tile and no more —
+   * there is no footprint to ask for, and leaving it unclickable would leave
+   * you no way to delete it.
+   */
+  function prefabAt(gx: number, gy: number): number {
+    return doc.prefabs.findIndex((at) => {
+      const prefab = prefabOf(String(at.id ?? ''));
+      if (!prefab) return at.gx === gx && at.gy === gy;
+      const box = prefabFootprint(prefab, at as PlacedPrefab);
+      const w = Math.max(1, box.w);
+      const h = Math.max(1, box.h);
+      return gx >= at.gx && gx < at.gx + w && gy >= at.gy && gy < at.gy + h;
+    });
+  }
+
   /** Objects sitting on a tile, across every object list. */
   function objectsAt(gx: number, gy: number): { list: string; entry: MapObject }[] {
     // Chunks are not in this list on purpose: they are rectangles you draw
     // things *inside*, so a tile being in one must not stop anything landing
-    // on it.
-    return ['torches', 'portals', 'monsters', 'lights', 'vfx', 'doors', 'stations', 'props']
+    // on it. A prefab is the opposite -- it is a thing, and it is *all* of the
+    // tiles it covers, which is why it is matched by box below rather than
+    // filtered by corner with the rest.
+    const found = ['torches', 'portals', 'monsters', 'lights', 'vfx', 'doors', 'stations', 'props']
       .flatMap((list) => (lists[list] ?? []).map((entry) => ({ list, entry })))
       .filter(({ entry }) => entry.gx === gx && entry.gy === gy);
+
+    const index = prefabAt(gx, gy);
+    if (index >= 0) found.push({ list: 'prefabs', entry: doc.prefabs[index] });
+    return found;
   }
 
   /** How many wall blocks stand on a tile. */
@@ -411,7 +455,34 @@ export function createDocument(map: GameMap) {
      */
     place(gx: number, gy: number, brush: Brush, options: PlaceOptions = {}): string | null {
       if (!inBounds(gx, gy)) return 'Outside the map';
+
+      // Nothing lands inside a prefab, whatever it is. Up here rather than in
+      // the busy-tile test further down, because a wall and a door are both
+      // answered before that test is reached -- a wall stacks rather than
+      // refusing, and a door replaces the wall it lands on -- so either would
+      // otherwise be built straight through one.
+      if (brush.list !== 'prefabs' && prefabAt(gx, gy) >= 0) return 'A prefab is in the way';
+
       const wall = wallAt(gx, gy);
+
+      // A prefab takes every tile of its box, so all of them have to be free
+      // and on the map -- checked before anything is written, or half a
+      // placement lands and the rest is refused.
+      if (brush.list === 'prefabs') {
+        const prefab = prefabOf(options.prefabId ?? '');
+        const box = prefab
+          ? prefabFootprint(prefab, { gx, gy, rot: 0 })
+          : { w: 1, h: 1 };
+        for (let y = gy; y < gy + Math.max(1, box.h); y += 1) {
+          for (let x = gx; x < gx + Math.max(1, box.w); x += 1) {
+            if (!inBounds(x, y)) return 'That does not fit on the map';
+            if (objectsAt(x, y).length || wallAt(x, y)) return 'Something is in the way';
+          }
+        }
+        checkpoint();
+        doc.prefabs.push({ gx, gy, id: options.prefabId ?? '', rot: 0 });
+        return null;
+      }
 
       if (brush.list === 'walls') {
         checkpoint();
@@ -581,6 +652,7 @@ export function createDocument(map: GameMap) {
       doc.vfx = doc.vfx.filter(keep);
       doc.walls = doc.walls.filter(keep);
       doc.props = doc.props.filter(keep);
+      doc.prefabs = doc.prefabs.filter(keep);
       for (const [name, spawn] of Object.entries(doc.spawns)) {
         if (!keep(spawn)) delete doc.spawns[name];
       }
@@ -605,9 +677,21 @@ export function createDocument(map: GameMap) {
         'stations',
         'doors',
         'torches',
-        'walls',
-        'chunks',
       ]) {
+        const index = (lists[list] ?? []).findIndex(
+          (entry) => entry.gx === gx && entry.gy === gy,
+        );
+        if (index >= 0) return { list, index };
+      }
+
+      // After the small fixtures and before the walls, for the same reason
+      // walls come after those: a prefab is big, so anything standing on top of
+      // one is what you meant to click -- but its own walls are inside it, and
+      // clicking one of those means the prefab.
+      const prefab = prefabAt(gx, gy);
+      if (prefab >= 0) return { list: 'prefabs', index: prefab };
+
+      for (const list of ['walls', 'chunks']) {
         const index = (lists[list] ?? []).findIndex(
           (entry) => entry.gx === gx && entry.gy === gy,
         );
@@ -629,6 +713,20 @@ export function createDocument(map: GameMap) {
       checkpoint();
       doc.chunks.push({ ...defaultChunk(0, 0), name: freshChunkName(doc.chunks) });
       return doc.chunks.length - 1;
+    },
+
+    /**
+     * Stand a prefab on a tile, without asking whether it fits.
+     *
+     * The button's way in, as `addChunk` is for chunks. `place` is the brush's,
+     * and it is the one that refuses a tile that is busy — this is used by
+     * making a prefab out of what was already there, where the tiles are busy
+     * with the very things being replaced.
+     */
+    addPrefab(id: string, gx = 0, gy = 0, checkpointed = true): number {
+      if (checkpointed) checkpoint();
+      doc.prefabs.push({ gx, gy, id, rot: 0 });
+      return doc.prefabs.length - 1;
     },
 
     /**

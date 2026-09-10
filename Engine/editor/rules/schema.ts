@@ -176,6 +176,7 @@ export type OptionSource = {
   lootTableOptions: () => [string, string][];
   vfxOptions: () => [string, string][];
   propOptions: () => [string, string][];
+  prefabOptions: () => [string, string][];
   materialOptions: () => [string, string][];
   surfaceOptions: () => [string, string][];
   /** Narrowed by asset kind: a colour map offers pictures, not models. */
@@ -191,6 +192,7 @@ const SOURCES: Record<string, keyof OptionSource> = {
   loot: 'lootTableOptions',
   vfx: 'vfxOptions',
   prop: 'propOptions',
+  prefab: 'prefabOptions',
   /**
    * A field of kind `material` names a *surface* — what a block or a prop is
    * drawn with. Not `materialOptions`, which is a different thing under a

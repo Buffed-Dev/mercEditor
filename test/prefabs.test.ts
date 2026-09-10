@@ -10,6 +10,8 @@ import { turnEntry } from '../Engine/src/data/maps/rotate.ts';
 import { rotatePart } from '../Engine/src/data/maps/generate.ts';
 import type { ChunkPart } from '../Engine/src/data/maps/chunks.ts';
 import type { GameMap, MapObject } from '../Engine/src/data/mapFormat.ts';
+import { createDocument } from '../Engine/editor/document.ts';
+import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
 /**
@@ -250,4 +252,67 @@ test('a chunk carries its prefabs, and turns them with the room', () => {
     rotatePart(room, 4).prefabs.map((one) => [one.gx, one.gy, one.rot]),
     [[0, 0, 0]],
   );
+});
+
+// ------------------------------------------------------------- the document
+
+test('a placement written by hand round-trips through a save', async () => {
+  const doc = createDocument(
+    {
+      ...mapDoc(['....', '....', '....'], { id: 'yard', name: 'Yard' }),
+      prefabs: [
+        { gx: 1, gy: 1, id: 'camp' },
+        { gx: 3, gy: 0, id: 'camp', rot: 90 },
+      ],
+    } as GameMap,
+    lookup,
+  );
+
+  const source = serializeMap(doc.map, () => 'gr');
+  const module = (await import(
+    `data:text/javascript,${encodeURIComponent(source)}`
+  )) as Record<string, GameMap>;
+  const read = Object.values(module)[0];
+
+  assert.deepEqual(read.prefabs, [
+    { gx: 1, gy: 1, id: 'camp' },
+    { gx: 3, gy: 0, id: 'camp', rot: 90 },
+  ]);
+});
+
+test('a prefab is the tiles it covers, not the one it starts on', () => {
+  // camp is 3x2, dropped at (1, 1), so it reaches to (3, 2).
+  const doc = createDocument(
+    { ...mapDoc(['......', '......', '......'], { id: 'yard' }), prefabs: [{ gx: 1, gy: 1, id: 'camp' }] } as GameMap,
+    lookup,
+  );
+
+  // Clicking the far corner finds it, not nothing.
+  assert.deepEqual(doc.selectionAt(3, 2), { list: 'prefabs', index: 0 });
+  assert.deepEqual(doc.selectionAt(1, 1), { list: 'prefabs', index: 0 });
+  assert.equal(doc.selectionAt(4, 1), null, 'and one tile past it is a bare tile');
+
+  // Nothing drops inside the box, wherever in it you aim.
+  const brush = { id: 'wall', label: 'Wall', list: 'walls', group: 'structure', icon: '' };
+  assert.ok(doc.place(3, 2, brush), 'the far corner is occupied');
+  assert.equal(doc.place(4, 1, brush), null, 'the tile past it is not');
+
+  // And erasing anywhere inside takes the whole placement, because "make this
+  // tile empty" is what the eraser is for.
+  assert.ok(doc.erase(3, 2));
+  assert.equal(doc.map.prefabs.length, 0);
+});
+
+test('a prefab will not be placed where it does not fit', () => {
+  const doc = createDocument(mapDoc(['....', '....'], { id: 'yard' }) as GameMap, lookup);
+  const brush = { id: 'prefab', label: 'Prefab', list: 'prefabs', group: 'layout', icon: '' };
+
+  // 3 wide starting at gx 2 runs off a 4-wide map, and nothing is written.
+  assert.match(String(doc.place(2, 0, brush, { prefabId: 'camp' })), /does not fit/);
+  assert.equal(doc.map.prefabs.length, 0, 'refused before anything was pushed');
+
+  assert.equal(doc.place(0, 0, brush, { prefabId: 'camp' }), null);
+  assert.equal(doc.map.prefabs.length, 1);
+  // And a second one overlapping the first is refused by the same test.
+  assert.match(String(doc.place(1, 0, brush, { prefabId: 'camp' })), /in the way/);
 });

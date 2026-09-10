@@ -191,6 +191,17 @@ export function serializeMap(
     );
   });
 
+  // One line for however many objects it stands for, which is the whole point
+  // of it. A turn of zero is left out, like a prop's.
+  const arrangements = listBody(listOf(lists, 'prefabs'), (entry) => {
+    const turn = Math.round(num(entry.rot));
+    const rot = turn ? `, rot: ${turn}` : '';
+    return (
+      `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, ` +
+      `id: ${quote(entry.id ?? '')}${rot}${grp(entry)} }`
+    );
+  });
+
   const effects = listBody(
     listOf(lists, 'vfx'),
     (entry) =>
@@ -256,6 +267,8 @@ ${block('torches', torches)}
 ${block('props', placed)}
 
 ${block('vfx', effects)}
+
+${block('prefabs', arrangements)}
 
 ${block('stations', stations)}
 
