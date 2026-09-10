@@ -7,6 +7,12 @@ import { literal } from './literal.ts';
  * split out of the schema files next door: a serializer that had to regenerate
  * the field definitions and their comments as well would either lose them or
  * have to understand them. Here it only has to print an array.
+ *
+ * The nine here are what a game is *played* by. What it is *drawn* with —
+ * materials, objects, terrains, effects — used to be five more, and is now a
+ * folder each under assets/ holding one json file. Those are written by
+ * `libraryWrites` below, because a record that lives beside its own pictures
+ * cannot be one row of a file shared with forty others.
  */
 
 /** One rules file: the constant it declares, and what to say above it. */
@@ -52,31 +58,6 @@ const RULE_FILES = {
     title: 'Base levels',
     note: 'Each row is what reaching that level costs; the shape is in ../baseLevels.ts.',
   },
-  vfx: {
-    constant: 'VFX',
-    title: 'Visual effects',
-    note: 'What each field does is in ../../../Engine/src/data/vfx.ts.',
-  },
-  terrains: {
-    constant: 'TERRAINS',
-    title: 'Terrain definitions',
-    note: 'What the ground is made of; the shape is in ../../../Engine/src/data/terrains.ts.',
-  },
-  assets: {
-    constant: 'ASSETS',
-    title: 'Asset definitions',
-    note: 'The files themselves are in ../assets/; the shape is in ../../../Engine/src/data/assets.ts.',
-  },
-  materials: {
-    constant: 'MATERIALS',
-    title: 'Material definitions',
-    note: 'Named surfaces; the shape is in ../../../Engine/src/data/materials.ts.',
-  },
-  props: {
-    constant: 'PROPS',
-    title: 'Object definitions',
-    note: 'What each field does is in ../../../Engine/src/data/props.ts.',
-  },
   recipes: {
     constant: 'RECIPES',
     title: 'Crafting recipes',
@@ -105,6 +86,57 @@ export function serializeRules(kind: string, list: unknown): string {
 
 export const ${spec.constant} = ${literal(list)};
 `;
+}
+
+/**
+ * Where a record of each library kind is written, inside its own folder.
+ *
+ * Fixed names rather than one named after the record: it is what lets a single
+ * glob find every material there is, and what makes "is this folder a
+ * material?" a question the filesystem answers.
+ */
+export const LIBRARY_FILES: Record<string, string> = {
+  materials: 'material.json',
+  props: 'object.json',
+  terrains: 'terrain.json',
+  vfx: 'effect.json',
+  prefabs: 'prefab.json',
+};
+
+/** The top folder a kind's records are made in. */
+export const LIBRARY_FOLDERS: Record<string, string> = {
+  materials: 'Materials',
+  props: 'Objects',
+  terrains: 'Terrain',
+  vfx: 'Effects',
+  prefabs: 'Prefabs',
+};
+
+export const LIBRARY_KINDS_SAVED = Object.keys(LIBRARY_FILES);
+
+/**
+ * Every library record as a file to write, and the kinds to prune afterwards.
+ *
+ * `path` is stripped on the way out. It says where the record was found, so a
+ * copy of it inside the file would be a second answer to a question the folder
+ * already answers — and one that a rename could leave wrong.
+ *
+ * A record with no path is skipped rather than written to the assets root: the
+ * root is where files nothing has claimed sit, and a record dropped there
+ * would be neither in a folder nor findable by the glob that wants one.
+ */
+export function libraryWrites(
+  data: Partial<Record<string, unknown>>,
+): { path: string; record: unknown }[] {
+  const out: { path: string; record: unknown }[] = [];
+  for (const [kind, file] of Object.entries(LIBRARY_FILES)) {
+    for (const entry of (data[kind] as Record<string, unknown>[] | undefined) ?? []) {
+      const { path, ...record } = entry;
+      if (typeof path !== 'string' || !path) continue;
+      out.push({ path: `${path}/${file}`, record });
+    }
+  }
+  return out;
 }
 
 /** Every rules file for a document, ready to POST. */

@@ -18,7 +18,6 @@ import type { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGener
 import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import type { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import type { World } from '../game/world.ts';
-import type { Asset } from '../data/assets.ts';
 import type { MaterialInput } from '../data/materials.ts';
 import type { Prop } from '../data/props.ts';
 import type { Terrain } from '../data/terrains.ts';
@@ -35,7 +34,6 @@ import type { Placement } from './props.ts';
 export type MapContent = {
   vfx?: readonly VfxInput[];
   props?: readonly Prop[];
-  assets?: readonly Asset[];
   terrains?: readonly Terrain[];
   materials?: readonly MaterialInput[];
   game?: string;
@@ -78,7 +76,7 @@ const FACE_DIRS: Record<string, Facing> = {
  * @param {Scene} scene the one scene
  * @param {import('../game/world.ts').World} world
  * @param {object} [content] the rules the map is drawn against — its effects,
- *   objects, assets, materials and blocks, plus which game folder to fetch
+ *   objects, materials and blocks, plus which game folder to fetch
  *   files from.
  *   Anything left out falls back to the list the engine was built with, which
  *   is what the game itself relies on: only the editor knows about rules being
@@ -89,7 +87,6 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
   const {
     vfx: vfxDefs,
     props: propDefs,
-    assets: assetDefs,
     terrains: terrainDefs,
     materials: materialDefs,
     game,
@@ -192,7 +189,7 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
     scene,
     world,
     env,
-    { terrains: terrainDefs, materials: materialDefs, assets: assetDefs, game },
+    { terrains: terrainDefs, materials: materialDefs, game },
     shadows,
     decals,
   );
@@ -384,7 +381,7 @@ export function buildMapView(scene: Scene, world: World, content: MapContent = {
   // Unlike everything else here these arrive asynchronously — a model is a file
   // over the network — so each one gets its node now and its geometry when it
   // lands. A map torn down first is what the runtime's own `alive` flag is for.
-  const propRuntime = createPropRuntime(scene, propDefs, assetDefs, game, materialDefs);
+  const propRuntime = createPropRuntime(scene, propDefs, game, materialDefs);
   const placedProps = (map.props ?? [])
     .map((entry, index) => propRuntime.place(entry, index, world, root, shadows))
     .filter((placed): placed is Placement => placed !== null);

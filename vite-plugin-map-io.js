@@ -54,11 +54,6 @@ export function mapIo({ dir = 'Games' } = {}) {
     'recipes',
     'lootTables',
     'baseLevels',
-    'vfx',
-    'assets',
-    'materials',
-    'terrains',
-    'props',
   ]);
 
   // What may be dropped on the asset panel. A closed set because the name

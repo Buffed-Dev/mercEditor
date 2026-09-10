@@ -1,4 +1,5 @@
-import { PROPS as GAME_PROPS } from '#game/rules/props.js';
+import { PROPS as GAME_PROPS } from '#game';
+import type { SheetLike } from './assets.ts';
 
 /**
  * An object a map can stand on a tile: a mesh, optionally wearing a texture.
@@ -26,13 +27,13 @@ import { PROPS as GAME_PROPS } from '#game/rules/props.js';
 
 export const PROP_FIELDS = {
   label: { kind: 'text', label: 'Name' },
-  mesh: { kind: 'asset', assetKind: 'mesh', label: 'Mesh' },
+  mesh: { kind: 'file', accept: 'mesh', label: 'Mesh' },
   // A named surface, if it has one. It wins over the texture and tint below:
   // a material *is* a picture and a tint, so an object wearing one and also
   // carrying its own would be two answers to the same question.
   material: { kind: 'material', label: 'Material' },
-  texture: { kind: 'asset', assetKind: 'texture', label: 'Texture' },
-  sheet: { kind: 'asset', assetKind: 'sheet', label: 'Sprite sheet' },
+  texture: { kind: 'file', accept: 'texture', label: 'Texture' },
+  sheet: { kind: 'file', accept: 'sheet', label: 'Sprite sheet' },
   billboard: { kind: 'bool', label: 'Faces the camera', default: true },
   tint: { kind: 'color', label: 'Tint', default: 0xffffff },
   // Exponential, like every other size in the editor: a scale is a multiplier,
@@ -50,6 +51,17 @@ export const PROP_FIELDS = {
 export type Prop = {
   id: string;
   label: string;
+  /**
+   * The folder this record was found in, under `assets/`.
+   *
+   * Not a field anybody edits: it comes from where the file was, and every
+   * file the record names is relative to it. Carried on the record because the
+   * renderer needs it to turn a filename into a url, and stripped again on the
+   * way out — a record that stated its own address could disagree with where
+   * it actually was, and a folder rename would have to chase it.
+   */
+  path: string;
+
   mesh: string;
   material: string;
   texture: string;
@@ -63,7 +75,7 @@ export type Prop = {
   /** Height something can stand on, or 0 for a prop that is not a surface. */
   top: number;
   shadow: boolean;
-};
+} & Partial<SheetLike>;
 
 /** A prop as a rules file writes it. */
 export type PropInput = Partial<Prop>;
@@ -94,6 +106,7 @@ export function defaultProp(id = 'prop'): Prop {
   return {
     id,
     label: id,
+    path: '',
     mesh: '',
     material: '',
     texture: '',

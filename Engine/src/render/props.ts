@@ -7,7 +7,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 // Side-effect only: this is what teaches the loader above to read a .glb.
 import '@babylonjs/loaders/glTF/index.js';
-import { ASSETS, assetById, assetFrames, assetUrl, type Asset } from '../data/assets.ts';
+import { assetFrames, filePath, fileUrl } from '../data/assets.ts';
 import {
   materialById,
   normalizeMaterial,
@@ -68,7 +68,6 @@ const DEG = Math.PI / 180;
 /**
  * @param scene the one scene
  * @param {object[]} [propDefs] the game's objects. Left out, the built game's.
- * @param {object[]} [assetDefs] the game's assets, likewise.
  * @param {string} [game] which game folder to fetch files from. The editor
  *   names one because it is a tool over several; the game itself never does —
  *   its files came through the bundler and carry hashed names.
@@ -76,19 +75,24 @@ const DEG = Math.PI / 180;
 export function createPropRuntime(
   scene: Scene,
   propDefs?: readonly Prop[] | null,
-  assetDefs?: readonly Asset[] | null,
   game = '',
   materialDefs?: readonly MaterialInput[] | null,
 ) {
   const props = propDefs ?? PROPS;
-  const assets = assetDefs ?? ASSETS;
 
   const propOf = propDefs
     ? (id: string): Prop | null => props.find((p) => p.id === id) ?? null
     : propById;
-  const assetOf = assetDefs
-    ? (id: string): Asset | null => assets.find((a) => a.id === id) ?? null
-    : assetById;
+
+  /**
+   * A file one of these records names, as a url.
+   *
+   * Names are relative to the record's own folder, so the record has to come
+   * along to read one — which is the whole trade that makes a folder movable
+   * without rewriting what is inside it.
+   */
+  const urlFor = (record: { path?: string }, named: string | undefined): string =>
+    fileUrl(filePath(record.path, named), game);
 
   /** The named surfaces, normalized so every field is there to read. */
   const materialOf = (id: string): Material | null => {
@@ -138,8 +142,8 @@ export function createPropRuntime(
    * `use` is called straight away for a file that has already landed, which is
    * every rebuild after the first.
    */
-  function model(asset: Asset, use: (holder: TransformNode | null) => void): void {
-    const url = assetUrl(asset, game);
+  function model(def: Prop, use: (holder: TransformNode | null) => void): void {
+    const url = urlFor(def, def.mesh);
     if (!url) {
       use(null);
       return;
@@ -152,7 +156,7 @@ export function createPropRuntime(
       `prop:${url}`,
       async () => {
         const result = await ImportMeshAsync(url, scene);
-        const holder = new TransformNode(`asset:${asset.id}`, scene);
+        const holder = new TransformNode(`asset:${def.id}`, scene);
         for (const mesh of result.meshes) {
           if (!mesh.parent) mesh.parent = holder;
         }
@@ -182,19 +186,18 @@ export function createPropRuntime(
       // Kept per scene like the model, and what the material *says* written on
       // afterwards: the shader is the expensive half and it does not change
       // with a tint, so tuning a material shows on the map without a reload.
-      const textureUrl = (id: string): string => {
-        const picture = assetOf(id);
-        return picture ? assetUrl(picture, game) : '';
-      };
+      // A material names its pictures relative to its own folder, not the
+      // object's: the same material is worn by objects filed anywhere.
+      const textureUrl = (path: string): string => fileUrl(path, game);
       const built = keep(scene, materialKey(named), () => materialFrom(named, scene, textureUrl));
       applyMaterial(named, built, scene, textureUrl);
       materials.set(def.id, built);
       return built;
     }
 
-    const textureAsset = def.texture ? assetOf(def.texture) : null;
+    const textureUrl = urlFor(def, def.texture);
     const tinted = (def.tint ?? 0xffffff) !== 0xffffff;
-    if (!textureAsset && !tinted) {
+    if (!textureUrl && !tinted) {
       materials.set(def.id, null);
       return null;
     }
@@ -209,11 +212,9 @@ export function createPropRuntime(
     );
     material.albedoColor = colorOf(def.tint ?? 0xffffff);
 
-    const url = textureAsset ? assetUrl(textureAsset, game) : '';
     material.albedoTexture = null;
-    // The extra check is redundant at runtime -- a url can only be non-empty
-    // if there was an asset to ask -- and is what lets the reads below see it.
-    if (textureAsset && url) {
+    if (textureUrl) {
+      const url = textureUrl;
       // invertY off, because this is worn over a model's own UVs and those came
       // out of a glTF, which puts v=0 at the *top* of the picture where
       // Babylon's own meshes put it at the bottom. Babylon's glTF loader
@@ -222,15 +223,12 @@ export function createPropRuntime(
       // which on a texture with any blank space in it is blank — a grey box
       // wearing a wood texture and no error anywhere to say why.
       const texture = keep(scene, `texture:${url}`, () => new Texture(url, scene, false, false));
-      texture.uScale = textureAsset.uScale ?? 1;
-      texture.vScale = textureAsset.vScale ?? 1;
-      texture.uOffset = textureAsset.uOffset ?? 0;
-      texture.vOffset = textureAsset.vOffset ?? 0;
+      // Laid on as it was painted. Tiling, offset and alpha used to come off a
+      // record about the file; they live on a *material* now, which is what
+      // this branch is the shorthand alternative to — an object that needs any
+      // of them names a material instead, and that is the whole reason a
+      // material wins over this.
       material.albedoTexture = texture;
-      if (textureAsset.transparent) {
-        material.useAlphaFromAlbedoTexture = true;
-        material.transparencyMode = 2; // ALPHABLEND
-      }
       // A tint multiplies the picture; white leaves it as it was painted.
       material.albedoColor = tinted ? colorOf(def.tint) : Color3.White();
     }
@@ -255,11 +253,16 @@ export function createPropRuntime(
    * Unlike a model this is built at once: a picture needs no parsing, and the
    * plane can stand there and be re-proportioned when the file lands.
    */
-  function sheetBody(def: Prop, sheet: Asset, node: TransformNode): Playing | null {
-    const url = assetUrl(sheet, game);
+  function sheetBody(def: Prop, node: TransformNode): Playing | null {
+    const url = urlFor(def, def.sheet);
     if (!url) return null;
 
-    const { columns, rows, first, count } = assetFrames(sheet);
+    // The six numbers that cut the picture into cells are read off the object
+    // itself. They used to sit on a record about the file, which meant two
+    // objects could not read one sheet differently; `Prop` carries them as
+    // optional fields, so an object with none plays the whole picture as a
+    // single frame.
+    const { columns, rows, first, count } = assetFrames(def);
 
     // One unit tall, and as wide as a cell is — which is not known until the
     // picture has loaded, so it starts square and is corrected below.
@@ -319,7 +322,7 @@ export function createPropRuntime(
     };
     show(0);
 
-    return { plane, show, count, fps: Math.max(0.5, sheet.fps ?? 12), loop: sheet.loop !== false };
+    return { plane, show, count, fps: Math.max(0.5, def.fps ?? 12), loop: def.loop !== false };
   }
 
   /**
@@ -359,11 +362,9 @@ export function createPropRuntime(
     // A model if it names one, a sprite sheet otherwise. Both is a model: the
     // mesh is the more specific answer, and drawing two bodies in one place is
     // worse than quietly preferring one.
-    const asset = def.mesh ? assetOf(def.mesh) : null;
-    if (!asset) {
-      const sheet = def.sheet ? assetOf(def.sheet) : null;
-      if (sheet?.kind === 'sheet') {
-        const playing = sheetBody(def, sheet, node);
+    if (!def.mesh) {
+      if (def.sheet) {
+        const playing = sheetBody(def, node);
         if (playing) {
           record.sheet = playing;
           // No shadow: a sprite's would be that of a flat card turning to
@@ -375,24 +376,22 @@ export function createPropRuntime(
       return record;
     }
 
-    model(asset, (holder) => {
+    model(def, (holder) => {
       // Three ways to be too late: the runtime is gone, this placement was
       // dropped, or the model never loaded at all.
       if (!alive || node.isDisposed() || !holder) return;
       const body = holder.clone(`prop${index}:body`, node);
       if (!body) return;
       body.setEnabled(true);
-      // The asset's own correction: which way up the model came out of whatever
-      // made it, and how big one unit was there. On the copy rather than on the
-      // model, because the model is shared between every map drawn in this
-      // scene and the correction is a number the editor changes.
-      body.scaling.setAll(asset.scale ?? 1);
-      body.rotation.set(
-        (asset.rotX ?? 0) * DEG,
-        (asset.rotY ?? 0) * DEG,
-        (asset.rotZ ?? 0) * DEG,
-      );
-      body.position.y = asset.lift ?? 0;
+      // Left where it is. There used to be a second correction here -- which
+      // way up the model came out of whatever made it, and how big one unit
+      // was there -- carried by the record about the file. The object's own
+      // scale, turn and lift said the same thing one node up (see `place`
+      // above), and folding the two together is what removed that record.
+      //
+      // What went with it is a turn about X or Z: an object turns about Y, so
+      // a model that came out of its exporter lying on its side has to be
+      // stood up in the exporter now. Nothing in this game had one.
 
       const material = materialFor(def);
       for (const mesh of body.getChildMeshes()) {

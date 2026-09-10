@@ -19,21 +19,23 @@ test('a name becomes the id somebody would have typed', () => {
   assert.equal(idFromLabel('  '), '');
 });
 
-test('renaming an asset carries every record that draws itself out of it', () => {
+test('two records cannot answer to one id', () => {
+  // There is nothing to chase for the files a record draws itself out of: it
+  // names them by filename inside its own folder, so they have no id at all.
+  // What still has to hold is that a rename cannot land on a name in use.
   const doc = createDataDocument({
-    assets: [{ id: 'asset1', label: 'asset1', kind: 'mesh', file: 'rock.glb' }],
-    props: [{ id: 'boulder', mesh: 'asset1' }],
+    props: [{ id: 'boulder', mesh: 'rock.glb' }],
   });
-  const index = doc.list('assets').findIndex((entry) => entry.id === 'asset1');
 
-  assert.equal(doc.rename('assets', index, 'rock'), null);
-  assert.equal(doc.list('props')[0].mesh, 'rock');
+  assert.equal(doc.rename('props', 0, 'rock'), null);
+  assert.equal(doc.list('props')[0].id, 'rock');
+  // The file it names is untouched by its own rename: the two are unrelated
+  // now, which is the point of naming files rather than records.
+  assert.equal(doc.list('props')[0].mesh, 'rock.glb');
 
-  // A name another record has claimed leaves the id where it was, rather than
-  // making two records answer to one id.
-  doc.add('assets');
-  const second = doc.list('assets').length - 1;
-  const clash = doc.rename('assets', second, 'rock');
+  doc.add('props');
+  const second = doc.list('props').length - 1;
+  const clash = doc.rename('props', second, 'rock');
   assert.ok(clash, 'renaming onto an id another record holds was allowed');
   assert.match(clash, /already taken/);
 });

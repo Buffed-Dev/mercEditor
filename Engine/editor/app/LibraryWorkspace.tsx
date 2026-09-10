@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
-import { ASSET_EXTENSIONS, assetById, assetUrl } from '../../src/data/assets.ts';
+import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
 import { writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
@@ -10,7 +10,7 @@ import { StatusBar } from '../shell/StatusBar';
 import { TopBar } from '../shell/TopBar';
 import { FieldList } from '../fields/FieldList';
 import type { FieldSpec } from '../fields/types';
-import { LIBRARY_KINDS, libraryFields, type LibraryKind } from '../rules/library';
+import { LIBRARY_KINDS, libraryFields, pathOf, type LibraryKind } from '../rules/library';
 import { optionsForField } from '../rules/schema';
 import { Button } from '../ui/Button';
 import { useDocument } from '../state/useDocument';
@@ -19,7 +19,6 @@ import { useGame } from '../state/useGame';
 import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import { createAssetPreview } from '../preview/assetPreview.ts';
-import type { Asset } from '../../src/data/assets.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
 import { createMaterialPreview } from '../preview/materialPreview.ts';
 import { createVfxPreview } from '../preview/vfxPreview.ts';
@@ -72,15 +71,8 @@ export function LibraryWorkspace() {
   }, [active]);
   const { host, ready } = usePreviewStage(preview);
 
-  /** A texture asset id, as a url the dev server will serve. */
-  const urlOf = useMemo(
-    () => (id: string) => {
-      const assets = (doc?.list('assets') ?? []) as { id: string }[];
-      const asset = assets.find((entry) => entry.id === id) ?? assetById(id);
-      return asset ? assetUrl(asset, gameId) : '';
-    },
-    [doc, gameId],
-  );
+  /** A file, by its path under assets/, as a url the dev server will serve. */
+  const urlOf = useMemo(() => (path: string) => fileUrl(path, gameId), [gameId]);
 
   // A handle on the preview, for the console — the same one the map workspace
   // publishes, and the only way to ask a running scene a question.
@@ -92,7 +84,6 @@ export function LibraryWorkspace() {
   // the array the document holds, so its identity is stable between edits and
   // changes when one replaces it — which is exactly what the effect below wants
   // to hear about, and cheaper than rebuilding a context object per render.
-  const assets = doc?.list('assets') ?? EMPTY;
   const materials = doc?.list('materials') ?? EMPTY;
 
   // Redrawn whenever the record changes. The document is edited in place, so
@@ -104,14 +95,13 @@ export function LibraryWorkspace() {
     preview.draw(record, {
       // The rules lists are loose records (see dataDocument); which list holds
       // what is known here and nowhere the checker can see.
-      assets: assets as unknown as readonly Asset[],
       materials: materials as unknown as readonly MaterialInput[],
       game: gameId,
       kind: active,
       shape,
       urlOf,
     });
-  }, [ready, preview, active, record, shape, urlOf, assets, materials, gameId, doc?.revision]);
+  }, [ready, preview, active, record, shape, urlOf, materials, gameId, doc?.revision]);
 
   async function onSave() {
     if (!doc) return;
@@ -124,51 +114,39 @@ export function LibraryWorkspace() {
     }
   }
 
-  const fields = record ? libraryFields(active, record) : [];
+  const fields = record ? libraryFields(active) : [];
 
   /**
-   * Bring files into the game folder, one record per file.
+   * Bring files into the open record's own folder.
    *
-   * The kind is read off the extension — there is nothing to ask about a .glb,
-   * and a picture can be switched to a sheet in one click if that is what it
-   * is. The record is named after the file all the way down, rather than
-   * `asset7` wearing a name that says `rock`.
+   * No record is made for them. A file is named by whatever uses it — this
+   * material's colour map, that object's mesh — and it is that record's folder
+   * the bytes land in, which is what makes the folder copyable and the
+   * filename enough to say inside it.
+   *
+   * The first one is dropped into the field it fits, so the ordinary case —
+   * one picture, onto the material you are looking at — takes no second step.
    */
   async function onUpload(files: FileList | null) {
-    if (!doc || !files?.length) return;
-    let last = '';
-    let stored = 0;
+    if (!doc || !record || !files?.length) return;
+    const folder = pathOf(record);
+    let stored = '';
 
     for (const file of Array.from(files)) {
-      const result = await uploadAsset(gameId, file);
+      const result = await uploadAsset(gameId, file, folder);
       if ('error' in result) {
         say(result.error, 'error');
         continue;
       }
-      const made = doc.add('assets');
-      if (!made) continue;
-      const label = stemOf(result.name);
-      doc.update('assets', made.index, {
-        label,
-        kind: kindOfFile(result.name),
-        file: result.name,
-      });
-      last = String((doc.list('assets') as { id: string }[])[made.index]?.id ?? '');
-      stored += 1;
+      stored = result.name;
     }
 
     if (!stored) return;
-    say(`Stored ${stored} file${stored > 1 ? 's' : ''} in Games/${gameId}/assets/`, 'good');
-    void navigate(`/${gameId}/library/assets/${last}`);
-  }
-
-  /** Replace the bytes behind the open record, keeping the record itself. */
-  async function onReplace(files: FileList | null) {
-    if (!doc || !record || !files?.length) return;
-    const result = await uploadAsset(gameId, files[0]);
-    if ('error' in result) return say(result.error, 'error');
-    doc.update('assets', index, { file: result.name });
-    say(`Replaced with ${result.name}`, 'good');
+    const slot = fields.find(
+      (field) => field.kind === 'file' && field.accept === kindOfFile(stored),
+    );
+    if (slot && !record[slot.key]) doc.update(active, index, { [slot.key]: stored });
+    say(`Stored ${stemOf(stored)} in ${folder || 'assets'}/`, 'good');
   }
 
   return (
@@ -219,40 +197,21 @@ export function LibraryWorkspace() {
                 <span className={styles.id}>{String(entry.id)}</span>
               </button>
             ))}
-            {/* A file is not made, it is brought in — so the Files shelf asks
-                for one instead of adding an empty record that names nothing. */}
-            {active === 'assets' ? (
-              <label className={styles.add}>
-                <IconUpload size={13} />
-                Add files…
-                <input
-                  type="file"
-                  multiple
-                  accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
-                  className={styles.file}
-                  onChange={(event) => {
-                    void onUpload(event.target.files);
-                    event.target.value = '';
-                  }}
-                />
-              </label>
-            ) : (
-              <Button
-                variant="quiet"
-                className={styles.add}
-                onClick={() => {
-                  const made = doc?.add(active);
-                  if (made) {
-                    const list = doc?.list(active) ?? [];
-                    void navigate(
-                      `/${gameId}/library/${active}/${String(list[made.index]?.id ?? '')}`,
-                    );
-                  }
-                }}
-              >
-                New {LIBRARY_KINDS.find((entry) => entry.id === active)?.singular}
-              </Button>
-            )}
+            <Button
+              variant="quiet"
+              className={styles.add}
+              onClick={() => {
+                const made = doc?.add(active);
+                if (made) {
+                  const list = doc?.list(active) ?? [];
+                  void navigate(
+                    `/${gameId}/library/${active}/${String(list[made.index]?.id ?? '')}`,
+                  );
+                }
+              }}
+            >
+              New {LIBRARY_KINDS.find((entry) => entry.id === active)?.singular}
+            </Button>
           </div>
         </DockPanel>
       }
@@ -294,28 +253,29 @@ export function LibraryWorkspace() {
                 </span>
                 <span className={styles.recordId}>{String(record.id)}</span>
               </header>
-              {active === 'assets' && (
-                <div className={styles.fileRow}>
-                  <span className={styles.fileName}>{String(record.file ?? 'no file')}</span>
-                  <label className={styles.replace}>
-                    Replace…
-                    <input
-                      type="file"
-                      accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
-                      className={styles.file}
-                      onChange={(event) => {
-                        void onReplace(event.target.files);
-                        event.target.value = '';
-                      }}
-                    />
-                  </label>
-                </div>
-              )}
+              <div className={styles.fileRow}>
+                <span className={styles.fileName}>{pathOf(record) || 'assets'}/</span>
+                <label className={styles.replace}>
+                  <IconUpload size={13} />
+                  Add files…
+                  <input
+                    type="file"
+                    multiple
+                    accept={ASSET_EXTENSIONS.map((ext: string) => `.${ext}`).join(',')}
+                    className={styles.file}
+                    onChange={(event) => {
+                      void onUpload(event.target.files);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <FieldList
                 fields={fields.map((field) => {
-                  // A material slot names a texture asset, and a terrain names
-                  // a material. Both are pickers over the document's own lists,
-                  // and the asset one narrows to the kind of file that belongs.
+                  // A terrain names a material, an ability an effect: pickers
+                  // over the document's own lists. A `file` field is not one of
+                  // them — it names a file in this record's folder, which the
+                  // document knows nothing about.
                   const options = optionsForField(
                     field as { kind: string; assetKind?: string },
                     doc,

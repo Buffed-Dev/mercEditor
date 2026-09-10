@@ -3,7 +3,7 @@ import type { EditorMap } from './serialize.ts';
 import type { Terrain } from '../src/data/terrains.ts';
 import type { RuleKind } from './serializeData.ts';
 import { serializeMap } from './serialize.ts';
-import { serializeAllRules } from './serializeData.ts';
+import { LIBRARY_KINDS_SAVED, libraryWrites, serializeAllRules } from './serializeData.ts';
 
 /**
  * Writing the game folder back, through the dev server.
@@ -51,10 +51,22 @@ export async function writeMap(
 }
 
 /**
- * Write every rules list into the game's rules/ folder.
+ * Write a document back: the rules as modules, the library as record files.
  *
- * All of them in one request: they reference each other, so a partial write
- * would leave an effect pointing at an attribute that is not there yet.
+ * Two requests, because the two halves live in different shapes on disk. The
+ * rules are nine modules under rules/ and go together in one batch, since they
+ * reference each other and a partial write would leave an effect pointing at
+ * an attribute that is not there yet. The library is a json file per record,
+ * each inside the folder holding the pictures it names.
+ *
+ * The library half is declarative: it sends every record it has and names the
+ * kinds it is answering for, and the server removes any record file of those
+ * kinds that was not sent. That is what makes deleting a record stick without
+ * a delete request of its own. It prunes record json only — never a picture or
+ * a model, which are bytes nothing else has a copy of.
+ *
+ * Rules first. If the second half fails, what is on disk is the old library
+ * and the new rules, which is the pair that still opens.
  *
  * @returns {Promise<number>} how many files were written
  */
@@ -69,5 +81,15 @@ export async function writeRules(
   });
   const body = (await response.json()) as { error?: string; files: unknown[] };
   if (!response.ok) throw new Error(body.error ?? 'Save failed');
-  return body.files.length;
+
+  const writes = libraryWrites(data);
+  const library = await fetch('/__library', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game, writes, prune: LIBRARY_KINDS_SAVED }),
+  });
+  const written = (await library.json()) as { error?: string; wrote?: number };
+  if (!library.ok) throw new Error(written.error ?? 'Saving the library failed');
+
+  return body.files.length + (written.wrote ?? 0);
 }

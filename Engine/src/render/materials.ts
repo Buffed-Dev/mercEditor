@@ -2,6 +2,7 @@ import { Color3 } from '@babylonjs/core/Maths/math.color.js';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
+import { filePath } from '../data/assets.ts';
 import { keep } from './sceneCache.ts';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { MaterialInput } from '../data/materials.ts';
@@ -15,8 +16,8 @@ import type { MaterialInput } from '../data/materials.ts';
  */
 export type Surface = PBRMaterial | StandardMaterial;
 
-/** Turns an asset id into somewhere it can be fetched from. */
-export type UrlOf = (id: string) => string;
+/** Turns a path under `assets/` into somewhere it can be fetched from. */
+export type UrlOf = (path: string) => string;
 
 /**
  * The two kinds of material this game has, so no module has to decide again.
@@ -107,11 +108,14 @@ export const materialKey = (def: MaterialInput): string =>
  */
 function pictureFor(
   def: MaterialInput,
-  id: string | undefined,
+  named: string | undefined,
   scene: Scene,
   urlOf: UrlOf,
 ): Texture | null {
-  const url = id ? urlOf(id) : '';
+  // A material names its pictures relative to its own folder, so the file it
+  // means is only known with the material in hand. That is the trade that lets
+  // the folder be renamed or moved without rewriting anything inside it.
+  const url = urlOf(filePath(def.path, named));
   if (!url) return null;
   const u = def.uScale ?? 1;
   const v = def.vScale ?? 1;

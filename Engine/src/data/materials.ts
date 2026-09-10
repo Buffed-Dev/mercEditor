@@ -1,4 +1,4 @@
-import { MATERIALS as GAME_MATERIALS } from '#game/rules/materials.js';
+import { MATERIALS as GAME_MATERIALS } from '#game';
 
 /**
  * A named surface: how a thing takes the light, kept apart from the thing.
@@ -22,7 +22,7 @@ import { MATERIALS as GAME_MATERIALS } from '#game/rules/materials.js';
 export const MATERIAL_FIELDS = {
   label: { kind: 'text', label: 'Name' },
 
-  texture: { kind: 'asset', assetKind: 'texture', label: 'Colour map' },
+  texture: { kind: 'file', accept: 'texture', label: 'Colour map' },
   color: { kind: 'color', label: 'Tint', default: 0xffffff },
   // A tiling factor is a multiplier, and the useful ones are between a half and
   // about eight — a straight scale to 32 puts all of them in a fifth of it.
@@ -34,7 +34,7 @@ export const MATERIAL_FIELDS = {
   roughness: { kind: 'range', label: 'Roughness', min: 0, max: 1, step: 0.01, default: 0.8 },
   metallic: { kind: 'range', label: 'Metallic', min: 0, max: 1, step: 0.01, default: 0 },
 
-  bump: { kind: 'asset', assetKind: 'texture', label: 'Normal map' },
+  bump: { kind: 'file', accept: 'texture', label: 'Normal map' },
   bumpStrength: { kind: 'range', label: 'Normal strength', min: 0, max: 4, step: 0.05, default: 1 },
 
   emissive: { kind: 'color', label: 'Glow colour', default: 0x000000 },
@@ -50,6 +50,17 @@ export const MATERIAL_FIELDS = {
 export type Material = {
   id: string;
   label: string;
+  /**
+   * The folder this record was found in, under `assets/`.
+   *
+   * Not a field anybody edits: it comes from where the file was, and every
+   * file the record names is relative to it. Carried on the record because the
+   * renderer needs it to turn a filename into a url, and stripped again on the
+   * way out — a record that stated its own address could disagree with where
+   * it actually was, and a folder rename would have to chase it.
+   */
+  path: string;
+
   texture: string;
   bump: string;
   color: number;
@@ -93,10 +104,10 @@ const DEFAULTS = Object.fromEntries(
   Object.entries(MATERIAL_FIELDS).flatMap(([key, field]) =>
     'default' in field ? [[key, field.default]] : [],
   ),
-) as Omit<Material, 'id' | 'label' | 'texture' | 'bump'>;
+) as Omit<Material, 'id' | 'label' | 'path' | 'texture' | 'bump'>;
 
 export function defaultMaterial(id = 'material'): Material {
-  return { id, label: id, texture: '', bump: '', ...DEFAULTS };
+  return { id, label: id, path: '', texture: '', bump: '', ...DEFAULTS };
 }
 
 export function normalizeMaterial(material: MaterialInput = {}): Material {
