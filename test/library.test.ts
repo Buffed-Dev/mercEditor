@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDataDocument } from '../Engine/editor/dataDocument.ts';
 import { libraryWrites } from '../Engine/editor/serializeData.ts';
+import { filterRows, libraryRows, visibleRows } from '../Engine/editor/rules/libraryTree.ts';
 
 /**
  * The library as folders: where a record lives, what moving it costs, and what
@@ -129,4 +130,126 @@ test('a record with nowhere to live is skipped rather than written to the root',
   // there would be in no folder and findable by no glob.
   const d = createDataDocument({ materials: [{ id: 'homeless', label: 'Homeless' }] });
   assert.deepEqual(libraryWrites(d.data), []);
+});
+
+// ------------------------------------------------------------------- the tree
+
+const scan = {
+  tree: [
+    { path: 'Materials', dir: true },
+    { path: 'Materials/Wood', dir: true },
+    { path: 'Materials/Wood/material.json', size: 300 },
+    { path: 'Materials/Wood/diffuse.png', size: 900 },
+    { path: 'Materials/Wood/spare.png', size: 40 },
+    { path: 'Materials/Broken', dir: true },
+    { path: 'Materials/Broken/material.json', size: 12 },
+    { path: 'loose.png', size: 10 },
+  ],
+  records: [],
+  errors: [{ path: 'Materials/Broken/material.json', message: 'Unexpected token }' }],
+};
+
+const held = {
+  materials: [
+    { id: 'wood', label: 'Wood', path: 'Materials/Wood', texture: 'diffuse.png', bump: 'gone.png' },
+  ],
+};
+
+test('the tree says which files nothing has claimed, and which are missing', () => {
+  const rows = libraryRows(scan, held);
+  const at = (path: string) => rows.find((row) => row.path === path);
+
+  // A folder holding a record file *is* the record: one row, named by the
+  // record, not two rows saying the same thing.
+  const wood = at('Materials/Wood');
+  assert.equal(wood?.row, 'record');
+  assert.equal(wood?.row === 'record' && wood.label, 'Wood');
+  assert.equal(at('Materials/Wood/material.json'), undefined, 'the record file is not its own row');
+
+  // The two disagreements this panel exists to show.
+  const claimed = at('Materials/Wood/diffuse.png');
+  assert.equal(claimed?.row === 'file' && claimed.used, true);
+  const orphan = at('Materials/Wood/spare.png');
+  assert.equal(orphan?.row === 'file' && orphan.used, false, 'a file no record names');
+  assert.deepEqual(wood?.row === 'record' && wood.missing, ['Materials/Wood/gone.png']);
+
+  // A record that will not parse is a row that says so, not a thrown error.
+  assert.equal(at('Materials/Broken/material.json')?.row, 'broken');
+  // And the folder above it is still a plain folder, because the document has
+  // no record for it -- which is exactly what "will not parse" means.
+  assert.equal(at('Materials/Broken')?.row, 'folder');
+
+  // Depth is the indent, taken from the path rather than tracked in the walk.
+  assert.equal(at('Materials')?.depth, 0);
+  assert.equal(at('Materials/Wood')?.depth, 1);
+  assert.equal(at('loose.png')?.depth, 0);
+});
+
+test('an effect claims the picture it plays, which no field table declares', () => {
+  // The four tables an effect is built from are gathered by its own editor, so
+  // there is no `file` field to find `sheet.image` by. Missed, the sheet an
+  // effect plays reads as a file nothing wants.
+  const rows = libraryRows(
+    {
+      tree: [
+        { path: 'Effects/Slash', dir: true },
+        { path: 'Effects/Slash/effect.json', size: 100 },
+        { path: 'Effects/Slash/sheet.png', size: 900 },
+      ],
+      records: [],
+      errors: [],
+    },
+    { vfx: [{ id: 'slash', label: 'Slash', path: 'Effects/Slash', sheet: { image: 'sheet.png' } }] },
+  );
+  const sheet = rows.find((row) => row.path === 'Effects/Slash/sheet.png');
+  assert.equal(sheet?.row === 'file' && sheet.used, true);
+});
+
+test('a picture still held inline is not a file on disk', () => {
+  // Before the migration an effect carried its sheet as base64. One that still
+  // does names no file, and must not claim one.
+  const rows = libraryRows(
+    {
+      tree: [
+        { path: 'Effects/Old', dir: true },
+        { path: 'Effects/Old/sheet.png', size: 900 },
+      ],
+      records: [],
+      errors: [],
+    },
+    { vfx: [{ id: 'old', label: 'Old', path: 'Effects/Old', sheet: { image: 'data:image/png;base64,AAAA' } }] },
+  );
+  const sheet = rows.find((row) => row.path === 'Effects/Old/sheet.png');
+  assert.equal(sheet?.row === 'file' && sheet.used, false);
+});
+
+test('filtering to a kind keeps the folders that lead to it', () => {
+  const rows = libraryRows(scan, held);
+  const paths = filterRows(rows, new Set(['materials'])).map((row) => row.path);
+  // The match, and the way down to it. A match you cannot see the path to is a
+  // match you cannot find.
+  assert.ok(paths.includes('Materials/Wood'));
+  assert.ok(paths.includes('Materials'));
+  // Its files are not materials, so they go.
+  assert.ok(!paths.includes('Materials/Wood/diffuse.png'));
+  // And a folder leading nowhere goes with them, or the filter is a highlight.
+  assert.ok(!paths.includes('Materials/Broken'));
+
+  // Files are a kind of their own, being what is left over.
+  const files = filterRows(rows, new Set(['files'])).map((row) => row.path);
+  assert.ok(files.includes('loose.png'));
+  assert.ok(files.includes('Materials/Wood/spare.png'));
+  // The record above it survives as the way down to it, not as a match: a file
+  // shown with no path to it is a file you cannot find. What is dropped is the
+  // record that leads to no file at all.
+  assert.ok(files.includes('Materials/Wood'));
+  assert.ok(!files.includes('Materials/Broken'));
+});
+
+test('a collapsed folder hides what is under it, and nothing else', () => {
+  const rows = libraryRows(scan, held);
+  const paths = visibleRows(rows, new Set(['Materials/Wood'])).map((row) => row.path);
+  assert.ok(paths.includes('Materials/Wood'), 'the folder itself still shows');
+  assert.ok(!paths.includes('Materials/Wood/diffuse.png'));
+  assert.ok(paths.includes('Materials/Broken'), 'a sibling is untouched');
 });

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
-import { writeRules } from '../save.ts';
+import { makeFolder, moveFolder, writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -11,6 +11,9 @@ import { TopBar } from '../shell/TopBar';
 import { FieldList } from '../fields/FieldList';
 import type { FieldSpec } from '../fields/types';
 import { LIBRARY_KINDS, libraryFields, pathOf, type LibraryKind } from '../rules/library';
+import { LibraryTree } from '../panels/LibraryTree';
+import { kindOfFolder, type LibraryRow } from '../rules/libraryTree.ts';
+import { useLibrary } from '../state/useLibrary';
 import { optionsForField } from '../rules/schema';
 import { Button } from '../ui/Button';
 import { useDocument } from '../state/useDocument';
@@ -49,6 +52,7 @@ export function LibraryWorkspace() {
   const layout = useLayout(gameId);
   const doc = useDocument(game?.rules ?? null);
   const edit = useEdit(doc, null);
+  const library = useLibrary(gameId);
 
   const active: LibraryKind = kind ?? 'materials';
   const records = (doc?.list(active) ?? []) as Record<string, unknown>[];
@@ -86,6 +90,19 @@ export function LibraryWorkspace() {
   // to hear about, and cheaper than rebuilding a context object per render.
   const materials = doc?.list('materials') ?? EMPTY;
 
+  /**
+   * Every kind's records, for the tree to merge with what is on disk.
+   *
+   * Built fresh each render rather than memoized. The document is edited in
+   * place, so the arrays it hands back keep their identity while their contents
+   * change -- which means a memo over them would be a memo that never
+   * recomputed, and a rename would not reach the tree. Walking forty rows is
+   * not worth being wrong about.
+   */
+  const byKind = Object.fromEntries(
+    LIBRARY_KINDS.map((kind) => [kind.id, doc?.list(kind.id) ?? EMPTY]),
+  ) as Partial<Record<LibraryKind, Record<string, unknown>[]>>;
+
   // Redrawn whenever the record changes. The document is edited in place, so
   // its revision is what says it did.
   useEffect(() => {
@@ -108,7 +125,8 @@ export function LibraryWorkspace() {
     try {
       const files = await writeRules(gameId, doc.data);
       doc.markSaved();
-      say(`Wrote ${files} rule files`, 'good');
+      say(`Wrote ${files} files`, 'good');
+      void library.refresh();
     } catch (error) {
       say(`Save failed: ${(error as Error).message}. Is the dev server running?`, 'error');
     }
@@ -147,6 +165,92 @@ export function LibraryWorkspace() {
     );
     if (slot && !record[slot.key]) doc.update(active, index, { [slot.key]: stored });
     say(`Stored ${stemOf(stored)} in ${folder || 'assets'}/`, 'good');
+    void library.refresh();
+  }
+
+  /** Open whatever the row is: a record in the inspector, a folder open. */
+  function onOpen(row: LibraryRow) {
+    if (row.row !== 'record') return;
+    void navigate(`/${gameId}/library/${row.list}/${row.id}`);
+  }
+
+  /**
+   * Claim a file nothing names, by making the record that names it.
+   *
+   * Which kind is decided by the top folder it is under, because that is the
+   * one thing the folder already says. Dropped straight into the field it
+   * fits, so importing a normal map does not then ask which slot it was.
+   */
+  function onImport(path: string) {
+    if (!doc) return;
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    const list = kindOfFolder(path);
+    if (!list) {
+      return say('Put it under Materials, Objects, Terrain or Effects first', 'error');
+    }
+    const name = path.slice(path.lastIndexOf('/') + 1);
+
+    // A record already living in this folder takes the file rather than a
+    // second record being made beside it: a folder is one record.
+    const here = (doc.list(list) as Record<string, unknown>[]).findIndex(
+      (entry) => String(entry.path ?? '') === folder,
+    );
+    const at = here >= 0 ? here : (doc.add(list)?.index ?? -1);
+    if (at < 0) return;
+
+    const record = (doc.list(list) as Record<string, unknown>[])[at];
+    if (here < 0) doc.update(list, at, { label: stemOf(name), path: folder });
+
+    const slot = libraryFields(list).find(
+      (field) => field.kind === 'file' && field.accept === kindOfFile(name) && !record[field.key],
+    );
+    if (slot) doc.update(list, at, { [slot.key]: name });
+    else say(`${name} is in ${folder}, but ${String(record.label)} has no free slot for it`, 'warn');
+
+    void navigate(`/${gameId}/library/${list}/${String(record.id)}`);
+    void library.refresh();
+  }
+
+  /**
+   * Drag a folder into another one.
+   *
+   * The bytes move first and the document follows, so a request that fails
+   * leaves the records saying where things really are. Outside undo, because
+   * the folder is real: see `rewrite` in undoable.ts.
+   */
+  async function onMove(from: string, toFolder: string) {
+    if (!doc) return;
+    const to = `${toFolder}/${from.slice(from.lastIndexOf('/') + 1)}`;
+    const found = LIBRARY_KINDS.flatMap((kind) => {
+      const index = (doc.list(kind.id) as Record<string, unknown>[]).findIndex(
+        (entry) => String(entry.path ?? '') === from,
+      );
+      return index >= 0 ? [{ list: kind.id, index }] : [];
+    })[0];
+
+    try {
+      await moveFolder(gameId, from, to);
+    } catch (error) {
+      return say((error as Error).message, 'error');
+    }
+    if (found) {
+      const why = doc.setPath(found.list, found.index, to);
+      if (why) say(why, 'error');
+    }
+    say(`Moved to ${to}`, 'good');
+    void library.refresh();
+  }
+
+  async function onNewFolder() {
+    const name = window.prompt('New folder, as a path under assets/', 'Materials/New');
+    if (!name) return;
+    try {
+      await makeFolder(gameId, name);
+      say(`Made ${name}`, 'good');
+      void library.refresh();
+    } catch (error) {
+      say((error as Error).message, 'error');
+    }
   }
 
   return (
@@ -172,47 +276,22 @@ export function LibraryWorkspace() {
           collapsed={layout.leftCollapsed}
           onToggle={layout.toggleLeft}
         >
-          <nav className={styles.kinds} aria-label="Library">
-            {LIBRARY_KINDS.map((entry) => (
-              <NavLink
-                key={entry.id}
-                to={`/${gameId}/library/${entry.id}`}
-                className={styles.kind}
-              >
-                <span className={styles.kindLabel}>{entry.label}</span>
-                <span className={styles.count}>{doc?.list(entry.id).length ?? 0}</span>
-              </NavLink>
-            ))}
-          </nav>
-
-          <div className={styles.records}>
-            {records.map((entry) => (
-              <button
-                key={String(entry.id)}
-                type="button"
-                className={`${styles.record} ${entry.id === recordId ? styles.on : ''}`}
-                onClick={() => void navigate(`/${gameId}/library/${active}/${String(entry.id)}`)}
-              >
-                <span className={styles.name}>{String(entry.label ?? entry.id)}</span>
-                <span className={styles.id}>{String(entry.id)}</span>
-              </button>
-            ))}
-            <Button
-              variant="quiet"
-              className={styles.add}
-              onClick={() => {
-                const made = doc?.add(active);
-                if (made) {
-                  const list = doc?.list(active) ?? [];
-                  void navigate(
-                    `/${gameId}/library/${active}/${String(list[made.index]?.id ?? '')}`,
-                  );
-                }
-              }}
-            >
-              New {LIBRARY_KINDS.find((entry) => entry.id === active)?.singular}
-            </Button>
-          </div>
+          <LibraryTree
+            scan={library.scan}
+            records={byKind}
+            selected={record ? pathOf(record) : ''}
+            onOpen={onOpen}
+            onImport={onImport}
+            onMove={(from, to) => void onMove(from, to)}
+            onRefresh={() => void library.refresh()}
+            onNewFolder={() => void onNewFolder()}
+            onNew={(kind) => {
+              const made = doc?.add(kind);
+              if (!made) return;
+              const list = doc?.list(kind) ?? [];
+              void navigate(`/${gameId}/library/${kind}/${String(list[made.index]?.id ?? '')}`);
+            }}
+          />
         </DockPanel>
       }
       viewport={
