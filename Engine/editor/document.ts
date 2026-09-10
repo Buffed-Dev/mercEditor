@@ -720,6 +720,23 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     },
 
     /**
+     * Put a ready-made entry into a list.
+     *
+     * No rules, no tile test: the caller already has the object and knows where
+     * it goes. Unpacking a prefab is what this is for — the objects were on the
+     * map a moment ago, drawn by the placement being removed in the same
+     * breath, so asking whether they fit would be asking whether they fit
+     * beside themselves.
+     */
+    addObject(list: string, entry: Record<string, unknown>, checkpointed = true): number {
+      const held = lists[list];
+      if (!held) return -1;
+      if (checkpointed) checkpoint();
+      held.push(entry as MapObject);
+      return held.length - 1;
+    },
+
+    /**
      * Stand a prefab on a tile, without asking whether it fits.
      *
      * The button's way in, as `addChunk` is for chunks. `place` is the brush's,

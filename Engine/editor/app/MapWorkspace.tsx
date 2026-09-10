@@ -29,6 +29,8 @@ import { MapList } from '../panels/MapList';
 import { ObjectTree } from '../panels/ObjectTree';
 import { useMapTools } from '../viewport/useMapTools';
 import { useSelection } from '../state/selection';
+import { prefabFromSelection, unpackPrefab } from '../prefabFromSelection.ts';
+import { normalizePrefab, type Prefab } from '../../src/data/prefabs.ts';
 import { useVisibility } from '../state/visibility';
 import { useShortcuts } from '../state/useShortcuts';
 import { Shortcuts } from '../ui/Shortcuts';
@@ -214,6 +216,38 @@ export function MapWorkspace() {
     say(`New map. Save to write it to Games/${gameId}/maps/.`, 'good');
   }
 
+  /** The prefabs as they are being edited, for unpacking one. */
+  const prefabOf = (id: string): Prefab | null => {
+    const found = (rules?.list('prefabs') ?? []).find((one) => one.id === id);
+    return found ? normalizePrefab(found) : null;
+  };
+
+  /**
+   * Promote what is picked into a prefab, and stand one where it was.
+   *
+   * The name is asked for because a prefab is a thing you will go looking for
+   * later, and `prefab7` is not a name you find anything by.
+   */
+  function onMakePrefab(picked: ReadonlySet<string>) {
+    if (!doc || !rules) return;
+    const name = window.prompt(`Make a prefab of ${picked.size} objects. Call it:`, 'Camp');
+    if (!name) return;
+    const made = prefabFromSelection(doc, picked, rules, name.trim());
+    if (typeof made === 'string') return say(made, 'error');
+    clearSelection();
+    editor?.invalidate();
+    say(`Made "${name.trim()}". Save to write it to the library.`, 'good');
+  }
+
+  function onUnpack(index: number) {
+    if (!doc) return;
+    const why = unpackPrefab(doc, index, prefabOf);
+    if (why) return say(why, 'error');
+    clearSelection();
+    editor?.invalidate();
+    say('Unpacked into loose objects', 'good');
+  }
+
   const dirty = Boolean(doc?.dirty || rules?.dirty);
 
   // Leaving with unsaved work is worth a prompt. The map is written as module
@@ -263,7 +297,11 @@ export function MapWorkspace() {
           onToggle={layout.toggleLeft}
         >
           {leftTab === 'objects' && (
-            <ObjectTree doc={doc} onChanged={() => editor?.invalidate()} />
+            <ObjectTree
+              doc={doc}
+              onChanged={() => editor?.invalidate()}
+              onMakePrefab={onMakePrefab}
+            />
           )}
           {leftTab === 'assets' && (
             <AssetShelves
@@ -335,6 +373,7 @@ export function MapWorkspace() {
             rules={rules}
             mapId={String(doc?.map.id ?? '')}
             onPlaytest={onPlaytest}
+            onUnpack={onUnpack}
           />
         </DockPanel>
       }

@@ -11,6 +11,9 @@ import { rotatePart } from '../Engine/src/data/maps/generate.ts';
 import type { ChunkPart } from '../Engine/src/data/maps/chunks.ts';
 import type { GameMap, MapObject } from '../Engine/src/data/mapFormat.ts';
 import { createDocument } from '../Engine/editor/document.ts';
+import { createDataDocument } from '../Engine/editor/dataDocument.ts';
+import { prefabFromSelection, unpackPrefab } from '../Engine/editor/prefabFromSelection.ts';
+import type { Prefab } from '../Engine/src/data/prefabs.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
@@ -315,4 +318,106 @@ test('a prefab will not be placed where it does not fit', () => {
   assert.equal(doc.map.prefabs.length, 1);
   // And a second one overlapping the first is refused by the same test.
   assert.match(String(doc.place(1, 0, brush, { prefabId: 'camp' })), /in the way/);
+});
+
+// ------------------------------------------------- making one, and unmaking it
+
+test('a selection becomes a prefab, and the map keeps its shape', () => {
+  const doc = createDocument(
+    {
+      ...mapDoc(['......', '......', '......'], { id: 'yard' }),
+      props: [
+        { gx: 1, gy: 1, id: 'fire' },
+        { gx: 3, gy: 1, id: 'pot' },
+        { gx: 5, gy: 2, id: 'keep-me' },
+      ],
+      torches: [{ gx: 1, gy: 2, face: '+x' }],
+    } as GameMap,
+    lookup,
+  );
+  const rules = createDataDocument({});
+  const picked = new Set(['props:0', 'props:1', 'torches:0']);
+
+  const made = prefabFromSelection(doc, picked, rules, 'Camp');
+  assert.ok(typeof made !== 'string', String(made));
+
+  // The three picked objects are gone from the map and one placement stands
+  // where their top-left corner was.
+  assert.deepEqual(
+    doc.map.props.map((one) => one.id),
+    ['keep-me'],
+    'what was not picked is untouched',
+  );
+  assert.equal(doc.map.torches.length, 0);
+  assert.deepEqual(
+    doc.map.prefabs.map((one) => [one.gx, one.gy]),
+    [[1, 1]],
+  );
+
+  // And the record holds them measured from that corner.
+  const prefab = rules.list('prefabs')[0] as unknown as Prefab;
+  assert.deepEqual(
+    prefab.props.map((one) => [one.gx, one.gy, one.id]),
+    [
+      [0, 0, 'fire'],
+      [2, 0, 'pot'],
+    ],
+  );
+  assert.deepEqual(prefab.torches.map((one) => [one.gx, one.gy]), [[0, 1]]);
+  assert.deepEqual([prefab.w, prefab.h], [3, 2]);
+});
+
+test('making a prefab is one undo step, not one per object', () => {
+  const doc = createDocument(
+    {
+      ...mapDoc(['....', '....'], { id: 'yard' }),
+      props: [
+        { gx: 0, gy: 0, id: 'a' },
+        { gx: 1, gy: 0, id: 'b' },
+        { gx: 2, gy: 0, id: 'c' },
+      ],
+    } as GameMap,
+    lookup,
+  );
+  const rules = createDataDocument({});
+
+  assert.ok(typeof prefabFromSelection(doc, new Set(['props:0', 'props:1', 'props:2']), rules, 'Trio') !== 'string');
+  assert.equal(doc.map.props.length, 0);
+
+  doc.undo();
+  assert.deepEqual(
+    doc.map.props.map((one) => one.id),
+    ['a', 'b', 'c'],
+    'one undo brought all three back',
+  );
+  assert.equal(doc.map.prefabs.length, 0);
+});
+
+test('unpacking gives back exactly what was drawn', () => {
+  const doc = createDocument(
+    { ...mapDoc(['......', '......'], { id: 'yard' }), prefabs: [{ gx: 2, gy: 0, id: 'camp', rot: 90 }] } as GameMap,
+    lookup,
+  );
+
+  // What the renderer would have drawn for that placement, asked for the same
+  // way expansion asks -- so this is a comparison against the screen.
+  const drawn = prefabObjects(camp, { gx: 2, gy: 0, rot: 90 });
+
+  assert.equal(unpackPrefab(doc, 0, lookup), null);
+  assert.equal(doc.map.prefabs.length, 0, 'the placement is gone');
+  assert.deepEqual(
+    doc.map.props.map((one) => [one.gx, one.gy, one.id, one.rot]),
+    drawn.props.map((one) => [one.gx, one.gy, one.id, one.rot]),
+  );
+  assert.deepEqual(
+    doc.map.torches.map((one) => [one.gx, one.gy, one.face]),
+    drawn.torches.map((one) => [one.gx, one.gy, one.face]),
+  );
+  // The marker saying which placement drew a child does not survive: these are
+  // the map's own objects now.
+  assert.ok(doc.map.props.every((one) => one.prefab === undefined));
+
+  doc.undo();
+  assert.equal(doc.map.prefabs.length, 1, 'one undo put the placement back');
+  assert.equal(doc.map.props.length, 0);
 });

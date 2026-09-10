@@ -32,6 +32,7 @@ export function Inspector({
   mapId,
   onPlaytest,
   showMap = true,
+  onUnpack,
 }: {
   doc: MapDocument | null;
   editor: MapEditor | null;
@@ -46,6 +47,9 @@ export function Inspector({
    * offering to edit something that is thrown away on save.
    */
   showMap?: boolean;
+  /** Explode the selected prefab into loose objects. Absent where there is no
+   *  prefab to explode. */
+  onUnpack?: (index: number) => void;
 }) {
   const selection = useSelection((state) => state.selection);
   const edit = useEdit(doc, editor);
@@ -92,6 +96,18 @@ export function Inspector({
           <span className={styles.kind}>{spec.label}</span>
           <span className={styles.describes}>{spec.describe(entry, selection.key)}</span>
         </header>
+
+        {/* The way out of a prefab that is nearly right: explode it, change
+            the one thing, and the map keeps loose objects. */}
+        {selection.list === 'prefabs' && onUnpack && selection.index !== undefined && (
+          <button
+            type="button"
+            className={styles.unpack}
+            onClick={() => onUnpack(selection.index as number)}
+          >
+            Unpack into objects
+          </button>
+        )}
 
         {fields.length === 0 ? (
           <p className={styles.note}>Nothing to configure.</p>

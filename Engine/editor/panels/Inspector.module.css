@@ -49,3 +49,22 @@
 .envGroup.on {
   background: color-mix(in srgb, var(--e-panel) 55%, transparent);
 }
+
+/* Not in the ⋯ menu with Delete: unpacking loses nothing -- the objects are
+   all still there -- so it does not need the same protection. */
+.unpack {
+  width: 100%;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--e-line);
+  border-radius: var(--e-r);
+  background: var(--e-raised);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-5);
+  cursor: pointer;
+}
+
+.unpack:hover {
+  border-color: var(--e-fg-3);
+}
