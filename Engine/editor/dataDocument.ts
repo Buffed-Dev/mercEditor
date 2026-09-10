@@ -910,6 +910,51 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
     },
 
     /**
+     * Delete a record, and clear what named it.
+     *
+     * A reference left behind is the worst kind of broken: the record keeps
+     * working and comes up as an untextured box, and nothing says why. So the
+     * fields that named this one are emptied rather than left pointing at
+     * nothing -- which is a visible "none" in the inspector instead.
+     *
+     * Outside undo, through `rewrite`, for the same reason a move is: the
+     * folder is gone from disk by the time this is called, and a record an undo
+     * brought back would name a folder that is not there.
+     *
+     * The caller has already asked. `usedBy` is what it asked with.
+     */
+    drop(list: string, index: number): boolean {
+      const entry = entryAt(list, index);
+      if (!entry) return false;
+      const id = text(entry.id);
+      const wanted = NAMED_BY[list];
+
+      history.rewrite((state) => {
+        const held = (state as RulesData)[list];
+        const at = held?.findIndex((one) => text(one.id) === id) ?? -1;
+        if (at >= 0) held.splice(at, 1);
+        if (!wanted || !id) return;
+
+        for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {
+          for (const record of (state as RulesData)[name] ?? []) {
+            for (const [key, field] of Object.entries(fields)) {
+              if (field.kind === wanted && record[key] === id) record[key] = '';
+            }
+          }
+        }
+        // Spelled out, the way `rename` and `usedBy` spell it out: an ability's
+        // effect and its trail are not in any of the tables above.
+        if (list === 'vfx') {
+          for (const ability of (state as RulesData).abilities ?? []) {
+            if (ability.vfx === id) ability.vfx = '';
+            if (ability.trail === id) ability.trail = '';
+          }
+        }
+      });
+      return true;
+    },
+
+    /**
      * Move a record to another folder, or rename the one it is in.
      *
      * The same operation either way: a folder's name is the last part of where

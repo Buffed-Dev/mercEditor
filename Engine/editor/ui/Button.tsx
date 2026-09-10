@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, Ref } from 'react';
 import { Tooltip } from './Tooltip';
 import styles from './Button.module.css';
 
-type Variant = 'primary' | 'default' | 'quiet';
+type Variant = 'primary' | 'default' | 'quiet' | 'danger';
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;

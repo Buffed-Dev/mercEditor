@@ -50,6 +50,18 @@
   background: var(--e-accent-hover);
 }
 
+/* The one that does something you cannot take back. Filled rather than
+   outlined, because it is the button you must not press by accident and the
+   one you must be able to find on purpose. */
+.danger {
+  background: var(--e-danger);
+  border-color: var(--e-danger);
+  color: var(--e-on-accent);
+}
+.danger:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
 .default {
   border-color: var(--e-line-2);
   background: var(--e-panel);

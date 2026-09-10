@@ -186,3 +186,30 @@
   /* A texture with transparency in it would otherwise be a hole in the row. */
   background: var(--e-raised);
 }
+
+/* Only on the row under the pointer, so forty rows are not forty ⋯ marks. */
+.more {
+  flex: none;
+  margin-left: auto;
+  opacity: 0;
+}
+
+.row:hover .more,
+.more:focus-within {
+  opacity: 1;
+}
+
+.moreButton {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-3);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.moreButton:hover {
+  color: var(--e-fg);
+}

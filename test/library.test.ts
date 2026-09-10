@@ -296,3 +296,42 @@ test('a row shows a picture it already has, or admits it has none', () => {
   assert.equal(thumb('Objects/Crate'), null);
   assert.equal(thumb('Objects/Crate/crate.glb'), null);
 });
+
+test('deleting a record empties what named it, rather than dangling', () => {
+  // The worst kind of broken is the reference left behind: the record goes on
+  // working and comes up as an untextured box, with nothing to say why.
+  const d = doc();
+  assert.deepEqual(
+    d.usedBy('materials', 0).map((one) => `${one.list}:${one.id}`).sort(),
+    ['props:crate', 'terrains:floor'],
+  );
+
+  assert.ok(d.drop('materials', 0));
+  assert.equal(d.list('materials').find((one) => one.id === 'wood'), undefined);
+  assert.equal(d.list('props')[0].material, '', 'the object names nothing now');
+  assert.equal(d.list('terrains')[0].top, '', 'and so does the terrain');
+  assert.equal(d.list('terrains')[0].sub, '', 'both slots, not just the first');
+
+  // An ability names the flash it throws, which no field table covers.
+  const e = doc();
+  assert.ok(e.drop('vfx', 0));
+  assert.equal(e.list('abilities')[0].vfx, '');
+});
+
+test('deleting is not something undo brings back', () => {
+  // The folder is off the disk by the time this runs, so a record an undo
+  // restored would name a folder that is not there -- the same reason a move
+  // is written into the past as well as the present.
+  const d = doc();
+  d.update('props', 0, { scale: 3 });
+  assert.ok(d.drop('materials', 0));
+
+  assert.ok(d.undo(), 'there was an edit to undo');
+  assert.equal(d.list('props')[0].scale, 1, 'the edit was undone');
+  assert.equal(
+    d.list('materials').find((one) => one.id === 'wood'),
+    undefined,
+    'the deleted record stayed deleted',
+  );
+  assert.equal(d.list('props')[0].material, '', 'and its reference stayed empty');
+});

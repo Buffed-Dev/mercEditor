@@ -78,6 +78,7 @@ export function LibraryTree({
   onNewFolder,
   onNew,
   onRefresh,
+  onDelete,
 }: {
   game: string;
   scan: LibraryScan | null;
@@ -89,6 +90,7 @@ export function LibraryTree({
   onNewFolder: () => void;
   onNew: (kind: LibraryKind) => void;
   onRefresh: () => void;
+  onDelete: (row: LibraryRow) => void;
 }) {
   const [wanted, setWanted] = useState<ReadonlySet<string>>(new Set());
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -151,6 +153,7 @@ export function LibraryTree({
               onToggle={() => setCollapsed((set) => toggle(set, row.path))}
               onOpen={() => onOpen(row)}
               onImport={() => onImport(row.path)}
+              onDelete={() => onDelete(row)}
             />
           ))}
           {!rows.length && (
@@ -212,6 +215,7 @@ function Row({
   onToggle,
   onOpen,
   onImport,
+  onDelete,
 }: {
   row: LibraryRow;
   thumb: { src: string } | { color: number } | null;
@@ -223,6 +227,7 @@ function Row({
   onToggle: () => void;
   onOpen: () => void;
   onImport: () => void;
+  onDelete: () => void;
 }) {
   const drag = useDraggable({ id: row.path });
   const drop = useDroppable({ id: row.path, disabled: !folder });
@@ -326,6 +331,24 @@ function Row({
           will not parse
         </span>
       )}
+
+      {/* Behind a menu, never as a button on the row: this is the one action
+          here that destroys something, and a row you click to select it is not
+          a row to put it on. */}
+      <span className={styles.more} onClick={(event) => event.stopPropagation()}>
+        <DropdownMenu
+          align="end"
+          trigger={
+            <button type="button" className={styles.moreButton} aria-label={`Actions for ${row.name}`}>
+              ⋯
+            </button>
+          }
+        >
+          <MenuItem danger onClick={onDelete}>
+            Delete
+          </MenuItem>
+        </DropdownMenu>
+      </span>
     </div>
   );
 }

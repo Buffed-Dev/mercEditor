@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
-import { makeFolder, moveFolder, writeRules } from '../save.ts';
+import { makeFolder, moveFolder, removeFile, writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -14,6 +14,7 @@ import { LIBRARY_KINDS, libraryFields, pathOf, type LibraryKind } from '../rules
 import { LibraryTree } from '../panels/LibraryTree';
 import { kindOfFolder, type LibraryRow } from '../rules/libraryTree.ts';
 import { useLibrary } from '../state/useLibrary';
+import { ConfirmDelete, type Users } from '../ui/ConfirmDelete';
 import { optionsForField } from '../rules/schema';
 import { Button } from '../ui/Button';
 import { useDocument } from '../state/useDocument';
@@ -33,6 +34,24 @@ import styles from './LibraryWorkspace.module.css';
 
 /** One empty list, so "no document yet" does not look like a change. */
 const EMPTY: never[] = [];
+
+/**
+ * What a row is called, for the dialog that asks about deleting it.
+ *
+ * A function rather than a ternary in the markup: each branch narrows the row
+ * to the shape it is, which reading `row.list` off a union does not.
+ */
+function describe(row: LibraryRow): { label: string; path: string; what: string } {
+  if (row.row === 'record') {
+    const kind = LIBRARY_KINDS.find((one) => one.id === row.list);
+    return { label: row.label, path: row.path, what: kind?.singular ?? 'record' };
+  }
+  return {
+    label: row.name,
+    path: row.path,
+    what: row.row === 'folder' ? 'folder and everything in it' : 'file',
+  };
+}
 
 /**
  * The library: the records a map is drawn *with*.
@@ -65,6 +84,14 @@ export function LibraryWorkspace() {
   // tiling factor goes wrong — and a sphere has every angle in it, which is the
   // only way to watch a highlight move. Different questions, so it is a choice.
   const [shape, setShape] = useState('box');
+
+  /**
+   * What a Delete is waiting to be confirmed for, and what it would break.
+   *
+   * Held rather than asked with `window.confirm`, because "are you sure" is a
+   * question nobody reads and the useful thing to say is *what names it*.
+   */
+  const [pending, setPending] = useState<{ row: LibraryRow; users: Users } | null>(null);
 
   // One stage per kind of record, because they stand different things on it: a
   // material wears a shape, a model stands on a pad, an effect runs. Rebuilt
@@ -246,6 +273,56 @@ export function LibraryWorkspace() {
     void library.refresh();
   }
 
+  /**
+   * Ask before deleting, and say what would break.
+   *
+   * A record is asked about with what names it; a file and a folder are asked
+   * about plainly. A file is not blocked by anything naming it -- a record
+   * pointing at a file that is gone shows as "missing" on its own row, which is
+   * a state you can see and fix, unlike an id pointing at nothing.
+   */
+  function onAskDelete(row: LibraryRow) {
+    if (!doc) return;
+    const users = row.row === 'record' ? (doc.usedBy(row.list, row.index) as Users) : [];
+    setPending({ row, users });
+  }
+
+  /**
+   * Do it: the record out of the document, the folder off the disk.
+   *
+   * The bytes go last. A document that has dropped a record whose folder is
+   * still there is a folder the browser shows as unimported; the other way
+   * round is a record naming files that are gone, which is worse.
+   */
+  async function onConfirmDelete() {
+    const asked = pending;
+    setPending(null);
+    if (!asked || !doc) return;
+
+    const { row } = asked;
+    if (row.row === 'record') doc.drop(row.list, row.index);
+    // A folder may hold records deeper down. Each of those is a record the
+    // document still believes in, so they go too rather than being left naming
+    // a folder that is not there.
+    if (row.row === 'folder') {
+      for (const kind of LIBRARY_KINDS) {
+        const held = doc.list(kind.id) as Record<string, unknown>[];
+        for (let at = held.length - 1; at >= 0; at -= 1) {
+          if (String(held[at].path ?? '').startsWith(`${row.path}/`)) doc.drop(kind.id, at);
+        }
+      }
+    }
+
+    try {
+      await removeFile(gameId, row.path, row.row !== 'file');
+      say(`Deleted ${row.name}`, 'good');
+    } catch (error) {
+      say((error as Error).message, 'error');
+    }
+    if (record && row.path === pathOf(record)) void navigate(`/${gameId}/library`);
+    void library.refresh();
+  }
+
   async function onNewFolder() {
     const name = window.prompt('New folder, as a path under assets/', 'Materials/New');
     if (!name) return;
@@ -259,7 +336,14 @@ export function LibraryWorkspace() {
   }
 
   return (
-    <Shell
+    <>
+      <ConfirmDelete
+        target={pending ? describe(pending.row) : null}
+        users={pending?.users ?? []}
+        onCancel={() => setPending(null)}
+        onConfirm={() => void onConfirmDelete()}
+      />
+      <Shell
       game={gameId}
       topBar={
         <TopBar
@@ -290,6 +374,7 @@ export function LibraryWorkspace() {
             onImport={onImport}
             onMove={(from, to) => void onMove(from, to)}
             onRefresh={() => void library.refresh()}
+            onDelete={onAskDelete}
             onNewFolder={() => void onNewFolder()}
             onNew={(kind) => {
               const made = doc?.add(kind);
@@ -399,6 +484,7 @@ export function LibraryWorkspace() {
         </DockPanel>
       }
       statusBar={<StatusBar />}
-    />
+      />
+    </>
   );
 }

@@ -1,0 +1,91 @@
+/* The same modal shell the keyboard list uses, narrower: this is a question
+   with a short answer, not a reference table. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 32px));
+  padding: 16px;
+  background: var(--e-work);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-lg);
+  box-shadow: var(--e-shadow);
+  color: var(--e-fg);
+  outline: none;
+}
+
+.title {
+  margin: 0 0 10px;
+  font-size: var(--e-fs-4);
+  font-weight: 500;
+}
+
+.what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+}
+
+.name {
+  color: var(--e-fg);
+  font-size: var(--e-fs-2);
+}
+
+.path {
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+}
+
+.warn {
+  margin: 0 0 8px;
+  color: var(--e-warn);
+  font-size: var(--e-fs-5);
+}
+
+.users {
+  margin: 0 0 12px;
+  padding: 6px 8px;
+  max-height: 140px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--e-line);
+  border-radius: var(--e-r);
+  background: var(--e-raised);
+}
+
+.user {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+}
+
+.userList {
+  min-width: 68px;
+  flex: none;
+  color: var(--e-fg-3);
+  font-family: var(--e-mono);
+}
+
+.note {
+  margin: 0 0 14px;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
