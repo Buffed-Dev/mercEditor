@@ -323,8 +323,12 @@ export function LibraryWorkspace() {
     void library.refresh();
   }
 
-  async function onNewFolder() {
-    const name = window.prompt('New folder, as a path under assets/', 'Materials/New');
+  /** Made where you are looking, which is the only folder you have said. */
+  async function onNewFolder(into: string) {
+    const name = window.prompt(
+      'New folder, as a path under assets/',
+      into ? `${into}/New` : 'Materials/New',
+    );
     if (!name) return;
     try {
       await makeFolder(gameId, name);
@@ -375,7 +379,7 @@ export function LibraryWorkspace() {
             onMove={(from, to) => void onMove(from, to)}
             onRefresh={() => void library.refresh()}
             onDelete={onAskDelete}
-            onNewFolder={() => void onNewFolder()}
+            onNewFolder={(into) => void onNewFolder(into)}
             onNew={(kind) => {
               const made = doc?.add(kind);
               if (!made) return;

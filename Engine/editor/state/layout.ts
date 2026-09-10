@@ -6,7 +6,9 @@ import { persist } from 'zustand/middleware';
  *
  * Per game, because a game whose maps are mostly terrain wants a different
  * shape of window from one that is mostly placed objects, and the answer is
- * worth keeping. It is only ever four numbers and two flags, so it is stored as
+ * worth keeping. Which folder the library is showing rides along: it is the
+ * same kind of fact -- where you left the window -- and it wants the same
+ * persistence rather than a second store to say one string in. It is only ever four numbers and two flags, so it is stored as
  * a plain map keyed by game id rather than as a serialized layout tree — there
  * is no format here to have to migrate later.
  */
@@ -16,6 +18,8 @@ export type PanelLayout = {
   inspectorWidth: number;
   leftCollapsed: boolean;
   inspectorCollapsed: boolean;
+  /** Which folder the library browser is in, under assets/. */
+  folder: string;
 };
 
 export const DEFAULT_LAYOUT: PanelLayout = {
@@ -23,6 +27,7 @@ export const DEFAULT_LAYOUT: PanelLayout = {
   inspectorWidth: 288,
   leftCollapsed: false,
   inspectorCollapsed: false,
+  folder: '',
 };
 
 /** Below this a panel is unusable, and above it the viewport is. */
@@ -63,5 +68,8 @@ export function useLayout(game: string) {
     setInspectorWidth: (width: number) => write(game, { inspectorWidth: clamp(width) }),
     toggleLeft: () => write(game, { leftCollapsed: !layout.leftCollapsed }),
     toggleInspector: () => write(game, { inspectorCollapsed: !layout.inspectorCollapsed }),
+    // Kept here rather than in component state because it has to outlive the
+    // panel: going to the map and coming back should land where you were.
+    setFolder: (folder: string) => write(game, { folder }),
   };
 }

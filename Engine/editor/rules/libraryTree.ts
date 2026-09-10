@@ -35,8 +35,6 @@ export type LibraryRow = {
   path: string;
   /** The last segment: what the row is called. */
   name: string;
-  /** How many folders deep, for the indent. */
-  depth: number;
 } & (
   | { row: 'folder' }
   /** A folder holding a record file: the folder *is* the material. */
@@ -59,7 +57,6 @@ export type LibraryRow = {
 type Records = Partial<Record<LibraryKind, Record<string, unknown>[]>>;
 
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
-const depthOf = (path: string) => path.split('/').length - 1;
 
 /**
  * Every file the records name, as paths under assets/.
@@ -134,12 +131,11 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
   for (const entry of scan.tree) {
     const { path } = entry;
     const name = nameOf(path);
-    const depth = depthOf(path);
 
     if (entry.dir) {
       const here = at.get(path);
       if (!here) {
-        rows.push({ row: 'folder', path, name, depth });
+        rows.push({ row: 'folder', path, name });
         continue;
       }
       const missing = (byRecord.get(path) ?? []).filter((file) => !onDisk.has(file));
@@ -147,7 +143,6 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
         row: 'record',
         path,
         name,
-        depth,
         list: here.list,
         id: String(here.record.id ?? ''),
         index: here.index,
@@ -158,7 +153,7 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     }
 
     if (broken.has(path)) {
-      rows.push({ row: 'broken', path, name, depth, message: broken.get(path) ?? '' });
+      rows.push({ row: 'broken', path, name, message: broken.get(path) ?? '' });
       continue;
     }
 
@@ -166,7 +161,7 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     // the record, and showing both would be the same thing said twice.
     if (name in RECORD_FILES) continue;
 
-    rows.push({ row: 'file', path, name, depth, used: used.has(path), size: entry.size ?? 0 });
+    rows.push({ row: 'file', path, name, used: used.has(path), size: entry.size ?? 0 });
   }
 
   return rows;
@@ -281,18 +276,31 @@ export function filterRows(
   return rows.filter((row) => keep.has(row.path));
 }
 
-/** The rows that are not hidden inside a collapsed folder. */
-export function visibleRows(
-  rows: readonly LibraryRow[],
-  collapsed: ReadonlySet<string>,
-): LibraryRow[] {
-  if (!collapsed.size) return [...rows];
-  return rows.filter((row) =>
-    ![...collapsed].some((folder) => row.path.startsWith(`${folder}/`)),
+/**
+ * The rows directly inside a folder, and nothing deeper.
+ *
+ * One folder at a time rather than the whole tree indented: a library is a
+ * place you are *in*, the way a file manager is, and forty rows of somebody
+ * else's folders between you and the two you are working on is the thing an
+ * expandable tree is always doing. `''` is the assets folder itself.
+ */
+export function rowsIn(rows: readonly LibraryRow[], folder: string): LibraryRow[] {
+  const prefix = folder ? `${folder}/` : '';
+  return rows.filter(
+    (row) => row.path.startsWith(prefix) && !row.path.slice(prefix.length).includes('/'),
   );
 }
 
-/** Whether a row has anything under it, so a folder can show a twisty. */
+/** The way back up, as one crumb per folder on the path. */
+export function crumbs(folder: string): { name: string; path: string }[] {
+  const parts = folder ? folder.split('/') : [];
+  return [
+    { name: 'Assets', path: '' },
+    ...parts.map((name, at) => ({ name, path: parts.slice(0, at + 1).join('/') })),
+  ];
+}
+
+/** Whether a row has anything under it, so a folder can offer to be opened. */
 export function hasChildren(rows: readonly LibraryRow[], path: string): boolean {
   return rows.some((row) => row.path.startsWith(`${path}/`));
 }

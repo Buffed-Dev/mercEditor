@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDataDocument } from '../Engine/editor/dataDocument.ts';
 import { libraryWrites } from '../Engine/editor/serializeData.ts';
-import { filterRows, libraryRows, thumbFor, visibleRows } from '../Engine/editor/rules/libraryTree.ts';
+import { crumbs, filterRows, libraryRows, rowsIn, thumbFor } from '../Engine/editor/rules/libraryTree.ts';
 
 /**
  * The library as folders: where a record lives, what moving it costs, and what
@@ -178,11 +178,6 @@ test('the tree says which files nothing has claimed, and which are missing', () 
   // And the folder above it is still a plain folder, because the document has
   // no record for it -- which is exactly what "will not parse" means.
   assert.equal(at('Materials/Broken')?.row, 'folder');
-
-  // Depth is the indent, taken from the path rather than tracked in the walk.
-  assert.equal(at('Materials')?.depth, 0);
-  assert.equal(at('Materials/Wood')?.depth, 1);
-  assert.equal(at('loose.png')?.depth, 0);
 });
 
 test('an effect claims the picture it plays, which no field table declares', () => {
@@ -246,12 +241,26 @@ test('filtering to a kind keeps the folders that lead to it', () => {
   assert.ok(!files.includes('Materials/Broken'));
 });
 
-test('a collapsed folder hides what is under it, and nothing else', () => {
+test('a folder shows what is in it, and nothing deeper', () => {
   const rows = libraryRows(scan, held);
-  const paths = visibleRows(rows, new Set(['Materials/Wood'])).map((row) => row.path);
-  assert.ok(paths.includes('Materials/Wood'), 'the folder itself still shows');
-  assert.ok(!paths.includes('Materials/Wood/diffuse.png'));
-  assert.ok(paths.includes('Materials/Broken'), 'a sibling is untouched');
+
+  const top = rowsIn(rows, '').map((row) => row.path);
+  assert.ok(top.includes('Materials'), 'the top folders are what you start on');
+  assert.ok(top.includes('loose.png'), 'a file lying in assets/ is at the top too');
+  assert.ok(!top.includes('Materials/Wood'), 'and nothing from inside them');
+
+  const inside = rowsIn(rows, 'Materials/Wood').map((row) => row.path);
+  assert.deepEqual(
+    inside.sort(),
+    ['Materials/Wood/diffuse.png', 'Materials/Wood/spare.png'],
+    'a record folder shows its own files, not itself',
+  );
+
+  assert.deepEqual(
+    crumbs('Materials/Wood').map((crumb) => crumb.path),
+    ['', 'Materials', 'Materials/Wood'],
+    'and every folder above it is a way back',
+  );
 });
 
 test('a row shows a picture it already has, or admits it has none', () => {
