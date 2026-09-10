@@ -34,6 +34,16 @@ import type { Placement } from './props.ts';
 export type MapContent = {
   vfx?: readonly VfxInput[];
   props?: readonly Prop[];
+  /**
+   * The prefabs being edited.
+   *
+   * Nothing in here reads them: a map arrives with its placements already
+   * turned into objects (see data/prefabs.ts), and by then a prefab is not a
+   * thing the view has heard of. They travel with the rest because the editor
+   * expands the map itself, from the same table it draws it with — and a
+   * second way to hand that over would be a second thing to keep in step.
+   */
+  prefabs?: readonly unknown[];
   terrains?: readonly Terrain[];
   materials?: readonly MaterialInput[];
   game?: string;

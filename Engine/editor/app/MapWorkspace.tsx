@@ -74,7 +74,7 @@ export function MapWorkspace() {
     return {
       vfx: rules?.list('vfx') ?? [],
       props: rules?.list('props') ?? [],
-      assets: rules?.list('assets') ?? [],
+      prefabs: rules?.list('prefabs') ?? [],
       materials: rules?.list('materials') ?? [],
       terrains: rules?.list('terrains') ?? [],
       game: gameId,
