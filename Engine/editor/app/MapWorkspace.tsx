@@ -30,6 +30,7 @@ import { ObjectTree } from '../panels/ObjectTree';
 import { useMapTools } from '../viewport/useMapTools';
 import { useSelection } from '../state/selection';
 import { prefabFromSelection, unpackPrefab } from '../prefabFromSelection.ts';
+import { clipboardSize, copyObjects, pasteObjects } from '../clipboard.ts';
 import { normalizePrefab, type Prefab } from '../../src/data/prefabs.ts';
 import { useVisibility } from '../state/visibility';
 import { useShortcuts } from '../state/useShortcuts';
@@ -138,8 +139,38 @@ export function MapWorkspace() {
   // unified map-and-terrain screen.
   useMapTools(editor, doc);
 
+  /**
+   * Remember what is picked. Says how many, because a copy that looked like it
+   * did nothing is one you press again.
+   */
+  function onCopy() {
+    if (!doc) return;
+    const many = copyObjects(doc, picked, selection);
+    say(many ? `Copied ${many} object${many > 1 ? 's' : ''}` : 'Nothing picked to copy', many ? 'good' : 'error');
+  }
+
+  /**
+   * Put it down where the pointer is.
+   *
+   * At the tile under the pointer, because that is where you are looking. With
+   * the pointer off the map there is no such tile, so it goes one tile along
+   * from where it was copied -- visible, and next to the original rather than
+   * hidden underneath it.
+   */
+  function onPaste() {
+    if (!doc) return;
+    if (!clipboardSize()) return say('Nothing copied', 'error');
+    const at = hover ?? { gx: 1, gy: 1 };
+    const why = pasteObjects(doc, at.gx, at.gy);
+    if (why) return say(why, 'error');
+    editor?.invalidate();
+    say(`Pasted ${clipboardSize()} object${clipboardSize() > 1 ? 's' : ''}`, 'good');
+  }
+
   useShortcuts({
     onSave: () => void onSave(),
+    onCopy,
+    onPaste,
     onUndo: () => doc?.undo() !== false && editor?.invalidate(),
     onRedo: () => doc?.redo() !== false && editor?.invalidate(),
     onFrame: () => editor?.frameAll(),

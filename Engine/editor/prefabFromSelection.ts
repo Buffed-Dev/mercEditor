@@ -23,6 +23,45 @@ import type { MapObject } from '../src/data/mapFormat.ts';
 const CARRIES = new Set<string>(PREFAB_LISTS);
 
 /**
+ * The picked objects, as rows of the lists they live in.
+ *
+ * A spawn is a name for a tile rather than a thing standing on it, and a chunk
+ * is a rectangle drawn *around* things. Neither is content, so neither comes
+ * back — `CARRIES` is what says so, rather than a check somewhere that has to
+ * be remembered.
+ */
+export function pickedRows(doc: MapDocument, picked: ReadonlySet<string>) {
+  return objectRows(doc.map as unknown as Record<string, unknown>).filter(
+    (row) =>
+      row.index !== undefined &&
+      CARRIES.has(row.list) &&
+      picked.has(rowId({ list: row.list, index: row.index, key: row.key })),
+  );
+}
+
+/**
+ * Those rows measured from their own top-left, as a prefab.
+ *
+ * The clipboard is this without a name: an arrangement, remembered. Which is
+ * why copying and promoting share it rather than each having their own idea of
+ * where a group of objects begins.
+ */
+export function rowsAsPrefab(
+  rows: ReturnType<typeof pickedRows>,
+  id: string,
+  label: string,
+): Prefab {
+  const lists: Record<string, MapObject[]> = {};
+  for (const row of rows) {
+    const one = row.entry as unknown as MapObject;
+    (lists[row.list] ??= []).push(structuredClone(one));
+  }
+  // `normalizePrefab` moves whatever it is given to its own corner, so there is
+  // no offset arithmetic here and none to get wrong.
+  return normalizePrefab({ ...lists, id, label });
+}
+
+/**
  * Make a prefab out of the picked objects, and stand one where they were.
  *
  * One undo step. The document is checkpointed once and everything after it is
@@ -40,36 +79,19 @@ export function prefabFromSelection(
   rules: DataDocument,
   id: string,
 ): { prefab: Prefab; index: number } | string {
-  const rows = objectRows(doc.map as unknown as Record<string, unknown>).filter(
-    (row) =>
-      row.index !== undefined &&
-      CARRIES.has(row.list) &&
-      picked.has(rowId({ list: row.list, index: row.index, key: row.key })),
-  );
-  // A spawn is a name for a tile rather than a thing standing on it, and a
-  // chunk is a rectangle drawn *around* things. Neither is content, so neither
-  // is offered -- `CARRIES` is what says so.
+  const rows = pickedRows(doc, picked);
   if (!rows.length) return 'Pick some objects first';
 
   const tiles = rows.map((row) => row.entry as unknown as MapObject);
   const ox = Math.min(...tiles.map((one) => one.gx));
   const oy = Math.min(...tiles.map((one) => one.gy));
 
-  const lists: Record<string, MapObject[]> = {};
-  for (const row of rows) {
-    const one = row.entry as unknown as MapObject;
-    (lists[row.list] ??= []).push({
-      ...structuredClone(one),
-      gx: one.gx - ox,
-      gy: one.gy - oy,
-    });
-  }
-
   const made = rules.add('prefabs');
   if (!made) return 'Could not make a prefab';
   const held = rules.list('prefabs')[made.index];
   rules.update('prefabs', made.index, {
-    ...normalizePrefab({ ...lists, id: String(held.id), label: id, path: String(held.path ?? '') }),
+    ...rowsAsPrefab(rows, String(held.id), id),
+    path: String(held.path ?? ''),
   });
 
   doc.checkpoint();

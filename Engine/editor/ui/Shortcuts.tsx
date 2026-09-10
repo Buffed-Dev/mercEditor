@@ -13,6 +13,8 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Ctrl+S', 'Save'],
   ['Ctrl+Z', 'Undo'],
   ['Ctrl+Shift+Z', 'Redo'],
+  ['Ctrl+C', 'Copy what is picked'],
+  ['Ctrl+V', 'Paste it at the pointer'],
   ['Del', 'Delete the selection'],
   ['Esc', 'Clear the selection'],
   ['F', 'Frame the whole map'],

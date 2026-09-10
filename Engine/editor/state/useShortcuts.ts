@@ -22,6 +22,9 @@ type Handlers = {
   onToggleGrid: () => void;
   onHelp: () => void;
   onEscape: () => void;
+  /** Absent on a screen with nothing to copy between. */
+  onCopy?: () => void;
+  onPaste?: () => void;
 };
 
 export function useShortcuts(handlers: Handlers) {
@@ -50,6 +53,17 @@ export function useShortcuts(handlers: Handlers) {
         } else if (key === 'y') {
           event.preventDefault();
           handlers.onRedo();
+        } else if (key === 'c' && handlers.onCopy) {
+          // Not preventDefault'd unconditionally: with text selected on the
+          // page, Ctrl+C is still the browser's, and taking it would mean you
+          // could not copy an id out of the inspector to paste somewhere else.
+          if (window.getSelection()?.isCollapsed !== false) {
+            event.preventDefault();
+            handlers.onCopy();
+          }
+        } else if (key === 'v' && handlers.onPaste) {
+          event.preventDefault();
+          handlers.onPaste();
         }
         return;
       }
