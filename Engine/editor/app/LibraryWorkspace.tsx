@@ -338,6 +338,21 @@ export function LibraryWorkspace() {
                 </span>
                 <span className={styles.recordId}>{String(record.id)}</span>
               </header>
+              {/* A prefab is contents rather than settings, so the way to
+                  edit one is a stage, not this form. */}
+              {active === 'prefabs' && (
+                <div className={styles.fileRow}>
+                  <span className={styles.fileName}>
+                    {(record.props as unknown[] | undefined)?.length ?? 0} objects
+                  </span>
+                  <Button
+                    variant="primary"
+                    onClick={() => void navigate(`/${gameId}/prefabs/${String(record.id)}`)}
+                  >
+                    Open in editor
+                  </Button>
+                </div>
+              )}
               <div className={styles.fileRow}>
                 <span className={styles.fileName}>{pathOf(record) || 'assets'}/</span>
                 <label className={styles.replace}>

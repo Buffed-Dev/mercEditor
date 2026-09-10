@@ -3,6 +3,10 @@
   "label": "grass",
   "texture": "Grass_base_color.png",
   "bump": "Grass_normal.png",
+  "orm": "",
+  "ambient": "",
+  "emissiveMap": "",
+  "opacityMap": "",
   "color": 16777215,
   "uScale": 1,
   "vScale": 1,
@@ -11,10 +15,15 @@
   "roughness": 0.8,
   "metallic": 0,
   "bumpStrength": 0.25,
+  "ambientStrength": 1,
   "emissive": 0,
   "emissiveStrength": 0,
   "alpha": 1,
   "transparent": false,
   "backFaces": false,
-  "unlit": false
+  "unlit": false,
+  "sheetColumns": 1,
+  "sheetRows": 1,
+  "sheetFrames": 0,
+  "sheetFps": 12
 }

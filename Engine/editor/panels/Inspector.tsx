@@ -31,12 +31,21 @@ export function Inspector({
   rules,
   mapId,
   onPlaytest,
+  showMap = true,
 }: {
   doc: MapDocument | null;
   editor: MapEditor | null;
   rules: DataDocument | null;
   mapId: string;
   onPlaytest: () => void;
+  /**
+   * Whether an empty selection falls back to the map's own settings.
+   *
+   * False on the prefab screen: the map there is a scratch surface with a
+   * made-up name and borrowed weather, and offering to edit its sky would be
+   * offering to edit something that is thrown away on save.
+   */
+  showMap?: boolean;
 }) {
   const selection = useSelection((state) => state.selection);
   const edit = useEdit(doc, editor);
@@ -62,7 +71,11 @@ export function Inspector({
    * The panel knows the rules document; the field components do not.
    */
   const resolveOptions = (field: FieldSpec): readonly (readonly [string, string])[] => {
-    const list = field.kind === 'vfx' ? 'vfx' : 'props';
+    // Spelled out rather than "vfx or else objects". A prefab field asked the
+    // same question and was quietly handed the object list, so its picker
+    // offered every object in the game and no prefab at all.
+    const list =
+      field.kind === 'vfx' ? 'vfx' : field.kind === 'prefab' ? 'prefabs' : 'props';
     return (rules?.list(list) ?? []).map((record) => {
       const id = String(record.id ?? '');
       return [id, String(record.label ?? id)] as const;
@@ -103,6 +116,12 @@ export function Inspector({
         )}
       </div>
     );
+  }
+
+  // Nothing chosen, and nowhere sensible to fall back to. The prefab screen's
+  // map is scratch, so its name and its weather are not things to offer.
+  if (!showMap) {
+    return <div className={styles.empty}>Pick something to edit it.</div>;
   }
 
   const rim = normalizeRim(doc.map.terrainRim);

@@ -95,10 +95,13 @@ export type TerrainRecord = { id: string; label?: string; char?: string };
 export function AssetShelves({
   terrains,
   onEditTerrain,
+  without,
 }: {
   terrains: readonly TerrainRecord[];
   /** Open a terrain's own record, where what it is made of is decided. */
   onEditTerrain: (id: string) => void;
+  /** Brushes this screen has no business offering. See PrefabWorkspace. */
+  without?: readonly string[];
 }) {
   const tool = useTools((state) => state.tool);
   const terrainId = useTools((state) => state.terrainId);
@@ -192,7 +195,7 @@ export function AssetShelves({
 
       {(BRUSH_GROUPS as [string, string][]).map(([group, label]) => {
         const inGroup = (BRUSHES as { id: string; label: string; group: string }[]).filter(
-          (asset) => asset.group === group,
+          (asset) => asset.group === group && !without?.includes(asset.id),
         );
         // A shelf with nothing on it is not drawn, so adding a group costs
         // nothing until something is put in it.

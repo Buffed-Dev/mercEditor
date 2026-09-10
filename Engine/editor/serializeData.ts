@@ -133,6 +133,13 @@ export function libraryWrites(
     for (const entry of (data[kind] as Record<string, unknown>[] | undefined) ?? []) {
       const { path, ...record } = entry;
       if (typeof path !== 'string' || !path) continue;
+      // An empty list is not written. A prefab has nine of them and usually
+      // carries two, so the file would be mostly `[]` -- and the normalizer
+      // puts every one of them back on the way in, so nothing is lost by
+      // leaving them out.
+      for (const [key, value] of Object.entries(record)) {
+        if (Array.isArray(value) && !value.length) delete record[key];
+      }
       out.push({ path: `${path}/${file}`, record });
     }
   }
