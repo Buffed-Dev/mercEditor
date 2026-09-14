@@ -192,7 +192,8 @@ export type MapList = (typeof MAP_LISTS)[number];
  */
 export type GameMap = {
   id: string;
-  name?: string;
+  /** A map the editor holds carries the key with nothing in it yet. */
+  name?: string | undefined;
   /**
    * The ground, in one of its two spellings.
    *
@@ -287,7 +288,7 @@ export function levelChar(level: number): string {
 
 /** The height grid and the spawn tile. */
 export function parseMap(rows: readonly string[]): ParsedMap {
-  const cols = rows[0].length;
+  const cols = rows[0]?.length ?? 0;
   rows.forEach((row, i) => {
     if (row.length !== cols) {
       throw new Error(`Map row ${i} is ${row.length} chars, expected ${cols}`);
@@ -305,7 +306,7 @@ export function parseMap(rows: readonly string[]): ParsedMap {
 
   const height = rows.length;
   const levelAt = (tx: number, ty: number): number | null =>
-    tx < 0 || ty < 0 || tx >= cols || ty >= height ? null : levels[ty][tx];
+    tx < 0 || ty < 0 || tx >= cols || ty >= height ? null : (levels[ty]?.[tx] ?? null);
 
   return { cols, rows: height, levels, levelAt, spawn };
 }

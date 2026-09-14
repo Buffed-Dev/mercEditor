@@ -34,12 +34,14 @@ export function idFromLabel(label: unknown): string {
   if (!words.length) return '';
   const id = words
     .map((word, i) =>
-      i === 0 ? word[0].toLowerCase() + word.slice(1) : word[0].toUpperCase() + word.slice(1),
+      i === 0
+        ? word.charAt(0).toLowerCase() + word.slice(1)
+        : word.charAt(0).toUpperCase() + word.slice(1),
     )
     .join('');
   // An id has to start with a letter, so a name that starts with a digit gets
   // one rather than being refused.
-  return ID_PATTERN.test(id) ? id : `a${id[0].toUpperCase()}${id.slice(1)}`;
+  return ID_PATTERN.test(id) ? id : `a${id.charAt(0).toUpperCase()}${id.slice(1)}`;
 }
 
 /** One rules file: the constant it declares, and what to say above it. */

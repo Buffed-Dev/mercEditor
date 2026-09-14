@@ -76,7 +76,8 @@ export type ObjectRow = {
  * thing at 12.37, and a slider over a forty-tile map cannot say so. Lift is the
  * Y of the three, drawn between the two ground axes so the row reads X Y Z.
  */
-const POSITION: FieldSpec[] = [
+/** X, Y, Z — a tuple, because the light panel takes two of the three by name. */
+const POSITION: [FieldSpec, FieldSpec, FieldSpec] = [
   { key: 'gx', kind: 'number', label: 'X', step: 0.1 },
   { key: 'lift', kind: 'number', label: 'Y', step: 0.05, default: 0 },
   { key: 'gy', kind: 'number', label: 'Z', step: 0.1 },

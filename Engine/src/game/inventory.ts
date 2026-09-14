@@ -156,7 +156,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
       return left;
     },
 
-    at: (index: number): ItemInstance | null => (inRange(index) ? bag[index] : null),
+    at: (index: number): ItemInstance | null => (inRange(index) ? (bag[index] ?? null) : null),
     wearing: (slotId: string): ItemInstance | null => worn.get(slotId) ?? null,
 
     /** The first free bag cell, or -1 when there is none. */
@@ -214,7 +214,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
       item: ItemInstance | null | undefined,
     ): ItemInstance | null {
       if (!inRange(index)) return item ?? null;
-      const held = bag[index];
+      const held = bag[index] ?? null;
 
       // Onto a stack of the same thing: top it up and keep the overflow, which
       // is what makes dropping 15 ore onto 12 leave 7 on the cursor rather than
@@ -243,7 +243,7 @@ export function createInventory({ cols = BAG_COLS, rows = BAG_ROWS } = {}) {
 
     takeAt(index: number): ItemInstance | null {
       if (!inRange(index)) return null;
-      const item = bag[index];
+      const item = bag[index] ?? null;
       bag[index] = null;
       return item;
     },

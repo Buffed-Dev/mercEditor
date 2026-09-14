@@ -365,7 +365,12 @@ export function createEditor({
    * ground it starts. Approximations of what the map view actually draws — near
    * enough to say "this one", which is all a highlight has to do.
    */
-  const OBJECT_BOUNDS: Record<string, { size: [number, number, number]; base: number }> = {
+  type ObjectBounds = { size: [number, number, number]; base: number };
+
+  /** What a list nobody gave a box to is drawn as: a tile's worth, on the floor. */
+  const DEFAULT_BOUNDS: ObjectBounds = { size: [1, 1, 1], base: 0 };
+
+  const OBJECT_BOUNDS: Record<string, ObjectBounds> = {
     lights: { size: [0.5, 0.5, 0.5], base: 0.85 },
     vfx: { size: [0.5, 0.5, 0.5], base: 0.2 },
     // Picked by its corner like everything else; the highlight marks the
@@ -375,9 +380,12 @@ export function createEditor({
     // A tile's worth, which is what an object standing on one occupies. Only
     // reached for one drawn as an instance, where there is no single mesh to
     // measure — see `pickedBox`.
-    props: { size: [1, 1, 1], base: 0 },
-    prefabs: { size: [1, 1, 1], base: 0 },
+    props: DEFAULT_BOUNDS,
+    prefabs: DEFAULT_BOUNDS,
   };
+
+  /** The box for a list, falling back to a plain tile for one with no entry. */
+  const boundsOf = (list: string): ObjectBounds => OBJECT_BOUNDS[list] ?? DEFAULT_BOUNDS;
 
   let cursorMode: CursorMode = 'select';
 
@@ -632,7 +640,7 @@ export function createEditor({
    * the pointer, because they are answering the same question.
    */
   function boundsFor(list: string, at: Placed): Box {
-    const spec = OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props;
+    const spec = boundsOf(list);
     const [, own] = spec.size;
     const h = own;
     const { x, z, w, d } = footprintOf(list, at);
@@ -658,7 +666,7 @@ export function createEditor({
       const d = Math.max(1, box.h);
       return { x: box.gx + w / 2, z: box.gy + d / 2, w, d };
     }
-    const [w, , d] = (OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props).size;
+    const [w, , d] = boundsOf(list).size;
     return { x: at.gx + 0.5, z: at.gy + 0.5, w, d };
   }
 
@@ -667,7 +675,7 @@ export function createEditor({
     if (!doc) return 0;
     const objects = doc
       .objectsAt(gx, gy)
-      .map(({ list }) => OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props);
+      .map(({ list }) => boundsOf(list));
     const tallest = objects.reduce((top, b) => Math.max(top, b.base + b.size[1]), 0);
     return tallest;
   }
@@ -878,8 +886,13 @@ export function createEditor({
    * out. Each is set independently, and none of them touches the document — so
    * none of them costs a rebuild.
    */
-  const OVERLAY_LAYERS: Record<string, { color: number; alpha: number }> = {
-    brush: { color: 0xffffff, alpha: 0.2 },
+  type OverlayLook = { color: number; alpha: number };
+
+  /** What an unnamed overlay looks like: the brush's own plain white. */
+  const BRUSH_LAYER: OverlayLook = { color: 0xffffff, alpha: 0.2 };
+
+  const OVERLAY_LAYERS: Record<string, OverlayLook> = {
+    brush: BRUSH_LAYER,
     drag: { color: 0x8be9fd, alpha: 0.28 },
     selection: { color: 0xffc247, alpha: 0.26 },
     debug: { color: 0xff5ad2, alpha: 0.3 },
@@ -902,7 +915,7 @@ export function createEditor({
   function cellLayer(name: string): { mesh: Mesh } {
     let layer = cellLayers.get(name);
     if (layer) return layer;
-    const look = OVERLAY_LAYERS[name] ?? OVERLAY_LAYERS.brush;
+    const look = OVERLAY_LAYERS[name] ?? BRUSH_LAYER;
     const mesh = MeshBuilder.CreateBox(`cells-${name}`, { size: 1 }, scene);
     mesh.material = overlayMaterial(`cells-${name}`, look.color, look.alpha, GROUP_MAP);
     mesh.renderingGroupId = GROUP_MAP;
@@ -1326,7 +1339,8 @@ export function createEditor({
     for (let i = 0; i < defs.length; i += 1) {
       if (live[i]?.def?.type !== defs[i]?.type) return false;
     }
-    for (let i = 0; i < defs.length; i += 1) live[i].refresh(defs[i]);
+    // Same length, checked just above, so every def has its light.
+    for (const [i, def] of defs.entries()) live[i]!.refresh(def);
     return true;
   }
 
@@ -1826,7 +1840,7 @@ export function createEditor({
       } else if (list === 'prefabs' && index !== undefined) {
         const at = entry as PlacedPrefab;
         const prefab = prefabOf(String(at.id ?? ''));
-        const fresh = prefab ? prefabObjects(prefab, at).props : [];
+        const fresh = (prefab ? prefabObjects(prefab, at).props : []) ?? [];
         let k = 0;
         (shown?.props ?? []).forEach((child, i) => {
           if (child.prefab !== index) return;

@@ -41,9 +41,9 @@ export function FieldList({
   values: Record<string, unknown>;
   onInput: (key: string, value: FieldValue) => void;
   onChange: (key: string, value: FieldValue) => void;
-  resolveOptions?: (field: FieldSpec) => readonly (readonly [string, string])[];
-  used?: readonly number[];
-  files?: Files;
+  resolveOptions?: ((field: FieldSpec) => readonly (readonly [string, string])[]) | undefined;
+  used?: readonly number[] | undefined;
+  files?: Files | undefined;
 }) {
   return (
     <>

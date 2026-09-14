@@ -25,8 +25,14 @@
 
 import { levelAt, type TerrainGrid } from './grid.ts';
 
+/** A cell-relative step, as (dx, dy). */
+export type Offset = readonly [number, number];
+
+/** The four of anything a cell has one of per quarter turn, in side order. */
+export type PerSide<T> = readonly [T, T, T, T];
+
 /** Clockwise from +x, matching the map's quarter-turn convention. */
-export const SIDES: readonly (readonly [number, number])[] = [
+export const SIDES: PerSide<Offset> = [
   [1, 0], // 0 east
   [0, -1], // 1 north
   [-1, 0], // 2 west
@@ -34,7 +40,7 @@ export const SIDES: readonly (readonly [number, number])[] = [
 ];
 
 /** Corner k sits between side k and side k+1. So 0 NE, 1 NW, 2 SW, 3 SE. */
-export const CORNERS: readonly (readonly [number, number])[] = [
+export const CORNERS: PerSide<Offset> = [
   [1, -1],
   [-1, -1],
   [-1, 1],
@@ -42,12 +48,33 @@ export const CORNERS: readonly (readonly [number, number])[] = [
 ];
 
 /** Where corner k is inside its own cell, as (fx, fy). */
-export const CORNER_FXY: readonly (readonly [number, number])[] = [
+export const CORNER_FXY: PerSide<Offset> = [
   [1, 0],
   [0, 0],
   [0, 1],
   [1, 1],
 ];
+
+/**
+ * Read one of the four, wrapping.
+ *
+ * Sides and corners are cyclic — a caller reaching for "the next one round"
+ * says `k + 1` and means it — so the wrap belongs here rather than at every
+ * call site, and the reader gets an entry back rather than a maybe.
+ */
+const wrapped =
+  <T,>(table: PerSide<T>) =>
+  (k: number): T =>
+    table[((k % 4) + 4) % 4]!;
+
+/** Side k's step, for any k: out of range wraps round the quarter turns. */
+export const sideAt = wrapped(SIDES);
+
+/** Corner k's step, for any k. */
+export const cornerAt = wrapped(CORNERS);
+
+/** Corner k's position inside its own cell, for any k. */
+export const cornerFxyAt = wrapped(CORNER_FXY);
 
 /** Side k spans corners k and (k + 3) % 4. */
 export const sideCorners = (k: number): [number, number] => [k, (k + 3) % 4];
@@ -100,10 +127,11 @@ export function topologyOf(grid: TerrainGrid, gx: number, gy: number): number | 
 
   let topology = 0;
   for (let k = 0; k < 4; k += 1) {
-    if (drops(SIDES[k][0], SIDES[k][1])) topology |= 1 << k;
+    const [dx, dy] = sideAt(k);
+    if (drops(dx, dy)) topology |= 1 << k;
   }
   for (let k = 0; k < 4; k += 1) {
-    const touching = [SIDES[k], SIDES[(k + 1) % 4], CORNERS[k]];
+    const touching: readonly Offset[] = [sideAt(k), sideAt(k + 1), cornerAt(k)];
     if (touching.some(([dx, dy]) => drops(dx, dy))) topology |= 1 << (k + 4);
   }
   return topology;
@@ -128,7 +156,7 @@ export const sidesOf = (topology: number): number => topology & 0b1111;
 export function subSides(grid: TerrainGrid, gx: number, gy: number, at: number): number {
   let sides = 0;
   for (let k = 0; k < 4; k += 1) {
-    const [dx, dy] = SIDES[k];
+    const [dx, dy] = sideAt(k);
     const beside = levelAt(grid, gx + dx, gy + dy);
     if (beside === null || beside < at) sides |= 1 << k;
   }

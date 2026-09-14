@@ -16,7 +16,11 @@ import type { FieldSpec } from '../fields/types';
 
 export type LibraryKind = 'materials' | 'props' | 'terrains' | 'vfx' | 'prefabs';
 
-export const LIBRARY_KINDS: readonly { id: LibraryKind; label: string; singular: string }[] = [
+/** One of the five kinds of thing the library holds. */
+export type LibraryKindDef = { id: LibraryKind; label: string; singular: string };
+
+/** Non-empty on purpose: the tree falls back to the first tab. */
+export const LIBRARY_KINDS: readonly [LibraryKindDef, ...LibraryKindDef[]] = [
   { id: 'materials', label: 'Materials', singular: 'material' },
   { id: 'props', label: 'Objects', singular: 'object' },
   { id: 'terrains', label: 'Terrains', singular: 'terrain' },

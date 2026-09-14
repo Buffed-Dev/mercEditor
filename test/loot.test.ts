@@ -76,7 +76,9 @@ function dropped(
 /** An rng that hands back exactly the numbers you give it, in order. */
 const scripted = (...values: number[]) => {
   let i = 0;
-  return () => values[i++ % values.length];
+  // Cycles, so a roll past the end of the script repeats it rather than
+  // handing the generator nothing.
+  return () => values[i++ % values.length] ?? 0;
 };
 
 function floor() {

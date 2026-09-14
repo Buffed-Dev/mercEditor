@@ -165,10 +165,10 @@ const UNITS: Record<string, string> = {
 export function splitUnit(label: string): { name: string; unit: string } {
   const match = /^(.*?)\s*\(([^)]+)\)\s*$/.exec(label);
   if (!match) return { name: label, unit: '' };
-  const unit = UNITS[match[2].toLowerCase()];
+  const unit = UNITS[(match[2] ?? '').toLowerCase()];
   // Only parentheses that really hold a unit are taken: "Arc (degrees)" is one,
   // "Level (unlocked at)" is part of the name and must survive intact.
-  return unit ? { name: match[1], unit } : { name: label, unit: '' };
+  return unit ? { name: match[1] ?? label, unit } : { name: label, unit: '' };
 }
 
 /**

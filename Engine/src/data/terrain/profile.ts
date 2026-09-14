@@ -95,13 +95,22 @@ export function normalizeRim(rim: readonly RimRing[] | null | undefined): RimRin
   // Ties would make two rings the same distance from the edge, which leaves a
   // zero-width strip of geometry: real triangles with no area.
   for (let i = 1; i < rings.length; i += 1) {
-    if (rings[i].inset >= rings[i - 1].inset) rings[i].inset = rings[i - 1].inset / 2;
-    if (rings[i].drop < rings[i - 1].drop) rings[i].drop = rings[i - 1].drop;
+    const ring = rings[i]!;
+    const inner = rings[i - 1]!;
+    if (ring.inset >= inner.inset) ring.inset = inner.inset / 2;
+    if (ring.drop < inner.drop) ring.drop = inner.drop;
   }
 
-  rings[0].drop = 0;
-  rings[rings.length - 1].inset = 0;
-  return rings.length >= 2 ? rings : normalizeRim(DEFAULT_RIM);
+  // `source` is a rim of at least two rings or the default, so both ends are
+  // there; asking is what lets the types say so, and the fallback is the same
+  // one an under-length rim took before the mapping.
+  const first = rings[0];
+  const last = rings[rings.length - 1];
+  if (!first || !last) return normalizeRim(DEFAULT_RIM);
+
+  first.drop = 0;
+  last.inset = 0;
+  return rings;
 }
 
 const clamp = (value: number, low: number, high: number) =>

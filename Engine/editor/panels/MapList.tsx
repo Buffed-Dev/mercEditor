@@ -9,7 +9,7 @@ export function MapList({
   onOpen,
   onNew,
 }: {
-  current?: string;
+  current?: string | undefined;
   onOpen: (id: string) => void;
   onNew: () => void;
 }) {

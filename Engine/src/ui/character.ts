@@ -110,8 +110,10 @@ export function createCharacterPanel(
     const rows = [...stats.querySelectorAll('.ch-stat')];
     statValues = new Map<string, Element>();
     list.forEach((stat, i) => {
-      setText(part(rows[i], '.ch-k'), stat.label);
-      statValues.set(stat.id, part(rows[i], '.ch-v'));
+      const row = rows[i];
+      if (!row) return;
+      setText(part(row, '.ch-k'), stat.label);
+      statValues.set(stat.id, part(row, '.ch-v'));
     });
   }
 
@@ -128,10 +130,12 @@ export function createCharacterPanel(
     equipmentNames = new Map<string, Element>();
     equipmentCells = new Map<string, HTMLElement>();
     list.forEach((slot, i) => {
-      setText(part(cells[i], '.ch-slot-label'), slot.label);
-      equipmentNames.set(slot.id, part(cells[i], '.ch-item'));
-      equipmentCells.set(slot.id, cells[i]);
-      wireCell(cells[i], { kind: 'slot', id: slot.id });
+      const cell = cells[i];
+      if (!cell) return;
+      setText(part(cell, '.ch-slot-label'), slot.label);
+      equipmentNames.set(slot.id, part(cell, '.ch-item'));
+      equipmentCells.set(slot.id, cell);
+      wireCell(cell, { kind: 'slot', id: slot.id });
     });
   }
 

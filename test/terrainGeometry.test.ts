@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTerrainGeometry, FRONT_CCW } from '../Engine/src/data/terrain/geometry.ts';
-import { cellMask, SIDES, CORNER_FXY } from '../Engine/src/data/terrain/mask.ts';
+import { cellMask, sideAt, cornerFxyAt } from '../Engine/src/data/terrain/mask.ts';
 import { normalizeRim, DEFAULT_RIM } from '../Engine/src/data/terrain/profile.ts';
 import { levelAt, type TerrainGrid } from '../Engine/src/data/terrain/grid.ts';
 import { gridOf } from './helpers/terrainFixtures.ts';
@@ -15,14 +15,16 @@ const build = (grid: TerrainGrid) =>
 /** Every triangle in the mesh, as index triples. */
 function triangles(indices: Uint32Array): [number, number, number][] {
   const out: [number, number, number][] = [];
-  for (let i = 0; i < indices.length; i += 3) out.push([indices[i], indices[i + 1], indices[i + 2]]);
+  for (let i = 0; i < indices.length; i += 3) {
+    out.push([indices[i]!, indices[i + 1]!, indices[i + 2]!]);
+  }
   return out;
 }
 
 const at = (positions: Float32Array, i: number) => ({
-  x: positions[i * 3],
-  y: positions[i * 3 + 1],
-  z: positions[i * 3 + 2],
+  x: positions[i * 3]!,
+  y: positions[i * 3 + 1]!,
+  z: positions[i * 3 + 2]!,
 });
 
 // --- the watertight property ----------------------------------------------
@@ -45,7 +47,7 @@ function assertSharedEdgesAgree(grid: TerrainGrid, what: string) {
       assert.ok(mine);
 
       for (let side = 0; side < 4; side += 1) {
-        const [dx, dy] = SIDES[side];
+        const [dx, dy] = sideAt(side);
         const nx = gx + dx;
         const ny = gy + dy;
         if (levelAt(grid, nx, ny) === null) continue;
@@ -89,13 +91,13 @@ function assertCornersAgree(grid: TerrainGrid, what: string) {
       const mine = cellMask(grid, gx, gy);
       if (!mine) continue;
       for (let k = 0; k < 4; k += 1) {
-        const [fx, fy] = CORNER_FXY[k];
+        const [fx, fy] = cornerFxyAt(k);
         const wx = gx + fx;
         const wy = gy + fy;
         const broken: boolean = Boolean(mine.corners & (1 << k));
         // The same world corner, as each of the other three cells indexes it.
         for (let other = 0; other < 4; other += 1) {
-          const [ofx, ofy] = CORNER_FXY[other];
+          const [ofx, ofy] = cornerFxyAt(other);
           const ox = wx - ofx;
           const oy = wy - ofy;
           const mask = cellMask(grid, ox, oy);
@@ -168,8 +170,8 @@ test('a T-junction against a flat neighbour has no height deviation', () => {
   // is what the rim then modifies: the question is where the vertices landed.
   const { solid, cellStart } = build(grid);
   const slot = (2 * 5 + 3) * 2;
-  const from = cellStart[slot];
-  const count = cellStart[slot + 1];
+  const from = cellStart[slot]!;
+  const count = cellStart[slot + 1]!;
 
   let seen = 0;
   for (let v = from; v < from + count; v += 1) {
@@ -206,9 +208,9 @@ test('every triangle faces outward, and none is degenerate', () => {
     assert.ok(area > 1e-9, 'a triangle with no area is a triangle that went wrong');
 
     // The stored normal must agree with the geometry, or lighting is a lie.
-    const sx = solid.normals[ia * 3];
-    const sy = solid.normals[ia * 3 + 1];
-    const sz = solid.normals[ia * 3 + 2];
+    const sx = solid.normals[ia * 3]!;
+    const sy = solid.normals[ia * 3 + 1]!;
+    const sz = solid.normals[ia * 3 + 2]!;
     // The stored normal always points outward. The index order is written to
     // match whichever side the renderer treats as front, so the two agree up
     // to that one constant — and are exactly parallel either way.
@@ -225,9 +227,9 @@ test('top faces point up and cliff faces point outward', () => {
     const isTop = group.material.startsWith('surface:');
     for (let i = group.start; i < group.start + group.count; i += 3) {
       const n = {
-        x: solid.normals[solid.indices[i] * 3],
-        y: solid.normals[solid.indices[i] * 3 + 1],
-        z: solid.normals[solid.indices[i] * 3 + 2],
+        x: solid.normals[solid.indices[i]! * 3]!,
+        y: solid.normals[solid.indices[i]! * 3 + 1]!,
+        z: solid.normals[solid.indices[i]! * 3 + 2]!,
       };
       if (isTop) assert.ok(n.y > 0, `a surface triangle faces ${n.y}`);
       else assert.ok(Math.abs(n.y) < 0.001, 'a cliff face is vertical');
@@ -255,8 +257,8 @@ test('an interior cell with nothing to shape is one quad', () => {
 
 test('an empty cell emits nothing and still gets a range', () => {
   const { cellStart } = build(gridOf(['1-']));
-  assert.ok(cellStart[1] > 0, 'the occupied cell emits geometry');
-  assert.equal(cellStart[2], cellStart[0] + cellStart[1], 'ranges are contiguous');
+  assert.ok(cellStart[1]! > 0, 'the occupied cell emits geometry');
+  assert.equal(cellStart[2], cellStart[0]! + cellStart[1]!, 'ranges are contiguous');
   assert.equal(cellStart[3], 0, 'the empty cell has no vertices');
 });
 
@@ -273,7 +275,7 @@ test('a cell far from a change keeps its exact vertices', () => {
   const before = build(gridOf(['1111', '1111', '1111', '1111']));
   const after = build(gridOf(['1111', '1111', '1111', '111-']));
   const slot = 0;
-  const count = before.cellStart[slot + 1];
+  const count = before.cellStart[slot + 1]!;
   assert.equal(after.cellStart[slot + 1], count, 'the far cell is still one quad');
   for (let i = 0; i < count * 3; i += 1) {
     assert.equal(after.solid.positions[i], before.solid.positions[i], 'and unmoved');
@@ -290,8 +292,8 @@ test('a cell is drawn flat at its own level, everywhere across it', () => {
   const { solid, cellStart } = build(grid);
 
   const slot = (1 * 3 + 1) * 2;
-  const from = cellStart[slot];
-  const count = cellStart[slot + 1];
+  const from = cellStart[slot]!;
+  const count = cellStart[slot + 1]!;
   const mine = triangles(solid.indices).filter(
     (tri) => tri.every((i) => i >= from && i < from + count),
   );

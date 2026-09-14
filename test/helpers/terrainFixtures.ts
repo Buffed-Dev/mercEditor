@@ -8,14 +8,14 @@
 import { createGrid, idx, type TerrainGrid } from '../../Engine/src/data/terrain/grid.ts';
 
 export function gridOf(rows: string[], kinds?: string[]): TerrainGrid {
-  const grid = createGrid(rows[0].length, rows.length);
+  const grid = createGrid(rows[0]!.length, rows.length);
   for (let gy = 0; gy < rows.length; gy += 1) {
-    for (let gx = 0; gx < rows[gy].length; gx += 1) {
-      const char = rows[gy][gx];
-      if (char === '-' || char === ' ') continue;
+    for (let gx = 0; gx < rows[gy]!.length; gx += 1) {
+      const char = rows[gy]![gx];
+      if (!char || char === '-' || char === ' ') continue;
       const i = idx(grid, gx, gy);
       grid.level[i] = Number.parseInt(char, 10);
-      grid.kind[i] = kinds ? kinds[gy].charCodeAt(gx) - 96 : 1;
+      grid.kind[i] = kinds ? kinds[gy]!.charCodeAt(gx) - 96 : 1;
     }
   }
   return grid;

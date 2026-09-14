@@ -283,8 +283,7 @@ export function createHud(ui: AdvancedDynamicTexture, root: Document = document)
       healthText.text = `${Math.ceil(hp)} / ${Math.round(maxHealth)}`;
       vitals.isVisible = playing;
 
-      for (let slot = 0; slot < slotViews.length; slot++) {
-        const view = slotViews[slot];
+      for (const [slot, view] of slotViews.entries()) {
         const state = slots[slot];
         view.cool.height = `${(state?.fraction ?? 0) * 100}%`;
 

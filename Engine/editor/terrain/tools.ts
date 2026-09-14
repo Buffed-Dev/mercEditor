@@ -84,9 +84,9 @@ const SIZE: ToolField = {
 const size = (ctx: ToolContext) => Number(ctx.opts.size ?? 1);
 
 /** Write one cell, keeping whatever of it the tool is not changing. */
-function write(ctx: ToolContext, i: number, patch: { level?: number; kind?: number }) {
+function write(ctx: ToolContext, i: number, patch: { level?: number | undefined; kind?: number | undefined }) {
   const { grid } = ctx;
-  ctx.stroke.setAt(i, patch.level ?? grid.level[i], patch.kind ?? grid.kind[i]);
+  ctx.stroke.setAt(i, patch.level ?? grid.level[i]!, patch.kind ?? grid.kind[i]!);
 }
 
 // --- painting --------------------------------------------------------------
@@ -210,8 +210,8 @@ export function readRegion(grid: TerrainGrid, rect: Rect): Region {
       if (gx < 0 || gy < 0 || gx >= grid.cols || gy >= grid.rows) continue;
       const from = idx(grid, gx, gy);
       const to = y * rect.w + x;
-      region.level[to] = grid.level[from];
-      region.kind[to] = grid.kind[from];
+      region.level[to] = grid.level[from]!;
+      region.kind[to] = grid.kind[from]!;
     }
   }
   return region;
@@ -222,12 +222,13 @@ export function stampRegion(ctx: ToolContext, region: Region, gx: number, gy: nu
   for (let y = 0; y < region.h; y += 1) {
     for (let x = 0; x < region.w; x += 1) {
       const at = y * region.w + x;
-      ctx.stroke.set(gx + x, gy + y, region.level[at], region.kind[at]);
+      ctx.stroke.set(gx + x, gy + y, region.level[at]!, region.kind[at]!);
     }
   }
 }
 
-export const TOOLS: Tool[] = [select, height, paint, erase];
+/** Non-empty on purpose: an unknown id falls back to the first. */
+export const TOOLS: [Tool, ...Tool[]] = [select, height, paint, erase];
 
 export const toolById = (id: string): Tool => TOOLS.find((tool) => tool.id === id) ?? TOOLS[0];
 

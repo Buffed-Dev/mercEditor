@@ -159,7 +159,7 @@ function folderFor(
     String(label)
       .split(/[^A-Za-z0-9]+/)
       .filter(Boolean)
-      .map((word) => word[0].toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('') || 'Record';
   const taken = new Set(entries.map((entry) => String(entry.path ?? '').toLowerCase()));
   for (let n = 1; ; n += 1) {
@@ -217,6 +217,14 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
   });
 
   const data = (): RulesData => history.state as RulesData;
+
+  /**
+   * The rows of one list, as something to write to.
+   *
+   * A game whose rules have never held one of these kinds has no key for it,
+   * and adding the first record is what creates the list.
+   */
+  const rows = (list: string): RuleRecord[] => (data()[list] ??= []);
   const listOf = (list: string): RuleRecord[] => data()[list] ?? [];
   const entryAt = (list: string, index: number): RuleRecord | null =>
     listOf(list)[index] ?? null;
@@ -401,14 +409,15 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       // save that quietly skips something is the worst kind.
       const path = folderFor(list, listOf(list), id, into);
       if (path) entry.path = path;
-      data()[list].push(entry);
-      return { list, index: data()[list].length - 1 };
+      const entries = rows(list);
+      entries.push(entry);
+      return { list, index: entries.length - 1 };
     },
 
     remove(list: string, index: number): boolean {
       if (!entryAt(list, index)) return false;
       history.checkpoint();
-      data()[list].splice(index, 1);
+      rows(list).splice(index, 1);
       return true;
     },
 
@@ -823,7 +832,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       const next = slot + delta;
       if (!refs.length || next < 0 || next >= refs.length) return;
       history.checkpoint();
-      [refs[slot], refs[next]] = [refs[next], refs[slot]];
+      [refs[slot], refs[next]] = [refs[next]!, refs[slot]!];
     },
 
     /** Set one archetype's base value for one attribute. */
@@ -935,7 +944,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       history.rewrite((state) => {
         const held = (state as RulesData)[list];
         const at = held?.findIndex((one) => text(one.id) === id) ?? -1;
-        if (at >= 0) held.splice(at, 1);
+        if (held && at >= 0) held.splice(at, 1);
         if (!wanted || !id) return;
 
         for (const [name, fields] of Object.entries(REFERENCE_FIELDS)) {

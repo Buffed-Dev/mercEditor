@@ -101,7 +101,7 @@ export function boundsOf(
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const [x, z] of [[0, 0], [w, 0], [0, h], [w, h]]) {
+  for (const [x, z] of [[0, 0], [w, 0], [0, h], [w, h]] as const) {
     const at = new Vector3((x - w / 2) * scale.x, 0, (z - h / 2) * scale.z);
     at.rotateByQuaternionToRef(turn, at);
     minX = Math.min(minX, at.x + w / 2);

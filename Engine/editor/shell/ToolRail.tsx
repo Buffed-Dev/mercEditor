@@ -53,7 +53,7 @@ function ToolOptions({
 }: {
   tool: ToolDef;
   terrains: readonly TerrainRecord[];
-  onEditTerrain?: (id: string) => void;
+  onEditTerrain?: ((id: string) => void) | undefined;
   children: ReactNode;
 }) {
   const terrainId = useTools((state) => state.terrainId);
@@ -137,7 +137,7 @@ export function ToolRail({
   actions?: ReactNode;
   /** The ground the paint tool can lay, offered on the tool itself. */
   terrains?: readonly TerrainRecord[];
-  onEditTerrain?: (id: string) => void;
+  onEditTerrain?: ((id: string) => void) | undefined;
 } = {}) {
   const tool = useTools((state) => state.tool);
   const setTool = useTools((state) => state.setTool);
@@ -152,7 +152,7 @@ export function ToolRail({
     <div className={styles.rail} role="toolbar" aria-orientation="horizontal" aria-label="Tools">
       {TOOLS.filter((entry) => !only || only.includes(entry.id)).map((entry, index) => {
         const Glyph = GLYPHS[entry.id];
-        const newGroup = index > 0 && TOOLS[index - 1].group !== entry.group;
+        const newGroup = index > 0 && TOOLS[index - 1]?.group !== entry.group;
         return (
           <Fragment key={entry.id}>
             {newGroup && <div className={styles.divider} />}

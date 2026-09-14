@@ -206,7 +206,7 @@ export function createDebugViews(decals: DecalSink) {
 
     update(dt: number): void {
       for (let i = shapes.length - 1; i >= 0; i--) {
-        const shape = shapes[i];
+        const shape = shapes[i]!;
         shape.age += dt;
 
         if (shape.phase === 'charging') {

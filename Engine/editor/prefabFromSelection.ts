@@ -89,6 +89,7 @@ export function prefabFromSelection(
   const made = rules.add('prefabs');
   if (!made) return 'Could not make a prefab';
   const held = rules.list('prefabs')[made.index];
+  if (!held) return 'Could not make a prefab';
   rules.update('prefabs', made.index, {
     ...rowsAsPrefab(rows, String(held.id), id),
     path: String(held.path ?? ''),

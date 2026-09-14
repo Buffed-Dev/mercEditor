@@ -38,10 +38,10 @@ export function TopBar({
 }: {
   game: string;
   gameLabel: string;
-  mapId?: string;
-  maps?: readonly MapChoice[];
-  onOpenMap?: (id: string) => void;
-  onNewMap?: () => void;
+  mapId?: string | undefined;
+  maps?: readonly MapChoice[] | undefined;
+  onOpenMap?: ((id: string) => void) | undefined;
+  onNewMap?: (() => void) | undefined;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -91,15 +91,15 @@ export function TopBar({
         {/* NavLink marks the active one with aria-current="page", which is what
             the stylesheet lights up — the state is the accessible name for it,
             not a class that happens to look selected. */}
-        <NavLink to={`/${game}/map`} className={styles.tab}>
+        <NavLink to={`/${game}/map`} className={styles.tab ?? ''}>
           <IconMap2 size={17} />
           Map Design
         </NavLink>
-        <NavLink to={`/${game}/library`} className={styles.tab}>
+        <NavLink to={`/${game}/library`} className={styles.tab ?? ''}>
           <IconFolders size={17} />
           Asset Library
         </NavLink>
-        <NavLink to={`/${game}/rules`} className={styles.tab}>
+        <NavLink to={`/${game}/rules`} className={styles.tab ?? ''}>
           <IconDatabase size={17} />
           Game Data
         </NavLink>

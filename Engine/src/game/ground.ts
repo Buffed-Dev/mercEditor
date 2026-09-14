@@ -166,7 +166,7 @@ export function createGround() {
       const index = indexOf(id);
       if (index < 0) return null;
       const [entry] = drops.splice(index, 1);
-      return entry.item;
+      return entry?.item ?? null;
     },
 
     clear(): void {

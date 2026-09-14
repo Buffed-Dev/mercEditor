@@ -16,7 +16,7 @@ export function RulesNav({ game, counts }: { game: string; counts: Record<string
         <div key={group.id} className={styles.group} data-group={group.id}>
           <h3 className={styles.head}>{group.label}</h3>
           {group.lists.map((list) => (
-            <NavLink key={list} to={`/${game}/rules/${list}`} className={styles.item}>
+            <NavLink key={list} to={`/${game}/rules/${list}`} className={styles.item ?? ''}>
               <span className={styles.label}>{LIST_LABELS[list]}</span>
               <span className={styles.count}>{counts[list] ?? 0}</span>
             </NavLink>

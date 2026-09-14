@@ -96,7 +96,7 @@ test('a terrain boundary inside one platform creates no exposed geometry', () =>
   const rows = ['1111', '1111', '1111', '1111'];
   const kinds = ['aabb', 'aabb', 'aabb', 'aabb'];
   const grid = gridOf(rows, kinds);
-  for (const [gx, gy] of [[1, 1], [2, 1], [1, 2], [2, 2]]) {
+  for (const [gx, gy] of [[1, 1], [2, 1], [1, 2], [2, 2]] as const) {
     const mask = cellMask(grid, gx, gy);
     assert.ok(mask);
     assert.equal(mask.flat, true, `cell ${gx},${gy} straddles a material boundary and must stay flat`);

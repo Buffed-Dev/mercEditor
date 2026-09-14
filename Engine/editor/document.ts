@@ -326,7 +326,8 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       .filter(({ entry }) => onTile(entry, gx, gy));
 
     const index = prefabAt(gx, gy);
-    if (index >= 0) found.push({ list: 'prefabs', entry: doc.prefabs[index] });
+    const prefab = index >= 0 ? doc.prefabs[index] : undefined;
+    if (prefab) found.push({ list: 'prefabs', entry: prefab });
     return found;
   }
 
@@ -744,7 +745,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       }
       checkpoint();
       const [moved] = entries.splice(from, 1);
-      entries.splice(to, 0, moved);
+      if (moved) entries.splice(to, 0, moved);
       return true;
     },
 
@@ -775,7 +776,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       if (next === level) return false;
       const own = stroke ?? beginStroke(terrain, 'height');
       const i = idx(terrain, gx, gy);
-      own.set(gx, gy, next, terrain.kind[i]);
+      own.set(gx, gy, next, terrain.kind[i]!);
       if (!stroke) {
         const entry = own.commit();
         if (entry) history.push(entry);
@@ -789,8 +790,10 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       if (!name) return 'A spawn needs a name';
       if (name === from) return null;
       if (doc.spawns[name]) return `There is already a spawn called "${name}"`;
+      const moving = doc.spawns[from];
+      if (!moving) return `There is no spawn called "${from}"`;
       checkpoint();
-      doc.spawns[name] = doc.spawns[from];
+      doc.spawns[name] = moving;
       delete doc.spawns[from];
       return null;
     },

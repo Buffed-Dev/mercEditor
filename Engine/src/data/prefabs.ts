@@ -332,8 +332,7 @@ export function expandPrefabs(
   if (!placements?.length || depth > MAX_DEPTH) return map;
 
   const out = { ...map } as Record<string, unknown>;
-  const added: Record<string, MapObject[]> = {};
-  for (const name of PREFAB_LISTS) added[name] = [];
+  const added = new Map<PrefabList, MapObject[]>(PREFAB_LISTS.map((name) => [name, []]));
 
   placements.forEach((at, index) => {
     const spot = placed(at);
@@ -347,15 +346,17 @@ export function expandPrefabs(
         // Which placement drew it, so the editor can resolve a pick on a child
         // back to the one thing you can select. Never written to a file: this
         // is the expanded copy, and the expanded copy is never what saves.
-        added[name]?.push({ ...override(child, spot.set as Record<string, unknown>), prefab: index });
+        added
+          .get(name as PrefabList)
+          ?.push({ ...override(child, spot.set as Record<string, unknown>), prefab: index });
       }
     }
   });
 
-  for (const name of PREFAB_LISTS) {
-    if (!added[name].length) continue;
+  for (const [name, rows] of added) {
+    if (!rows.length) continue;
     const was = (map as Record<string, unknown>)[name] as readonly MapObject[] | undefined;
-    out[name] = [...(was ?? []), ...added[name]];
+    out[name] = [...(was ?? []), ...rows];
   }
 
   return out as GameMap;

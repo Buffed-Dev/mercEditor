@@ -77,7 +77,7 @@ test('there are as many slots as there are bindings, and the first is the hand',
   assert.equal(SLOT_COUNT, SLOT_BINDINGS.length);
   assert.equal(SLOT_COUNT, 5);
   assert.equal(WEAPON_SLOT, 0);
-  assert.equal(SLOT_BINDINGS[WEAPON_SLOT].label, 'LMB');
+  assert.equal(SLOT_BINDINGS[WEAPON_SLOT]!.label, 'LMB');
 });
 
 test('an empty hand puts your fists on the first key', () => {
@@ -207,9 +207,9 @@ test('what you know leads with the hand', () => {
 
 test('the view marks the hand key and says which of the two it is', () => {
   const bare = hero().view();
-  assert.equal(bare.slots[0].hand, true);
-  assert.equal(bare.slots[0].ability?.label, 'Punch');
-  assert.equal(bare.slots[0].ability?.unarmed, true, 'bare hands were not named as such');
+  assert.equal(bare.slots[0]!.hand, true);
+  assert.equal(bare.slots[0]!.ability?.label, 'Punch');
+  assert.equal(bare.slots[0]!.ability?.unarmed, true, 'bare hands were not named as such');
   assert.equal(bare.hand?.id, 'punch');
   assert.deepEqual(
     bare.slots.slice(1).map((slot) => slot.hand),
@@ -217,9 +217,9 @@ test('the view marks the hand key and says which of the two it is', () => {
   );
 
   const armed = hero({ worn: [SWORD] }).view();
-  assert.equal(armed.slots[0].ability?.label, 'Swing');
-  assert.equal(armed.slots[0].ability?.unarmed, false);
-  assert.equal(armed.slots[0].ability?.from, 'Sword', 'the screen cannot say where it came from');
+  assert.equal(armed.slots[0]!.ability?.label, 'Swing');
+  assert.equal(armed.slots[0]!.ability?.unarmed, false);
+  assert.equal(armed.slots[0]!.ability?.from, 'Sword', 'the screen cannot say where it came from');
   assert.equal(armed.hand?.id, 'swing');
 });
 

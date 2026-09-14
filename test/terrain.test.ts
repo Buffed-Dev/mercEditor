@@ -34,7 +34,7 @@ test('a map keeps the edge it was given, and says nothing about the one it was n
     ([, inset, drop]) => ({ inset: Number(inset), drop: Number(drop) }),
   );
   assert.equal(rings.length, DEFAULT_RIM.length);
-  assert.equal(normalizeRim(rings)[0].inset, 0.3);
+  assert.equal(normalizeRim(rings)[0]!.inset, 0.3);
   assert.equal(rimDrop(normalizeRim(rings)), 0.25);
 
   // The rim every map gets for free is not written down, the same way an
@@ -151,7 +151,7 @@ test('walking into a step too tall to climb stops, and stays stopped', async () 
   // centre, so the body was shoved back off the edge, walked up to it again,
   // and buzzed there for as long as the key was held.
   for (let i = 1; i < seen.length; i += 1) {
-    assert.ok(seen[i] >= seen[i - 1] - 1e-9, `moved backwards: ${seen[i - 1]} to ${seen[i]}`);
+    assert.ok(seen[i]! >= seen[i - 1]! - 1e-9, `moved backwards: ${seen[i - 1]} to ${seen[i]}`);
   }
 });
 

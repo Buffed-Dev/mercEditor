@@ -99,13 +99,13 @@ export function encodeTerrain(
     let terrainRow = '';
     for (let gx = 0; gx < grid.cols; gx += 1) {
       const i = idx(grid, gx, gy);
-      const kind = grid.kind[i];
+      const kind = grid.kind[i]!;
       if (kind === EMPTY) {
         heightRow += GROUND_CHAR;
         terrainRow += EMPTY_KEY;
         continue;
       }
-      heightRow += levelChar(grid.level[i]);
+      heightRow += levelChar(grid.level[i]!);
       terrainRow += keyByKind[kind] ?? EMPTY_KEY;
     }
     height.push(heightRow);

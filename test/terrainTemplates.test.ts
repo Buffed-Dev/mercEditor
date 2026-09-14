@@ -7,7 +7,7 @@ import {
   CANONICAL,
   type Shape,
 } from '../Engine/src/data/terrain/templates.ts';
-import { topologyOf, CORNER_FXY } from '../Engine/src/data/terrain/mask.ts';
+import { topologyOf, cornerFxyAt } from '../Engine/src/data/terrain/mask.ts';
 import { normalizeRim, rimOf, rimDrop, DEFAULT_RIM } from '../Engine/src/data/terrain/profile.ts';
 import type { TerrainMeshData } from '../Engine/src/data/terrain/geometry.ts';
 import { gridOf } from './helpers/terrainFixtures.ts';
@@ -101,7 +101,7 @@ test('forty-seven topologies are reachable, and no corner is free of its sides',
 const points = (data: TerrainMeshData): [number, number, number][] => {
   const out: [number, number, number][] = [];
   for (let v = 0; v < data.positions.length; v += 3) {
-    out.push([data.positions[v], data.positions[v + 1], data.positions[v + 2]]);
+    out.push([data.positions[v]!, data.positions[v + 1]!, data.positions[v + 2]!]);
   }
   return out;
 };
@@ -262,7 +262,7 @@ test('a wall reaches the foot of the cliff it stands in, and leaves no gap', () 
 
 /** How high the template's own lid is at its corner k. */
 function cornerHeight(data: TerrainMeshData, k: number): number {
-  const [fx, fy] = CORNER_FXY[k];
+  const [fx, fy] = cornerFxyAt(k);
   const there = points(data).filter(
     ([x, , z]) => Math.abs(x - (fx - 0.5)) < 1e-6 && Math.abs(z - (fy - 0.5)) < 1e-6,
   );
@@ -296,10 +296,10 @@ test('tiles meeting at a point all put the ground at the same height', () => {
         const topology = topologyOf(grid, gx, gy);
         if (topology === null) continue;
         const lid = templates.top(topology);
-        const level = grid.level[gy * grid.cols + gx];
+        const level = grid.level[gy * grid.cols + gx]!;
 
         for (let k = 0; k < 4; k += 1) {
-          const [fx, fy] = CORNER_FXY[k];
+          const [fx, fy] = cornerFxyAt(k);
           const point = `${gx + fx},${gy + fy}`;
           const y = level * LEVEL_H + cornerHeight(lid, k);
           claims.set(point, [...(claims.get(point) ?? []), { at: `${gx},${gy}`, y }]);

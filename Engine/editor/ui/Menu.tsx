@@ -46,10 +46,10 @@ export function MenuItem({
   disabled,
 }: {
   children: ReactNode;
-  onClick?: () => void;
+  onClick?: (() => void) | undefined;
   checked?: boolean;
   danger?: boolean;
-  hint?: string;
+  hint?: string | undefined;
   disabled?: boolean;
 }) {
   return (

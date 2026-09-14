@@ -27,7 +27,7 @@ export function Tooltip({
   children,
 }: {
   label: string;
-  side?: 'top' | 'bottom' | 'left' | 'right';
+  side?: 'top' | 'bottom' | 'left' | 'right' | undefined;
   children: ReactElement;
 }) {
   if (!label) return children;

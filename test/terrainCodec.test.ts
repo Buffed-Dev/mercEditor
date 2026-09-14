@@ -105,7 +105,7 @@ test('rows are uniform width: one char per cell of height, two of terrain', () =
   const rows = encodeTerrain(grid, IDS, charOf);
   for (const row of rows.height) assert.equal(row.length, 3);
   for (const row of rows.terrain) assert.equal(row.length, 6);
-  assert.ok(rows.terrain[1].includes(EMPTY_KEY), 'the hole is written as empty');
+  assert.ok(rows.terrain[1]!.includes(EMPTY_KEY), 'the hole is written as empty');
 });
 
 test('the legend is written into the map, not taken from the rules', () => {
@@ -180,15 +180,15 @@ test('a rim profile is forced into the shape the generator relies on', () => {
     { inset: 0.2, drop: 0.1 },
     { inset: 0.4, drop: 0.2 },
   ]);
-  assert.equal(rim[0].drop, 0, 'the first ring joins the flat top');
-  assert.equal(rim[rim.length - 1].inset, 0, 'the last ring is on the cell boundary');
+  assert.equal(rim[0]!.drop, 0, 'the first ring joins the flat top');
+  assert.equal(rim[rim.length - 1]!.inset, 0, 'the last ring is on the cell boundary');
   for (let i = 1; i < rim.length; i += 1) {
-    assert.ok(rim[i].inset < rim[i - 1].inset, 'insets strictly decrease');
-    assert.ok(rim[i].drop >= rim[i - 1].drop, 'drops never climb back up');
+    assert.ok(rim[i]!.inset < rim[i - 1]!.inset, 'insets strictly decrease');
+    assert.ok(rim[i]!.drop >= rim[i - 1]!.drop, 'drops never climb back up');
   }
   // Past half a tile the two sides of a cell's rim cross and the surface turns
   // inside out, so the widest ring is clamped well short of it.
-  assert.ok(normalizeRim([{ inset: 5, drop: 0 }, { inset: 0, drop: 1 }])[0].inset <= 0.45);
+  assert.ok(normalizeRim([{ inset: 5, drop: 0 }, { inset: 0, drop: 1 }])[0]!.inset <= 0.45);
 });
 
 test('garbage or a too-short rim falls back to the default', () => {

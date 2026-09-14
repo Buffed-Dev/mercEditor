@@ -84,7 +84,8 @@ export function runAction(
 ): ActionIntent | null {
   const vars = wiring as Record<string, unknown> | null;
   if (!isAction(vars?.do)) return null;
-  return ACTIONS[vars.do].run({ ...context, vars });
+  const action = ACTIONS[vars.do];
+  return action ? action.run({ ...context, vars }) : null;
 }
 
 /**

@@ -118,8 +118,8 @@ test('fields that are one value with parts share a row', () => {
     { key: 'label', kind: 'text', label: 'Label' },
   ]);
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].kind, 'vector');
-  assert.equal(rows[1].kind, 'single');
+  assert.equal(rows[0]!.kind, 'vector');
+  assert.equal(rows[1]!.kind, 'single');
 });
 
 test('a partial match is left alone — it is a different field, not half a vector', () => {

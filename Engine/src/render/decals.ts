@@ -465,7 +465,7 @@ blend.y
     sync(): number {
       count = Math.min(active.length, max);
       for (let i = 0; i < count; i++) {
-        const decal = active[i];
+        const decal = active[i]!;
         shapeData.set([decal.gx, decal.gy, decal.range, decal.halfArc], i * 4);
         styleData.set([decal.aim, decal.edge, decal.alpha, decal.edgeAlpha], i * 4);
         colorData.set([decal.color.r, decal.color.g, decal.color.b], i * 3);
