@@ -11,6 +11,7 @@ import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import type { GameMap } from '../src/data/mapFormat.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
 import { DEFAULT_RIM, normalizeRim, type RimRing } from '../src/data/terrain/profile.ts';
+import { finite } from '../src/util/numbers.ts';
 
 /**
  * A map as the editor holds it.
@@ -35,8 +36,7 @@ export type EditorMap = Omit<GameMap, 'terrain'> & {
 type Entry = Record<string, unknown>;
 
 /** A field read as a number, or what to write when it is not one. */
-const num = (value: unknown, fallback = 0): number =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+const num = finite;
 
 /**
  * The rim, when it is not the one every map gets for free.

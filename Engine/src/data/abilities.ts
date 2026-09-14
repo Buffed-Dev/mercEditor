@@ -1,4 +1,5 @@
 import { ABILITIES as GAME_ABILITIES } from '#game/rules/abilities.js';
+import { atLeast, within } from '../util/numbers.ts';
 
 /**
  * Abilities: what decides *when* an effect happens and *where* it lands.
@@ -353,22 +354,31 @@ export function normalizeAbility(def: AbilityInput): Ability {
   return {
     ...defaultAbility(def.id ?? 'newAbility'),
     // Fields the default shape (melee) does not carry, so a projectile read
-    // from a hand-written file is never missing its speed.
-    speed: ABILITY_FIELDS.speed.default,
-    size: ABILITY_FIELDS.size.default,
+    // from a hand-written file is never missing its trail. The numbers beside
+    // them are defaulted below, where they are also read as numbers.
     trail: ABILITY_FIELDS.trail.default,
-    chainWindow: ABILITY_FIELDS.chainWindow.default,
-    stepGap: ABILITY_FIELDS.stepGap.default,
     ...def,
     target,
     aimedBy: def.aimedBy === 'facing' ? 'facing' : 'cursor',
     cast: castMode,
+    // Every number a rules file can write, read as a number. A cooldown that
+    // arrives as a string or as NaN is worse than one that arrives wrong:
+    // `remaining > 0` is false for NaN, so the ability simply never waits, and
+    // nothing in the game or the editor says why.
+    cooldown: atLeast(0, def.cooldown, ABILITY_FIELDS.cooldown.default),
+    range: atLeast(0, def.range, ABILITY_FIELDS.range.default),
+    arc: within(0, 360, def.arc, ABILITY_FIELDS.arc.default),
+    cost: atLeast(0, def.cost, 0),
+    speed: atLeast(0, def.speed, ABILITY_FIELDS.speed.default),
+    size: atLeast(0, def.size, ABILITY_FIELDS.size.default),
+    chainWindow: atLeast(0, def.chainWindow, ABILITY_FIELDS.chainWindow.default),
+    stepGap: atLeast(0, def.stepGap, ABILITY_FIELDS.stepGap.default),
     // The mode is what decides, not the number: an ability switched back to
     // instant with a cast time still written next to it is instant, and one
     // written before the switch existed is timed if it had a wind-up.
-    castTime: castMode === 'timed' ? Math.max(0.05, def.castTime ?? 0) : 0,
-    castSlow: castMode === 'timed' ? Math.min(1, Math.max(0, def.castSlow ?? 0)) : 0,
-    castTurn: castMode === 'timed' ? Math.max(0, def.castTurn ?? ABILITY_FIELDS.castTurn.default) : 0,
+    castTime: castMode === 'timed' ? atLeast(0.05, def.castTime, 0) : 0,
+    castSlow: castMode === 'timed' ? within(0, 1, def.castSlow, 0) : 0,
+    castTurn: castMode === 'timed' ? atLeast(0, def.castTurn, ABILITY_FIELDS.castTurn.default) : 0,
     interrupts: castMode === 'instant' && Boolean(def.interrupts),
     effects: (def.effects ?? []).map(normalizeEffectEntry),
     // Carried by every ability so nothing has to check the shape before

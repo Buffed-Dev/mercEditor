@@ -5,6 +5,7 @@ import { CHUNK_ROLES } from '../src/data/maps/chunks.ts';
 import type { LightInput } from '../src/data/lights.ts';
 import type { FieldSpec } from './fields/types.ts';
 import type { Selection } from './state/selection.ts';
+import { finite } from '../src/util/numbers.ts';
 
 /**
  * One entry of a map's object lists, while the editor holds it.
@@ -20,8 +21,7 @@ export type ObjectEntry = Record<string, unknown>;
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 /** A field read as a number, or the default the panel shows for it. */
-const num = (value: unknown, fallback: number): number =>
-  typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+const num = finite;
 
 /**
  * How one object list is edited.
