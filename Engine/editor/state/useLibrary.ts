@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { LibraryScan } from '../rules/libraryTree.ts';
+import { get, list } from '../devServer.ts';
+import { message } from '../../src/util/errors.ts';
 
 /**
  * What is actually in a game's assets folder, asked of the dev server.
@@ -21,13 +23,15 @@ export function useLibrary(game: string) {
   const refresh = useCallback(async () => {
     if (!game) return;
     try {
-      const response = await fetch(`/__library?game=${encodeURIComponent(game)}`);
-      const body = (await response.json()) as LibraryScan & { error?: string };
-      if (!response.ok) throw new Error(body.error ?? 'Could not read the library');
-      setScan({ tree: body.tree ?? [], records: body.records ?? [], errors: body.errors ?? [] });
+      const body = await get('/__library', 'read the library', { game });
+      setScan({
+        tree: list(body, 'tree') as LibraryScan['tree'],
+        records: list(body, 'records') as LibraryScan['records'],
+        errors: list(body, 'errors') as LibraryScan['errors'],
+      });
       setError('');
     } catch (cause) {
-      setError((cause as Error).message);
+      setError(message(cause));
       setScan({ tree: [], records: [], errors: [] });
     }
   }, [game]);

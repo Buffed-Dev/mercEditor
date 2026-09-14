@@ -1,4 +1,6 @@
 import { ASSET_EXTENSIONS, assetRewritten } from '../src/data/assets.ts';
+import { post } from './devServer.ts';
+import { message } from '../src/util/errors.ts';
 
 /**
  * Which kind a file is, by its extension.
@@ -82,19 +84,12 @@ export async function uploadAsset(
   const path = folder ? `${folder}/${name}` : name;
 
   try {
-    const response = await fetch('/__assets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ game, path, data: await readFile(file) }),
-    });
-    const body = (await response.json()) as { error?: string };
-    if (!response.ok) return { error: body.error ?? `Could not store ${file.name}` };
+    await post('/__assets', `store ${file.name}`, { game, path, data: await readFile(file) });
     // Keyed by the path, which is what the caches downstream are keyed by: two
     // folders may each hold a `base_color.png` and they are different pictures.
     assetRewritten(path);
     return { name };
   } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
-    return { error: `Could not store ${file.name}: ${why}. Is the dev server running?` };
+    return { error: message(error) };
   }
 }

@@ -118,6 +118,7 @@ test('no module imports itself, however far round', () => {
  *   ui/        the DOM interface — the character sheet, the bag, the cursor
  *   game/      the rules as they run: actors, abilities, inventory, crafting
  *   data/      what a map and a rules file say. The vocabulary everything shares
+ *   util/      errors and logging. Depends on nothing, so anything may use it
  *
  * The two that matter most are the ends. `data/` at the bottom is what lets
  * the editor and the game agree about a map without either owning the other.
@@ -133,6 +134,7 @@ const LAYERS = [
   'Engine/src/ui',
   'Engine/src/game',
   'Engine/src/data',
+  'Engine/src/util',
 ] as const;
 
 /** The most specific layer a file is in. `Engine/src` is the catch-all. */

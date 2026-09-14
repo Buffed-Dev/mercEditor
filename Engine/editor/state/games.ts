@@ -1,4 +1,6 @@
 import { listGames, loadGame, servedGame } from '../games.ts';
+import { get, list, post } from '../devServer.ts';
+import { message } from '../../src/util/errors.ts';
 
 export type { GameSummary } from '../games.ts';
 
@@ -20,26 +22,19 @@ export { listGames, loadGame, servedGame };
  */
 export async function copyGame(id: string, from: string): Promise<string | null> {
   try {
-    const response = await fetch('/__games', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, from }),
-    });
-    const body = (await response.json()) as { error?: string };
-    if (!response.ok) return body.error ?? 'Could not make that game';
+    await post('/__games', `make ${id}`, { id, from });
     return null;
   } catch (error) {
-    return `Could not make that game: ${(error as Error).message}. Is the dev server running?`;
+    return message(error);
   }
 }
 
 /** How many maps a game has, so a card on the shelf says more than a name. */
 export async function countMaps(id: string): Promise<number | null> {
   try {
-    const response = await fetch(`/__maps?game=${encodeURIComponent(id)}`);
-    if (!response.ok) return null;
-    return ((await response.json()) as { files?: unknown[] }).files?.length ?? null;
+    return list(await get('/__maps', `count the maps in ${id}`, { game: id }), 'files').length;
   } catch {
+    // A card that cannot say how many maps a game has still says its name.
     return null;
   }
 }

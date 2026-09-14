@@ -1,5 +1,7 @@
 import { id as gameId } from '#game';
 import type { GameMap } from '../src/data/mapFormat.ts';
+import { get, list, post } from './devServer.ts';
+import { message } from '../src/util/errors.ts';
 
 /**
  * Which game this dev server is serving.
@@ -40,16 +42,13 @@ export { servedGame };
 /** Every game folder the dev server can see, freshly asked each time. */
 export async function listGames(): Promise<GameSummary[]> {
   try {
-    const response = await fetch('/__games');
-    if (response.ok) {
-      const body = (await response.json()) as { games?: GameSummary[] };
-      return body.games ?? [];
-    }
+    return list(await get('/__games', 'read the games'), 'games') as GameSummary[];
   } catch {
     // No dev server: the one this page was built against is still openable,
-    // because its manifest came in with the bundle.
+    // because its manifest came in with the bundle. The only call here that
+    // swallows its failure, because an empty shelf is the answer.
+    return [];
   }
-  return [];
 }
 
 /**
@@ -89,17 +88,10 @@ export async function newGame(from: string): Promise<string | null> {
   const id = prompt('New game id (letters, digits, dashes):', '')?.trim();
   if (!id) return null;
   try {
-    const response = await fetch('/__games', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, from }),
-    });
-    const body = await response.json();
-    if (!response.ok) return body.error ?? 'Could not make that game';
+    await post('/__games', `make ${id}`, { id, from });
     open(id);
     return null;
   } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
-    return `Could not make that game: ${why}. Is the dev server running?`;
+    return message(error);
   }
 }

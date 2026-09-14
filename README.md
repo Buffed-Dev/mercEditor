@@ -86,6 +86,7 @@ Engine/             everything that is not a particular game
     data/           schema and defaults — no game logic, no rendering
       maps/         the map registry; generate.ts assembles chunks
       terrain/      the grid, its file format, and the block geometry
+    util/           the error types and the logger. Imports nothing
     game/           the simulation. No Babylon anywhere in here.
     render/         Babylon: the engine, the scene, the map, the views
     gui/            Babylon GUI: the read-outs and the item name plates
@@ -137,6 +138,7 @@ render/   Babylon: meshes, materials, the scene itself
 ui/       DOM: the character sheet, the bag, the item cursor
 game/     the rules as they run: actors, abilities, inventory, crafting
 data/     what a map and a rules file say — the vocabulary everything shares
+util/     errors and logging. Depends on nothing, so anything may use it
 ```
 
 `test/modules.test.ts` is what holds all six. It builds the import graph the

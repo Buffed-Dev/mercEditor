@@ -1,4 +1,5 @@
 import { registerMap } from '../src/data/maps/index.ts';
+import { count, list, post, text } from './devServer.ts';
 import type { EditorMap } from './serialize.ts';
 import type { Terrain } from '../src/data/terrains.ts';
 import type { RuleKind } from './serializeData.ts';
@@ -33,21 +34,19 @@ export async function writeMap(
   map: EditorMap,
   terrains: readonly Terrain[],
 ): Promise<string> {
-  const response = await fetch('/__maps', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      game,
-      id: map.id,
-      source: serializeMap(map, terrainCharOf(terrains)),
-    }),
+  const what = `write ${map.id}`;
+  const body = await post('/__maps', what, {
+    game,
+    id: map.id,
+    source: serializeMap(map, terrainCharOf(terrains)),
   });
-  const body = (await response.json()) as { error?: string; file: string };
-  if (!response.ok) throw new Error(body.error ?? 'Save failed');
+  // Read rather than cast: an answer with no `file` in it means the write did
+  // not happen the way this is about to report that it did.
+  const file = text(body, 'file', what);
   // The file is written; this is the same map going into the registry the game
   // reads, so the editor stays open and the save is live at once.
   registerMap(structuredClone(map));
-  return body.file;
+  return file;
 }
 
 /**
@@ -63,24 +62,12 @@ export async function writeMap(
  * this way too.
  */
 export async function moveFolder(game: string, from: string, to: string): Promise<void> {
-  const response = await fetch('/__library', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game, moves: [{ from, to }] }),
-  });
-  const body = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Could not move ${from}`);
+  await post('/__library', `move ${from}`, { game, moves: [{ from, to }] });
 }
 
 /** Make an empty folder under a game's assets/. */
 export async function makeFolder(game: string, path: string): Promise<void> {
-  const response = await fetch('/__library', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game, mkdirs: [path] }),
-  });
-  const body = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Could not make ${path}`);
+  await post('/__library', `make ${path}`, { game, mkdirs: [path] });
 }
 
 /**
@@ -91,13 +78,7 @@ export async function makeFolder(game: string, path: string): Promise<void> {
  * document says what would break, and it can only speak for the rules.
  */
 export async function removeFile(game: string, path: string, recursive = false): Promise<void> {
-  const response = await fetch('/__library', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game, deletes: [{ path, recursive }] }),
-  });
-  const body = (await response.json()) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Could not delete ${path}`);
+  await post('/__library', `delete ${path}`, { game, deletes: [{ path, recursive }] });
 }
 
 /**
@@ -124,22 +105,16 @@ export async function writeRules(
   game: string,
   data: Partial<Record<RuleKind, unknown>>,
 ): Promise<number> {
-  const response = await fetch('/__data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game, files: serializeAllRules(data) }),
+  const body = await post('/__data', 'write the rules', {
+    game,
+    files: serializeAllRules(data),
   });
-  const body = (await response.json()) as { error?: string; files: unknown[] };
-  if (!response.ok) throw new Error(body.error ?? 'Save failed');
 
-  const writes = libraryWrites(data);
-  const library = await fetch('/__library', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ game, writes, prune: LIBRARY_KINDS_SAVED }),
+  const written = await post('/__library', 'write the library', {
+    game,
+    writes: libraryWrites(data),
+    prune: LIBRARY_KINDS_SAVED,
   });
-  const written = (await library.json()) as { error?: string; wrote?: number };
-  if (!library.ok) throw new Error(written.error ?? 'Saving the library failed');
 
-  return body.files.length + (written.wrote ?? 0);
+  return list(body, 'files').length + count(written, 'wrote');
 }
