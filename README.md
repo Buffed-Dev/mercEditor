@@ -109,7 +109,7 @@ Games/
     rules/          the values the rules editor writes back
 ```
 
-Five rules hold the shape together:
+Six rules hold the shape together:
 
 - **`src/game/` never imports Babylon.** The simulation is grid coordinates,
   attributes and effects; it does not know it is being drawn.
@@ -121,6 +121,29 @@ Five rules hold the shape together:
   editor reaches into the engine to draw what a map means, and the game never
   reaches back. `vite build` takes `index.html` alone, so a published game has
   no editor in it and no way to ask for one.
+- **Nothing imports itself, however far round.** A cycle is not a type error
+  and not a test failure — it is a module reading `undefined` off a half-built
+  import months later, under a bundler that happened to order things
+  differently.
+
+The first five are one rule counted from both ends: each layer imports what is
+below it and nothing above.
+
+```
+editor/   the tool. Reaches into everything below; nothing reaches back
+src/      main.ts, which wires the rest together
+gui/      the HUD, drawn over the scene with Babylon GUI
+render/   Babylon: meshes, materials, the scene itself
+ui/       DOM: the character sheet, the bag, the item cursor
+game/     the rules as they run: actors, abilities, inventory, crafting
+data/     what a map and a rules file say — the vocabulary everything shares
+```
+
+`test/modules.test.ts` is what holds all six. It builds the import graph the
+way Node resolves it, refuses a cycle anywhere in it, and refuses an import
+that points up that list. Type-only imports count: they are erased before
+anything runs, so they cannot break at runtime, but two modules that cannot be
+read or moved apart are still two modules that cannot be read or moved apart.
 
 Everything under `Engine/` and `test/` is TypeScript, and one convention holds
 it together: **an import carries the extension of the file it points at.**
