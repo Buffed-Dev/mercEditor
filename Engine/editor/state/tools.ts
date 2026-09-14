@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { TOOLS as TERRAIN_TOOLS } from '../terrain/tools.ts';
+import type { Snap } from '../gizmos.ts';
 
 /**
  * One tool list for the whole map screen.
@@ -21,6 +22,8 @@ export type ToolGroup = 'navigate' | 'objects' | 'terrain';
 export type ToolId =
   | 'select'
   | 'move'
+  | 'rotate'
+  | 'scale'
   | 'place'
   | 'erase'
   | 'terrain.height'
@@ -56,13 +59,17 @@ export type ToolDef = {
 export const SLOT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
 export const TOOLS: readonly ToolDef[] = [
+  // W, E and R for the three transforms, the way every 3D tool binds them.
+  // Erase and Cut ground moved to X and C to make room.
   { id: 'select', label: 'Select', hint: 'Pick and edit what is on the map', group: 'navigate', shortcut: 'v' },
-  { id: 'move', label: 'Move', hint: 'Drag the selection about', group: 'navigate', shortcut: 'm' },
+  { id: 'move', label: 'Move', hint: 'Move the selection with handles, or by dragging it', group: 'navigate', shortcut: 'w' },
+  { id: 'rotate', label: 'Rotate', hint: 'Turn the selection with handles', group: 'navigate', shortcut: 'e' },
+  { id: 'scale', label: 'Scale', hint: 'Scale the selection with handles', group: 'navigate', shortcut: 'r' },
   { id: 'place', label: 'Place', hint: 'Put the current brush down', group: 'objects', shortcut: 'b' },
-  { id: 'erase', label: 'Erase', hint: 'Take what is on a tile away', group: 'objects', shortcut: 'e' },
+  { id: 'erase', label: 'Erase', hint: 'Take what is on a tile away', group: 'objects', shortcut: 'x' },
   { id: 'terrain.height', label: 'Sculpt', hint: 'Raise and lower the ground', group: 'terrain', shortcut: 'h', terrainTool: 'height' },
   { id: 'terrain.paint', label: 'Paint ground', hint: 'Lay a terrain down', group: 'terrain', shortcut: 't', terrainTool: 'paint' },
-  { id: 'terrain.erase', label: 'Cut ground', hint: 'Take the ground away', group: 'terrain', shortcut: 'r', terrainTool: 'erase' },
+  { id: 'terrain.erase', label: 'Cut ground', hint: 'Take the ground away', group: 'terrain', shortcut: 'c', terrainTool: 'erase' },
   { id: 'terrain.select', label: 'Region', hint: 'Select a rectangle of ground', group: 'terrain', shortcut: 'k', terrainTool: 'select' },
 ] as const;
 
@@ -107,15 +114,18 @@ type ToolStore = {
   setTerrainOption: (tool: string, key: string, value: string | number) => void;
 
   /**
-   * Whether the turn handle lands on quarter-hours of the compass.
+   * What the handles land on. See `Snap` in gizmos.ts.
    *
-   * On by default, because every heading anyone has authored by hand is a whole
-   * number and a dragged one is not — `azimuth: 309.437284` is what a free
-   * handle writes into the map file. Off is for the cases where the exact angle
-   * is the point.
+   * On by default, because every number anyone has authored by hand is a round
+   * one and a dragged one is not — `rot: 309.437284` is what a free handle
+   * writes into the map file. Off is for when the exact figure is the point.
    */
-  snapTurns: boolean;
-  setSnapTurns: (on: boolean) => void;
+  snap: Snap;
+  setSnap: (patch: Partial<Snap>) => void;
+
+  /** How the next thing put down is turned, in degrees. `[` and `]` turn it. */
+  placeTurn: number;
+  setPlaceTurn: (deg: number) => void;
 };
 
 export const useTools = create<ToolStore>((set) => ({
@@ -134,8 +144,11 @@ export const useTools = create<ToolStore>((set) => ({
   terrainId: '',
   setTerrainId: (terrainId) => set({ terrainId }),
 
-  snapTurns: true,
-  setSnapTurns: (snapTurns) => set({ snapTurns }),
+  snap: { on: true, move: 0.5, turn: 15, scale: 0.25 },
+  setSnap: (patch) => set((state) => ({ snap: { ...state.snap, ...patch } })),
+
+  placeTurn: 0,
+  setPlaceTurn: (placeTurn) => set({ placeTurn: ((placeTurn % 360) + 360) % 360 }),
 
   terrainOptions: {},
   setTerrainOption: (tool, key, value) =>

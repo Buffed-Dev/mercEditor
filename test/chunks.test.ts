@@ -32,13 +32,10 @@ const map = {
     { gx: 0, gy: 0, w: 4, h: 4, name: 'left', role: 'start' },
     { gx: 5, gy: 0, w: 4, h: 4, name: 'right', role: 'end' },
   ],
-  walls: [{ gx: 1, gy: 0 }, { gx: 6, gy: 0 }, { gx: 0, gy: 4 }],
-  monsters: [{ gx: 2, gy: 2, kind: 'grunt' }, { gx: 7, gy: 1, kind: 'vase' }],
+  lights: [{ gx: 1, gy: 0, type: 'point' }, { gx: 6, gy: 0, type: 'point' }, { gx: 0, gy: 4, type: 'point' }],
+  // A second list, so this proves every list is cut rather than one of them.
+  prefabs: [{ gx: 2, gy: 2, id: 'camp' }, { gx: 7, gy: 1, id: 'camp' }],
   doors: [{ gx: 2, gy: 3 }],
-  portals: [],
-  torches: [],
-  stations: [],
-  lights: [],
   env: { sky: 0x112233 },
 };
 
@@ -59,10 +56,14 @@ test('cutting a chunk gives back what was drawn inside it, at its own origin', (
   assert.deepEqual(right.rows, ['1111', '1..1', '1..1', '1111']);
 
   // Objects come along, moved so the chunk's corner is the origin.
-  assert.deepEqual(left.walls, [{ gx: 1, gy: 0 }]);
-  assert.deepEqual(right.walls, [{ gx: 1, gy: 0 }], 'the right room kept the map coordinates');
-  assert.deepEqual(left.monsters, [{ gx: 2, gy: 2, kind: 'grunt' }]);
-  assert.deepEqual(right.monsters, [{ gx: 2, gy: 1, kind: 'vase' }]);
+  assert.deepEqual(left.lights, [{ gx: 1, gy: 0, type: 'point' }]);
+  assert.deepEqual(
+    right.lights,
+    [{ gx: 1, gy: 0, type: 'point' }],
+    'the right room kept the map coordinates',
+  );
+  assert.deepEqual(left.prefabs, [{ gx: 2, gy: 2, id: 'camp' }]);
+  assert.deepEqual(right.prefabs, [{ gx: 2, gy: 1, id: 'camp' }]);
   assert.deepEqual(left.doors, [{ gx: 2, gy: 3 }]);
   assert.deepEqual(right.doors, []);
 

@@ -1,0 +1,151 @@
+/* A file, chosen by looking through the ones there are. */
+
+.field {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: var(--e-control);
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+}
+
+.field:hover {
+  border-color: var(--e-line-2);
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The two on the right: clear it, or open the list. */
+.side {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--e-fg-3);
+  cursor: pointer;
+}
+
+.side:hover {
+  color: var(--e-fg);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--e-mono);
+  font-size: var(--e-fs-5);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thumb {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--e-raised);
+  color: var(--e-fg-3);
+  object-fit: cover;
+}
+
+.popup {
+  width: 300px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.filter {
+  height: var(--e-control);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  outline: none;
+}
+
+.filter:focus {
+  border-color: var(--e-accent);
+}
+
+.list {
+  display: grid;
+  gap: 1px;
+  max-height: 260px;
+  overflow: hidden auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+}
+
+.row .thumb {
+  width: 24px;
+  height: 24px;
+}
+
+.on {
+  border-color: var(--e-accent);
+}
+
+.where {
+  flex: none;
+  max-width: 45%;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+  text-align: center;
+}

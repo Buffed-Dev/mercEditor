@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { redraw } from '../history.ts';
 import { useNavigate, useParams } from 'react-router';
 import { MAPS, START_MAP, mapIds } from '../../src/data/maps/index.ts';
 import { blankMap } from '../document.ts';
@@ -15,12 +16,12 @@ import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import styles from './MapWorkspace.module.css';
 import { useTools } from '../state/tools';
-import { IconAngle, IconPackage } from '@tabler/icons-react';
+import { IconPackage } from '@tabler/icons-react';
 import { IconButton } from '../ui/Button';
 import { DEBUG_LAYERS, layerById } from '../terrain/debugLayers.ts';
-import { TURN_STEP } from '../viewport/heading';
+import { SnapControl } from '../viewport/SnapControl';
 import type { Terrain } from '../../src/data/terrains.ts';
-import type { TerrainRecord } from '../panels/AssetShelves';
+import type { PrefabRecord, TerrainRecord } from '../panels/AssetShelves';
 import { Viewport, useHoveredTile } from '../viewport/Viewport';
 import { useStage } from '../viewport/useStage';
 import { AssetShelves } from '../panels/AssetShelves';
@@ -57,8 +58,9 @@ export function MapWorkspace() {
   const game = useGame(gameId);
   const layout = useLayout(gameId);
   const brush = useTools((state) => state.brush);
-  const snapTurns = useTools((state) => state.snapTurns);
-  const setSnapTurns = useTools((state) => state.setSnapTurns);
+  const setBrush = useTools((state) => state.setBrush);
+  const setTool = useTools((state) => state.setTool);
+  const setOption = useTools((state) => state.setOption);
 
   const hidden = useVisibility((state) => state.hidden);
   const clearHidden = useVisibility((state) => state.clear);
@@ -168,11 +170,21 @@ export function MapWorkspace() {
   }
 
   useShortcuts({
+    // A digit is the nth prefab here, because a prefab is the only thing a map
+    // takes. Silently nothing when there is no prefab in that slot -- a game
+    // with three of them should not have 4 through 0 doing something.
+    onSlot: (slot: number) => {
+      const prefab = (rules?.list('prefabs') ?? [])[slot] as { id?: string } | undefined;
+      if (!prefab?.id) return;
+      setOption('prefab', 'prefabId', prefab.id);
+      setBrush('prefab');
+      setTool('place');
+    },
     onSave: () => void onSave(),
     onCopy,
     onPaste,
-    onUndo: () => doc?.undo() !== false && editor?.invalidate(),
-    onRedo: () => doc?.redo() !== false && editor?.invalidate(),
+    onUndo: () => { if (doc && editor) redraw(doc.undo(), editor); },
+    onRedo: () => { if (doc && editor) redraw(doc.redo(), editor); },
     onFrame: () => editor?.frameAll(),
     onToggleGrid: () => setGridVisible((on) => !on),
     onHelp: () => setHelpOpen(true),
@@ -308,10 +320,10 @@ export function MapWorkspace() {
           canUndo={Boolean(doc?.canUndo)}
           canRedo={Boolean(doc?.canRedo)}
           onUndo={() => {
-            if (doc?.undo() !== false) editor?.invalidate();
+            if (doc && editor) redraw(doc.undo(), editor);
           }}
           onRedo={() => {
-            if (doc?.redo() !== false) editor?.invalidate();
+            if (doc && editor) redraw(doc.redo(), editor);
           }}
           dirty={dirty}
           onSave={() => void onSave()}
@@ -333,8 +345,12 @@ export function MapWorkspace() {
           )}
           {leftTab === 'assets' && (
             <AssetShelves
-              terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
-              onEditTerrain={(id) => void navigate(`/${gameId}/library/terrains/${id}`)}
+              prefabs={(rules?.list('prefabs') ?? []) as PrefabRecord[]}
+              onEditPrefab={(id: string) => void navigate(`/${gameId}/prefabs/${id}`)}
+              // A map is built out of prefabs and nothing else. The objects
+              // they are made of are placed one level down, on the prefab
+              // screen, which is the only place a loose one can be put.
+              brushes={false}
             />
           )}
           {leftTab === 'maps' && (
@@ -349,8 +365,11 @@ export function MapWorkspace() {
       viewport={
         <Viewport
           hostRef={host}
+          scene={stage?.renderer.scene ?? null}
           overlay={
             <ToolRail
+              terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
+              onEditTerrain={(id: string) => void navigate(`/${gameId}/library/terrains/${id}`)}
               actions={
                 /* Always there, disabled until there is something to make one
                    of. A button that appears when you pick a row would move the
@@ -381,18 +400,7 @@ export function MapWorkspace() {
             grid thinks that cell is in, and there is no way to see that from
             the outside.
           */}
-          {/*
-            The turn handle is the one thing here that is not already on a grid:
-            an object sits on a tile whatever you do, but a heading is whatever
-            angle you let go at.
-          */}
-          <IconButton
-            label={`Snap turns to ${TURN_STEP}°`}
-            active={snapTurns}
-            onClick={() => setSnapTurns(!snapTurns)}
-          >
-            <IconAngle size={17} />
-          </IconButton>
+          <SnapControl />
           <select
             className={styles.debug}
             aria-label="Debug layer"
@@ -420,6 +428,7 @@ export function MapWorkspace() {
             doc={doc}
             editor={editor}
             rules={rules}
+            game={gameId}
             mapId={String(doc?.map.id ?? '')}
             onPlaytest={onPlaytest}
             onUnpack={onUnpack}

@@ -23,12 +23,12 @@ const yard = () =>
       { gx: 3, gy: 1, id: 'pot' },
       { gx: 5, gy: 2, id: 'other' },
     ],
-    torches: [{ gx: 1, gy: 2, face: '+x' }],
+    vfx: [{ gx: 1, gy: 2, id: 'smoke' }],
   } as GameMap);
 
 test('a copy keeps the shape of what was taken, not where it was', () => {
   const doc = yard();
-  assert.equal(copyObjects(doc, new Set(['props:0', 'props:1', 'torches:0']), null), 3);
+  assert.equal(copyObjects(doc, new Set(['props:0', 'props:1', 'vfx:0']), null), 3);
   assert.equal(clipboardSize(), 3);
 
   // Pasted at the origin, the gaps between them are what they were: the fire
@@ -42,8 +42,8 @@ test('a copy keeps the shape of what was taken, not where it was', () => {
     ],
   );
   assert.deepEqual(
-    doc.map.torches.slice(1).map((one) => [one.gx, one.gy, one.face]),
-    [[0, 1, '+x']],
+    doc.map.vfx.slice(1).map((one) => [one.gx, one.gy, one.id]),
+    [[0, 1, 'smoke']],
   );
 });
 
@@ -70,13 +70,13 @@ test('the original is left where it is', () => {
 
 test('one paste is one undo step, however many objects it was', () => {
   const doc = yard();
-  copyObjects(doc, new Set(['props:0', 'props:1', 'torches:0']), null);
+  copyObjects(doc, new Set(['props:0', 'props:1', 'vfx:0']), null);
   pasteObjects(doc, 0, 0);
   assert.equal(doc.map.props.length, 5);
 
   doc.undo();
   assert.equal(doc.map.props.length, 3, 'all of it went back together');
-  assert.equal(doc.map.torches.length, 1);
+  assert.equal(doc.map.vfx.length, 1);
 });
 
 test('a paste that would fall off the map is refused, not clipped', () => {

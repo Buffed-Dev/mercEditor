@@ -51,7 +51,12 @@ export function NumberField({
   // `active` rather than asking the element whether it still has the pointer:
   // capture can be refused, and a control that silently stops responding to a
   // drag is worse than one that never offered it.
-  const drag = useRef({ x: 0, value: 0, moved: false, active: false });
+  // `last` is what the drag itself worked out, which is not the same as the
+  // `value` prop: the prop is whatever React last rendered, and a render can
+  // lag the pointer. Committing the prop meant a drag settled on a value one
+  // event behind the cursor -- the number jumping backwards the moment you let
+  // go. The control commits what it produced.
+  const drag = useRef({ x: 0, value: 0, last: 0, moved: false, active: false });
 
   const fill = range.scaled ? `${toPosition(range, value) * 100}%` : '0%';
 
@@ -67,7 +72,7 @@ export function NumberField({
       // Capture is a convenience — the drag still works without it, it just
       // stops tracking if the pointer leaves the box.
     }
-    drag.current = { x: event.clientX, value, moved: false, active: true };
+    drag.current = { x: event.clientX, value, last: value, moved: false, active: true };
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
@@ -84,7 +89,9 @@ export function NumberField({
     const next = range.scaled
       ? fromPosition(range, toPosition(range, drag.current.value) + (travel * scale) / SWEEP_PX)
       : drag.current.value + travel * grain * scale;
-    onInput(quantise(range, next, grain));
+    const settled = quantise(range, next, grain);
+    drag.current.last = settled;
+    onInput(settled);
   }
 
   function onPointerUp(event: React.PointerEvent<HTMLDivElement>) {
@@ -99,7 +106,7 @@ export function NumberField({
       input.current?.select();
       return;
     }
-    if (value !== drag.current.value) onChange(value);
+    if (drag.current.last !== drag.current.value) onChange(drag.current.last);
   }
 
   return (

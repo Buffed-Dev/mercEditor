@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDataDocument } from '../Engine/editor/dataDocument.ts';
 import { libraryWrites } from '../Engine/editor/serializeData.ts';
-import { crumbs, filterRows, libraryRows, rowsIn, thumbFor } from '../Engine/editor/rules/libraryTree.ts';
+import { crumbs, libraryRows, rowsIn, thumbFor } from '../Engine/editor/rules/libraryTree.ts';
 
 /**
  * The library as folders: where a record lives, what moving it costs, and what
@@ -224,29 +224,6 @@ test('a picture still held inline is not a file on disk', () => {
   assert.equal(sheet?.row === 'file' && sheet.used, false);
 });
 
-test('filtering to a kind keeps the folders that lead to it', () => {
-  const rows = libraryRows(scan, held);
-  const paths = filterRows(rows, new Set(['materials'])).map((row) => row.path);
-  // The match, and the way down to it. A match you cannot see the path to is a
-  // match you cannot find.
-  assert.ok(paths.includes('Materials/Wood'));
-  assert.ok(paths.includes('Materials'));
-  // Its files are not materials, so they go.
-  assert.ok(!paths.includes('Materials/Wood/diffuse.png'));
-  // And a folder leading nowhere goes with them, or the filter is a highlight.
-  assert.ok(!paths.includes('Materials/Broken'));
-
-  // Files are a kind of their own, being what is left over.
-  const files = filterRows(rows, new Set(['files'])).map((row) => row.path);
-  assert.ok(files.includes('loose.png'));
-  assert.ok(files.includes('Materials/Wood/spare.png'));
-  // The record above it survives as the way down to it, not as a match: a file
-  // shown with no path to it is a file you cannot find. What is dropped is the
-  // record that leads to no file at all.
-  assert.ok(files.includes('Materials/Wood'));
-  assert.ok(!files.includes('Materials/Broken'));
-});
-
 test('a folder shows what is in it, and nothing deeper', () => {
   const rows = libraryRows(scan, held);
 
@@ -354,4 +331,72 @@ test('deleting is not something undo brings back', () => {
     'the deleted record stayed deleted',
   );
   assert.equal(d.list('props')[0].material, '', 'and its reference stayed empty');
+});
+
+/**
+ * A prefab is one file, so it lives loose in a folder rather than bringing one
+ * of its own. That makes a folder something several records share, which every
+ * "the folder is the record" shortcut in here had to stop assuming.
+ */
+test('prefabs live loose in a folder, several to a folder', () => {
+  const d = createDataDocument({ prefabs: [] });
+
+  // Filed where you were standing, if that is somewhere prefabs live.
+  const first = d.add('prefabs', 'Prefabs');
+  const second = d.add('prefabs', 'Prefabs/Forest');
+  // And a folder that has nothing to do with this kind is not obeyed.
+  const third = d.add('prefabs', 'Materials/Wood');
+  assert.equal(d.list('prefabs')[first!.index].path, 'Prefabs');
+  assert.equal(d.list('prefabs')[second!.index].path, 'Prefabs/Forest');
+  assert.equal(d.list('prefabs')[third!.index].path, 'Prefabs');
+
+  // A material still brings a folder of its own, named after itself.
+  const made = d.add('materials', 'Materials');
+  assert.equal(d.list('materials')[made!.index].path, 'Materials/Material');
+
+  d.update('prefabs', first!.index, { label: 'Tree' });
+  d.update('prefabs', second!.index, { label: 'Stone' });
+  d.update('prefabs', third!.index, { label: 'Torch' });
+
+  // Each is its own file, in the folder it was filed in.
+  const writes = libraryWrites({ prefabs: d.list('prefabs') });
+  assert.deepEqual(
+    writes.map((one) => one.path).sort(),
+    ['Prefabs/Forest/stone.prefab.json', 'Prefabs/torch.prefab.json', 'Prefabs/tree.prefab.json'],
+  );
+});
+
+test('a folder several records share is a folder, not one of them', () => {
+  const d = createDataDocument({
+    prefabs: [
+      { id: 'tree', label: 'Tree', path: 'Prefabs' },
+      { id: 'rock', label: 'Rock', path: 'Prefabs' },
+    ],
+  });
+  const rows = libraryRows(
+    {
+      tree: [
+        { path: 'Prefabs', dir: true },
+        { path: 'Prefabs/tree.prefab.json', size: 40 },
+      ],
+      records: [],
+      errors: [],
+    },
+    { prefabs: d.list('prefabs') as Record<string, unknown>[] },
+  );
+  const at = (path: string) => rows.find((row) => row.path === path);
+
+  // The folder wears no record's name: two of them are in it.
+  const folder = at('Prefabs');
+  assert.equal(folder?.row === 'folder' && folder.holds, null);
+
+  // Both records are rows, the one on disk and the one not yet written --
+  // which is what makes a new prefab visible before it is saved.
+  assert.equal(at('Prefabs/tree.prefab.json')?.row, 'record');
+  const rock = at('Prefabs/rock.prefab.json');
+  assert.equal(rock?.row, 'record');
+  assert.equal(rock?.row === 'record' && rock.label, 'Rock');
+
+  // And both are in the folder you can stand in, rather than one level down.
+  assert.equal(rowsIn(rows, 'Prefabs').filter((row) => row.row === 'record').length, 2);
 });

@@ -57,3 +57,91 @@
 .empty {
   color: var(--e-fg-3);
 }
+
+/* A tool's own settings, hung off the tool. See ToolOptions in ToolRail.tsx:
+   a brush width and a terrain are facts about the tool, not about the map, so
+   they belong on it rather than in a panel across the screen. */
+.trigger {
+  /* A box of its own rather than `display: contents`: the popover is placed
+     against its trigger, and an element with no box gives it nothing to aim
+     at -- which put the panel in the corner of the window instead of over the
+     tool it belongs to. */
+  display: inline-flex;
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+.popup {
+  width: 232px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.popupHead {
+  font-size: var(--e-fs-5);
+  color: var(--e-fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Two to a row: a terrain is recognised by its chip and its name, and the
+   whole palette should be visible without scrolling a popover. */
+.tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--e-line-2);
+}
+
+.tile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: var(--e-r);
+  border: 1px solid transparent;
+  background: var(--e-input);
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.tile:hover {
+  border-color: var(--e-line-2);
+  color: var(--e-fg-1);
+}
+
+.tile.on {
+  border-color: var(--e-accent);
+  color: var(--e-fg-1);
+}
+
+.chip {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--e-r);
+  background: var(--e-panel-2);
+  color: var(--e-accent);
+  font-size: var(--e-fs-6);
+  text-transform: uppercase;
+}
+
+.tileLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

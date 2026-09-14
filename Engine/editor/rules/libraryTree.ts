@@ -1,5 +1,5 @@
 import { filePath } from '../../src/data/assets.ts';
-import { kindOfRecord, recordFile } from '../serializeData.ts';
+import { kindOfRecord, LIBRARY_FILE_ONLY, recordFile } from '../serializeData.ts';
 import { LIBRARY_KINDS, libraryFields, type LibraryKind } from './library.ts';
 
 /**
@@ -28,8 +28,17 @@ export type LibraryRow = {
   /** The last segment: what the row is called. */
   name: string;
 } & (
-  /** `holds` names the record whose folder this is, if there is one. */
-  | { row: 'folder'; holds: { list: LibraryKind; index: number } | null }
+  /**
+   * `holds` names the record whose folder this is, if there is one, and
+   * `label` is what that record calls itself — the folder was named once, when
+   * the record was made, and renaming the record does not move it. The card
+   * reads the record's name so a rename shows up where you did it.
+   */
+  | {
+      row: 'folder';
+      holds: { list: LibraryKind; index: number } | null;
+      label?: string;
+    }
   /** The record file itself: `Grass/grass.material.json`. */
   | {
       row: 'record';
@@ -58,6 +67,11 @@ const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
  * grows another picture slot is a line in its own field table and nothing else.
  */
 function claimed(records: Records): { paths: Set<string>; byRecord: Map<string, string[]> } {
+  // Keyed by the record's own file rather than its folder: a folder may hold
+  // several records now, and two of them sharing one entry here would have
+  // each reading the other's missing files.
+  const fileOf = (list: LibraryKind, record: Record<string, unknown>) =>
+    `${String(record.path ?? '')}/${recordFile(list, record)}`;
   const paths = new Set<string>();
   const byRecord = new Map<string, string[]>();
   for (const { id: list } of LIBRARY_KINDS) {
@@ -72,7 +86,7 @@ function claimed(records: Records): { paths: Set<string>; byRecord: Map<string, 
         paths.add(path);
         here.push(path);
       }
-      byRecord.set(String(record.path ?? ''), here);
+      byRecord.set(fileOf(list, record), here);
     }
   }
 
@@ -81,7 +95,7 @@ function claimed(records: Records): { paths: Set<string>; byRecord: Map<string, 
   // gathers itself -- so there is no `file` field here to find them by. Spelled
   // out, or the sheet an effect plays reads as a file nothing wants.
   for (const record of records.vfx ?? []) {
-    const here = byRecord.get(String(record.path ?? '')) ?? [];
+    const here = byRecord.get(fileOf('vfx', record)) ?? [];
     for (const half of ['particle', 'sheet']) {
       const image = (record[half] as { image?: unknown } | undefined)?.image;
       // A picture still held inline as a data URL is not a file on disk.
@@ -90,7 +104,7 @@ function claimed(records: Records): { paths: Set<string>; byRecord: Map<string, 
       paths.add(path);
       here.push(path);
     }
-    byRecord.set(String(record.path ?? ''), here);
+    byRecord.set(fileOf('vfx', record), here);
   }
 
   return { paths, byRecord };
@@ -114,23 +128,32 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
   if (!scan) return [];
 
   const onDisk = new Set(scan.tree.filter((entry) => !entry.dir).map((entry) => entry.path));
+  const folders = new Set(scan.tree.filter((entry) => entry.dir).map((entry) => entry.path));
   const { paths: used, byRecord } = claimed(records);
   const broken = new Map(scan.errors.map((error) => [error.path, error.message]));
 
-  /** folder -> the record living in it, from the document. */
-  const at = new Map<string, { list: LibraryKind; index: number; record: Record<string, unknown> }>();
+  type Held = { list: LibraryKind; index: number; record: Record<string, unknown> };
+
+  /**
+   * file -> the record it holds, and folder -> the record that *is* it.
+   *
+   * Two maps because a folder no longer answers for a record: prefabs live
+   * loose in one folder, several to a folder, so the file is what identifies
+   * a record and the folder is only somewhere you keep them.
+   */
+  const at = new Map<string, Held>();
+  const owns = new Map<string, Held>();
   for (const { id: list } of LIBRARY_KINDS) {
     (records[list] ?? []).forEach((record, index) => {
-      const path = String(record.path ?? '');
-      if (path) at.set(path, { list, index, record });
+      const folder = String(record.path ?? '');
+      if (!folder) return;
+      at.set(`${folder}/${recordFile(list, record)}`, { list, index, record });
+      if (!LIBRARY_FILE_ONLY.has(list)) owns.set(folder, { list, index, record });
     });
   }
 
   /** One record's row, wherever its file is or is about to be. */
-  const rowFor = (
-    path: string,
-    here: { list: LibraryKind; index: number; record: Record<string, unknown> },
-  ): LibraryRow => ({
+  const rowFor = (path: string, here: Held): LibraryRow => ({
     row: 'record',
     path,
     name: nameOf(path),
@@ -138,9 +161,7 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     id: String(here.record.id ?? ''),
     index: here.index,
     label: String(here.record.label ?? here.record.id ?? nameOf(path)),
-    missing: (byRecord.get(path.slice(0, path.lastIndexOf('/'))) ?? []).filter(
-      (file) => !onDisk.has(file),
-    ),
+    missing: (byRecord.get(path) ?? []).filter((file) => !onDisk.has(file)),
   });
 
   const rows: LibraryRow[] = [];
@@ -151,12 +172,13 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     const name = nameOf(path);
 
     if (entry.dir) {
-      const here = at.get(path);
+      const here = owns.get(path);
       rows.push({
         row: 'folder',
         path,
         name,
         holds: here ? { list: here.list, index: here.index } : null,
+        label: here ? String(here.record.label ?? here.record.id ?? name) : undefined,
       });
       continue;
     }
@@ -169,10 +191,9 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     // A record file is a record row, named by the document rather than by the
     // filename -- so a rename reads right before it is saved, at which point
     // the file itself catches up.
-    const folder = path.slice(0, path.lastIndexOf('/'));
-    const here = kindOfRecord(name) ? at.get(folder) : undefined;
+    const here = kindOfRecord(name) ? at.get(path) : undefined;
     if (here) {
-      written.add(folder);
+      written.add(path);
       rows.push(rowFor(path, here));
       continue;
     }
@@ -183,11 +204,28 @@ export function libraryRows(scan: LibraryScan | null, records: Records): Library
     rows.push({ row: 'file', path, name, used: used.has(path), size: entry.size ?? 0 });
   }
 
-  // A record just added, or one whose id has changed: its file is not on disk
-  // under that name yet. Shown where it is going to be written.
-  for (const [folder, here] of at) {
-    if (written.has(folder)) continue;
-    rows.push(rowFor(`${folder}/${recordFile(here.list, here.record)}`, here));
+  // A record just added, or one whose name has changed: its file is not on
+  // disk under that name yet. Shown where it is going to be written.
+  for (const [file, here] of at) {
+    if (written.has(file)) continue;
+    const folder = file.slice(0, file.lastIndexOf('/'));
+    // And its folder is not there either, for one just added. The library is
+    // browsed a folder at a time, so without this row the record file sits one
+    // level down from anywhere you can stand and the new record is invisible
+    // until a save puts its folder on disk.
+    if (folder && !folders.has(folder)) {
+      folders.add(folder);
+      rows.push({
+        row: 'folder',
+        path: folder,
+        name: nameOf(folder),
+        holds: owns.has(folder) ? { list: here.list, index: here.index } : null,
+        label: owns.has(folder)
+          ? String(here.record.label ?? here.record.id ?? nameOf(folder))
+          : undefined,
+      });
+    }
+    rows.push(rowFor(file, here));
   }
 
   return rows;
@@ -266,45 +304,14 @@ export function kindOfFolder(path: string): LibraryKind | null {
   return found?.id ?? null;
 }
 
-const TOP: Record<string, string> = {
+/** The folder under `assets/` each kind is filed in. */
+export const TOP: Record<LibraryKind, string> = {
   materials: 'Materials',
   props: 'Objects',
   terrains: 'Terrain',
   vfx: 'Effects',
   prefabs: 'Prefabs',
 };
-
-/**
- * The rows left when only some kinds are wanted, with the folders above them.
- *
- * An ancestor is kept because a match you cannot see the path to is a match you
- * cannot find. A folder that leads nowhere is dropped — which is what makes the
- * filter feel like a filter rather than a highlight.
- */
-export function filterRows(
-  rows: readonly LibraryRow[],
-  wanted: ReadonlySet<string>,
-): LibraryRow[] {
-  if (!wanted.size) return [...rows];
-
-  const keep = new Set<string>();
-  for (const row of rows) {
-    const matches =
-      row.row === 'record'
-        ? wanted.has(row.list)
-        : row.row === 'folder'
-          ? Boolean(row.holds && wanted.has(row.holds.list))
-          : row.row === 'file'
-            ? wanted.has('files')
-            : false;
-    if (!matches) continue;
-    keep.add(row.path);
-    // Every folder on the way down to it, so the match has a path you can see.
-    const parts = row.path.split('/');
-    for (let i = 1; i < parts.length; i += 1) keep.add(parts.slice(0, i).join('/'));
-  }
-  return rows.filter((row) => keep.has(row.path));
-}
 
 /**
  * The rows directly inside a folder, and nothing deeper.

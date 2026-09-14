@@ -33,23 +33,25 @@ export function tagPick<T extends Node>(node: T, tag: PickTag): T {
   return node;
 }
 
-/** Reads a tag back off a node, or null if it does not carry one. */
+/**
+ * Reads a tag back off a node, or null if it does not carry one.
+ *
+ * The tag itself is handed back rather than a copy of it. Everything that
+ * writes one goes through `tagPick` above, so a well-formed tag is the only
+ * kind there is -- and this is asked of every node under the map whenever the
+ * view is rebuilt or a drag is set up, which is a lot of objects to make and
+ * throw away in order to say what the node already said.
+ *
+ * Checked rather than trusted, because `metadata` is Babylon's and anything may
+ * have put anything in it.
+ */
 export function pickOf(node: Node | null | undefined): PickTag | null {
   const metadata: unknown = node?.metadata;
   if (!metadata || typeof metadata !== 'object') return null;
 
   const pick = (metadata as { pick?: unknown }).pick;
   if (!pick || typeof pick !== 'object') return null;
+  if (typeof (pick as { list?: unknown }).list !== 'string') return null;
 
-  const tag = pick as { list?: unknown; index?: unknown; key?: unknown; instances?: unknown };
-  if (typeof tag.list !== 'string') return null;
-
-  return {
-    list: tag.list,
-    index: typeof tag.index === 'number' ? tag.index : undefined,
-    key: typeof tag.key === 'string' ? tag.key : undefined,
-    instances: Array.isArray(tag.instances)
-      ? tag.instances.filter((entry): entry is number => typeof entry === 'number')
-      : undefined,
-  };
+  return pick as PickTag;
 }

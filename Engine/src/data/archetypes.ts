@@ -31,10 +31,24 @@ export const TEAMS = [
 
 export type Team = (typeof TEAMS)[number][0];
 
+/**
+ * What drives an actor built from this archetype. `player` reads input, `ai`
+ * runs the monster behaviour, `none` stands there — a vase, a crate, anything
+ * that only exists to be hit.
+ */
+export const BRAINS = [
+  ['none', 'None'],
+  ['player', 'Player'],
+  ['ai', 'AI'],
+] as const;
+
+export type Brain = (typeof BRAINS)[number][0];
+
 export type Archetype = {
   id: string;
   label: string;
   team: Team;
+  brain: Brain;
   /** Effect ids applied the moment the actor spawns. */
   grants: string[];
   /** Ordered: position in this list is the input slot the ability answers to. */
@@ -61,6 +75,7 @@ export type ArchetypeInput = {
   id?: string;
   label?: string;
   team?: string;
+  brain?: string;
   grants?: readonly string[];
   abilities?: readonly string[];
   unarmed?: string;
@@ -69,6 +84,7 @@ export type ArchetypeInput = {
 };
 
 const isTeam = (value: unknown): value is Team => TEAMS.some(([id]) => id === value);
+const isBrain = (value: unknown): value is Brain => BRAINS.some(([id]) => id === value);
 
 /**
  * The set as it is written, not as it is understood.
@@ -84,6 +100,7 @@ export function defaultArchetype(id = 'newArchetype'): Archetype {
     id,
     label: 'New archetype',
     team: 'monster',
+    brain: 'none',
     grants: [],
     // Ordered: position in this list is the input slot the ability answers to.
     abilities: [],
@@ -113,6 +130,7 @@ function normalizeArchetype(def: ArchetypeInput): Archetype {
     ...base,
     ...def,
     team: isTeam(def.team) ? def.team : base.team,
+    brain: isBrain(def.brain) ? def.brain : base.brain,
     grants: [...(def.grants ?? base.grants)],
     abilities: [...(def.abilities ?? base.abilities)],
     attributes,

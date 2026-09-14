@@ -228,11 +228,16 @@ test('a range typed backwards still pays', () => {
 });
 
 test('a vase is placed like a monster and pays out like one', async () => {
-  const { MONSTER_KINDS, spawnMonsters } = await import('../Engine/src/game/monsters.ts');
-  const { ARCHETYPES } = await import('../Engine/src/data/archetypes.ts');
+  const { Monster } = await import('../Engine/src/game/monsters.ts');
+  const { createActor } = await import('../Engine/src/game/actor.ts');
+  const { ARCHETYPES, archetypeMap } = await import('../Engine/src/data/archetypes.ts');
   const { ATTRIBUTES } = await import('../Engine/src/data/attributes.ts');
 
-  assert.equal(MONSTER_KINDS.vase.prop, true, 'a vase would be drawn with a face');
+  // What drives each: the player reads input, a grunt thinks, a vase stands.
+  const brains = archetypeMap(ARCHETYPES);
+  assert.equal(brains.get('player')?.brain, 'player');
+  assert.equal(brains.get('grunt')?.brain, 'ai');
+  assert.equal(brains.get('vase')?.brain, 'none', 'a brainless thing defaults to none');
 
   const vase = ARCHETYPES.find((a) => a.id === 'vase');
   assert.ok(vase, 'no vase archetype');
@@ -244,9 +249,9 @@ test('a vase is placed like a monster and pays out like one', async () => {
   // Same team as a monster, so the player can break it and monsters ignore it.
   assert.equal(vase.team, 'monster');
 
-  const [built] = spawnMonsters(
-    { monsters: [{ gx: 4, gy: 4, kind: 'vase' }] },
-    { attributes: ATTRIBUTES, archetypes: ARCHETYPES },
+  // Even handed a brain it would not use, the numbers switch it off.
+  const built = new Monster(
+    createActor({ archetype: 'vase', gx: 4.5, gy: 4.5, attributes: ATTRIBUTES, archetypes: ARCHETYPES }),
   );
   assert.equal(built.actor.archetype, 'vase');
   assert.equal(built.alive, true);

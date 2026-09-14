@@ -22,6 +22,7 @@ import { createHeldItemView } from './ui/heldItem.ts';
 import { createItemCursor } from './ui/itemCursor.ts';
 import { createInput } from './ui/input.ts';
 import type { Level } from './render/level.ts';
+import type { ActionIntent } from './game/actions/index.ts';
 
 /**
  * A page element this build cannot run without.
@@ -272,12 +273,54 @@ const itemCursor = createItemCursor(() => (playing ? level : null), {
  * the interact key finding the nearest one. Whatever a plate can do, the key
  * does, because there is only the one path.
  */
+/** The panels an action may open, by the name it asks for them under. */
+const PANELS: Record<string, { setOpen: (open: boolean) => void }> = {
+  crafting,
+  character,
+  abilities,
+};
+
+/**
+ * Which panel a wired object opened, and which object opened it.
+ *
+ * Kept so walking away from a thing closes what it opened, without anything
+ * here having to know which kinds of object open which panels — the rule is
+ * "you left the thing you were at", for every wired object there will ever be.
+ * A panel opened by a key press has no object, so it stays open until the key
+ * or Escape shuts it, which is what those keys have always meant.
+ */
+let openedBy: { id: string; ui: string } | null = null;
+
+/**
+ * Carry out what an action asked for.
+ *
+ * Actions hand back an intent rather than doing these themselves, because this
+ * is the only place that can do them: `goToMap` tears the level down, so a verb
+ * that called it would destroy the object whose method was still on the stack.
+ * Every firing site drains through here, and this does not grow as actions are
+ * added — see ActionIntent.
+ */
+function apply(intent: ActionIntent, from: string | null = null) {
+  if ('go' in intent) {
+    goToMap(intent.go, intent.spawn);
+  } else if ('ui' in intent) {
+    const panel = PANELS[intent.ui];
+    if (!panel) return;
+    panel.setOpen(true);
+    openedBy = from ? { id: from, ui: intent.ui } : null;
+  } else if ('say' in intent) {
+    hud.notice(intent.say);
+  }
+}
+
 function interactWith(id: string | undefined) {
   if (!id) return;
-  if (id.startsWith('station')) {
-    crafting.setOpen(true);
+  const intents = level?.use(id) ?? [];
+  if (intents.length) {
+    for (const intent of intents) apply(intent, id);
     return;
   }
+  // Nothing wired answered to that name, so it is a thing on the floor.
   const result = level?.pickUp(id);
   if (result && !result.ok && result.reason === 'full') hud.notice('Your bag is full.');
 }
@@ -530,14 +573,10 @@ renderer.run(
         endRun();
         goToMap(START_MAP, 'default');
       } else {
-        // A portal names where it goes; a map file may put anything in the
-        // field, so only a name is followed.
-        const portal = level.pendingPortal();
-        const to = portal?.to;
-        const spawn = portal?.spawn;
-        if (typeof to === 'string') {
-          goToMap(to, typeof spawn === 'string' ? spawn : undefined);
-        }
+        // Whatever the tile just stepped onto set off. Read after `update`
+        // rather than before, and acted on here rather than inside the level,
+        // because changing maps destroys the level this came out of.
+        for (const intent of level.pendingActions()) apply(intent);
       }
     }
 
@@ -561,7 +600,12 @@ renderer.run(
     // Walking away shuts the bench. Reach is the only thing that closes it
     // besides Escape, which is what keeps it from surviving into a level where
     // there is no bench to have opened it.
-    if (!playing || !level.nearStation()) crafting.setOpen(false);
+    // Walking away from whatever opened a panel shuts it again.
+    if (openedBy && (!playing || !level.inReach(openedBy.id))) {
+      PANELS[openedBy.ui]?.setOpen(false);
+      openedBy = null;
+    }
+    if (!playing) crafting.setOpen(false);
     else if (crafting.open) crafting.update(level.crafting());
 
     // Name plates track the items every frame, because the camera moves even

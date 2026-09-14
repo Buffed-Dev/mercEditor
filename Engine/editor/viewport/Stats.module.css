@@ -1,0 +1,56 @@
+/* The other corner from the view options, and the same surface: over the map,
+   translucent, and deaf to the pointer -- reading a number is not a reason to
+   lose a click on the tile behind it. */
+
+.panel {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 178px;
+  padding: 6px 8px;
+  border-radius: var(--e-r-md);
+  border: 1px solid var(--e-line-2);
+  background: color-mix(in srgb, var(--e-panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+  font-family: var(--e-mono);
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--e-fg-2, var(--e-fg));
+  pointer-events: none;
+  user-select: none;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.label {
+  opacity: 0.62;
+  white-space: nowrap;
+}
+
+/* The reading, not the name of it: right-aligned so a column of numbers lines
+   up on its last digit and a jump is something you see rather than read. */
+.value {
+  font-variant-numeric: tabular-nums;
+  color: var(--e-value);
+}
+
+.strong {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.strong .value {
+  color: var(--e-accent);
+}
+
+.rule {
+  height: 0;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--e-line);
+}

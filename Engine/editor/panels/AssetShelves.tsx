@@ -2,23 +2,19 @@ import {
   IconBox,
   IconPencil,
   IconDoor,
-  IconFlame,
-  IconGhost,
-  IconHammer,
   IconPackage,
   IconSparkles,
   IconStack2,
   IconSun,
   IconTargetArrow,
 } from '@tabler/icons-react';
-import { destinationIds } from '../../src/data/maps/index.ts';
 import { LIGHT_TYPES } from '../../src/data/lights.ts';
 import { BRUSHES, BRUSH_GROUPS } from '../document.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { Section } from '../ui/Section';
 import { Tooltip } from '../ui/Tooltip';
-import { SLOT_KEYS, TOOLS_BY_TERRAIN, isTerrainTool, toolById, useTools } from '../state/tools';
+import { SLOT_KEYS, useTools } from '../state/tools';
 import styles from './AssetShelves.module.css';
 
 /**
@@ -35,45 +31,17 @@ import styles from './AssetShelves.module.css';
  */
 
 const GLYPHS: Record<string, typeof IconBox> = {
-  wall: IconStack2,
   door: IconDoor,
-  portal: IconDoor,
-  grunt: IconGhost,
-  brute: IconGhost,
-  vase: IconBox,
   light: IconSun,
-  torch: IconFlame,
   vfx: IconSparkles,
-  station: IconHammer,
   prop: IconBox,
   prefab: IconPackage,
   chunk: IconStack2,
   spawn: IconTargetArrow,
 };
 
-const FACES: readonly (readonly [string, string])[] = [
-  ['+x', '+x'],
-  ['+y', '+y'],
-  ['-x', '-x'],
-  ['-y', '-y'],
-];
-
 /** What a brush needs answering before it can be put down. */
 function optionsFor(brush: string): FieldSpec[] {
-  if (brush === 'portal') {
-    return [
-      {
-        key: 'to',
-        kind: 'select',
-        label: 'Goes to',
-        options: destinationIds().map((id: string) => [id, id] as const),
-      },
-      { key: 'spawn', kind: 'text', label: 'Arrive at' },
-    ];
-  }
-  if (brush === 'torch') {
-    return [{ key: 'face', kind: 'select', label: 'Mounted facing', options: FACES }];
-  }
   if (brush === 'light') {
     return [
       {
@@ -92,108 +60,106 @@ function optionsFor(brush: string): FieldSpec[] {
 /** What a ground swatch needs of a terrain. See dataDocument's RuleRecord. */
 export type TerrainRecord = { id: string; label?: string; char?: string };
 
+/** What a prefab swatch needs of a prefab. The same shape, for the same reason. */
+export type PrefabRecord = { id: string; label?: string };
+
 export function AssetShelves({
-  terrains,
-  onEditTerrain,
+  prefabs = [],
+  onEditPrefab,
+  brushes = true,
   without,
 }: {
-  terrains: readonly TerrainRecord[];
-  /** Open a terrain's own record, where what it is made of is decided. */
-  onEditTerrain: (id: string) => void;
+  /**
+   * The prefabs this game has, which on the map screen is the whole shelf.
+   *
+   * A map is built out of prefabs and nothing else, so this is the palette:
+   * picking one is picking up the brush for it, the same way picking a terrain
+   * used to be.
+   */
+  prefabs?: readonly PrefabRecord[];
+  /** Open a prefab's own screen, where what it is made of is decided. */
+  onEditPrefab?: (id: string) => void;
+  /**
+   * Whether the brush shelves are offered at all.
+   *
+   * The map has no use for them — it places prefabs — and the prefab screen is
+   * where they belong, because a prefab is what they are for. That is the whole
+   * of the split: a map is made of prefabs, a prefab is made of objects.
+   */
+  brushes?: boolean;
   /** Brushes this screen has no business offering. See PrefabWorkspace. */
   without?: readonly string[];
 }) {
-  const tool = useTools((state) => state.tool);
-  const terrainId = useTools((state) => state.terrainId);
-  const setTerrainId = useTools((state) => state.setTerrainId);
-  const terrainOptions = useTools((state) => state.terrainOptions);
-  const setTerrainOption = useTools((state) => state.setTerrainOption);
   const brush = useTools((state) => state.brush);
   const setBrush = useTools((state) => state.setBrush);
   const setTool = useTools((state) => state.setTool);
   const options = useTools((state) => state.options);
   const setOption = useTools((state) => state.setOption);
 
-  const fields = brush ? optionsFor(brush) : [];
-
-  // What a terrain tool needs answering — a brush width, a height to level to.
-  // Read off the tool itself, so a new terrain tool brings its own settings.
-  const terrainSpec = isTerrainTool(tool) ? toolById(tool).terrainTool : null;
-  const terrainFields = (terrainSpec ? TOOLS_BY_TERRAIN[terrainSpec]?.fields : null) ?? [];
+  const fields = brushes && brush ? optionsFor(brush) : [];
+  const heldPrefab = brush === 'prefab' ? String(options.prefab?.prefabId ?? '') : '';
 
   return (
     <div className={styles.shelves}>
-      {/*
-        The ground is one of the things you put on the map, so it is a shelf
-        here rather than a panel somewhere else. Picking one is also picking up
-        the brush for it — the terrain tools are useless without a terrain, and
-        making that two steps only ever had one answer.
-      */}
-      {terrains.length > 0 && (
-        <Section id="assets:ground" title="Ground" count={terrains.length}>
+      {prefabs.length > 0 && (
+        <Section id="assets:prefabs" title="Prefabs" count={prefabs.length}>
           <div className={styles.grid}>
-            {terrains.map((terrain) => (
-              <Tooltip key={terrain.id} label={terrain.label ?? terrain.id}>
-              <button
-                type="button"
-                className={`${styles.swatch} ${terrainId === terrain.id ? styles.on : ''}`}
-                aria-pressed={terrainId === terrain.id}
-                onClick={() => {
-                  setTerrainId(terrain.id);
-                  if (!isTerrainTool(tool)) setTool('terrain.paint');
-                }}
-                // The way through to the record itself. Paired with a visible
-                // affordance below, because a double-click nobody has been told
-                // about is a feature nobody has.
-                onDoubleClick={() => onEditTerrain(terrain.id)}
-              >
-                <span className={styles.chip} aria-hidden="true">
-                  {terrain.char ?? terrain.id.slice(0, 2)}
-                </span>
-                <span className={styles.label}>{terrain.label ?? terrain.id}</span>
-                <span
-                  className={styles.edit}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Edit ${terrain.label ?? terrain.id}`}
-                  title="Edit this terrain"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onEditTerrain(terrain.id);
-                  }}
-                  onKeyDown={(event) => event.key === 'Enter' && onEditTerrain(terrain.id)}
-                >
-                  <IconPencil size={12} />
-                </span>
-              </button>
-              </Tooltip>
-            ))}
+            {prefabs.map((prefab) => {
+              const name = prefab.label ?? prefab.id;
+              const on = heldPrefab === prefab.id;
+              return (
+                <Tooltip key={prefab.id} label={on ? `${name} — click again to put it down` : name}>
+                  <button
+                    type="button"
+                    className={`${styles.swatch} ${on ? styles.on : ''}`}
+                    aria-pressed={on}
+                    onClick={() => {
+                      // The same bargain the brush shelves strike: picking the
+                      // one already in hand puts it down, because there has to
+                      // be a way to stop placing that is not "place something
+                      // else instead".
+                      if (on) {
+                        setBrush(null);
+                        setTool('select');
+                        return;
+                      }
+                      // Which prefab is an option on the prefab brush, which is
+                      // where placing already reads it from -- so choosing here
+                      // needs nothing new underneath.
+                      setOption('prefab', 'prefabId', prefab.id);
+                      setBrush('prefab');
+                      setTool('place');
+                    }}
+                    onDoubleClick={() => onEditPrefab?.(prefab.id)}
+                  >
+                    <IconPackage size={20} />
+                    <span className={styles.label}>{name}</span>
+                    {onEditPrefab && (
+                      <span
+                        className={styles.edit}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Edit ${name}`}
+                        title="Edit this prefab"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditPrefab(prefab.id);
+                        }}
+                        onKeyDown={(event) => event.key === 'Enter' && onEditPrefab(prefab.id)}
+                      >
+                        <IconPencil size={12} />
+                      </span>
+                    )}
+                  </button>
+                </Tooltip>
+              );
+            })}
           </div>
         </Section>
       )}
 
-      {terrainFields.length > 0 && terrainSpec && (
-        <div className={styles.options}>
-          <span className={styles.optionsHead}>{toolById(tool).label} settings</span>
-          {terrainFields.map((field) => (
-            <Field
-              key={field.key}
-              field={field as FieldSpec}
-              value={
-                (terrainOptions[terrainSpec]?.[field.key] ?? field.default) as FieldValue
-              }
-              onInput={(value) =>
-                setTerrainOption(terrainSpec, field.key, value as string | number)
-              }
-              onChange={(value) =>
-                setTerrainOption(terrainSpec, field.key, value as string | number)
-              }
-            />
-          ))}
-        </div>
-      )}
-
-      {(BRUSH_GROUPS as [string, string][]).map(([group, label]) => {
+      {brushes &&
+        (BRUSH_GROUPS as [string, string][]).map(([group, label]) => {
         const inGroup = (BRUSHES as { id: string; label: string; group: string }[]).filter(
           (asset) => asset.group === group && !without?.includes(asset.id),
         );

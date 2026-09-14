@@ -1,10 +1,14 @@
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader.js';
 import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
+import { eulerOf, scaleOf } from '../data/transform.ts';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
+import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
+// Side-effect only: this is what adds the thin-instance methods to Mesh.
+import '@babylonjs/core/Meshes/thinInstanceMesh.js';
 // Side-effect only: this is what teaches the loader above to read a .glb.
 import '@babylonjs/loaders/glTF/index.js';
 import { assetFrames, filePath, fileUrl } from '../data/assets.ts';
@@ -41,6 +45,8 @@ type Flipbook = Playing & { at: number };
 export type Placement = {
   def: Prop;
   node: TransformNode;
+  /** What its instances are drawn under, and what `standing` measures from. */
+  root: TransformNode;
   entry: PlacedProp;
   /** Set when the prop is drawn as a sprite sheet rather than a model. */
   sheet?: Playing;
@@ -64,6 +70,10 @@ export type Placement = {
  */
 
 const DEG = Math.PI / 180;
+
+/** Where a placement that has been switched off is drawn: nowhere. */
+const GONE = Matrix.Scaling(0, 0, 0);
+
 
 /**
  * @param scene the one scene
@@ -104,10 +114,48 @@ export function createPropRuntime(
   const materials = new Map<string, Surface | null>();
   const owned: { dispose: () => void }[] = [];
   const placed: Placement[] = [];
+  /** The same, by the index the map knows each one by. */
+  const placedAt = new Map<number, Placement>();
   /** The sheets that are playing, and one observer stepping all of them. */
   const flipbooks: Flipbook[] = [];
   let clock: Observer<Scene> | null = null;
   let alive = true;
+
+  /** Placements of one object, waiting to be drawn together. See `flush`. */
+  type Waiting = {
+    def: Prop;
+    root: TransformNode;
+    shadows: Shadows | null;
+    of: { record: Placement; index: number }[];
+  };
+  const waiting = new Map<string, Waiting>();
+  /** The single meshes standing in for many placements, to be disposed. */
+  const instanced: Mesh[] = [];
+  /**
+   * Where one placement's matrix lives, for the ones drawn as instances.
+   *
+   * A thin instance has no node, so moving one means writing sixteen numbers
+   * into the buffer its mesh was given. This is the index from "placement 12"
+   * to those numbers — one entry per mesh the model is made of, because a model
+   * of three meshes is three instanced meshes carrying one matrix each.
+   *
+   * Kept so the editor can slide an instanced object during a drag instead of
+   * falling back to rebuilding the map sixty times a second. See `move`.
+   */
+  /** `inside` is where the mesh sits in its model; `real` is that, stood on the map. */
+  type Slot = { mesh: Mesh; at: number; index: number; inside: Matrix; real: Matrix };
+  const slots = new Map<number, Slot[]>();
+  /**
+   * Placements the editor has switched off.
+   *
+   * A thin instance has no node to disable, so one is hidden by writing a
+   * matrix that collapses it to a point. Kept as intent rather than as a
+   * property of the instance, because the panel can switch a placement off
+   * before its model has arrived — and then the instance that turns up has to
+   * turn up already hidden. See `attachMany`.
+   */
+  const off = new Set<number>();
+  let queued = false;
 
   /**
    * Advance every sprite on the map, from one observer rather than a timer
@@ -342,22 +390,16 @@ export function createPropRuntime(
     const def = propOf(entry.id ?? '');
     if (!def) return null;
 
-    const x = entry.gx + 0.5;
-    const z = entry.gy + 0.5;
     const node = new TransformNode(`prop${index}`, scene);
     node.parent = root;
-    // The ground it stands on, then the object's own lift, then this
-    // placement's — which is what puts a crate on top of a crate rather than
-    // inside it.
-    node.position.set(x, world.heightAt(x, z) * LEVEL_H + (def.lift ?? 0) + (entry.lift ?? 0), z);
-    node.rotation.y = ((def.rotY ?? 0) + (entry.rot ?? 0)) * DEG;
-    node.scaling.setAll(def.scale ?? 1);
+    stand(node, def, entry, world);
     // What the editor clicks on. Every mesh under here inherits it by walking
     // up, the same way a torch's parts do.
     tagPick(node, { list: 'props', index });
 
-    const record: Placement = { def, node, entry };
+    const record: Placement = { def, node, root, entry };
     placed.push(record);
+    placedAt.set(index, record);
 
     // A model if it names one, a sprite sheet otherwise. Both is a model: the
     // mesh is the more specific answer, and drawing two bodies in one place is
@@ -376,38 +418,246 @@ export function createPropRuntime(
       return record;
     }
 
-    model(def, (holder) => {
-      // Three ways to be too late: the runtime is gone, this placement was
-      // dropped, or the model never loaded at all.
-      if (!alive || node.isDisposed() || !holder) return;
-      const body = holder.clone(`prop${index}:body`, node);
-      if (!body) return;
-      body.setEnabled(true);
-      // Left where it is. There used to be a second correction here -- which
-      // way up the model came out of whatever made it, and how big one unit
-      // was there -- carried by the record about the file. The object's own
-      // scale, turn and lift said the same thing one node up (see `place`
-      // above), and folding the two together is what removed that record.
-      //
-      // What went with it is a turn about X or Z: an object turns about Y, so
-      // a model that came out of its exporter lying on its side has to be
-      // stood up in the exporter now. Nothing in this game had one.
-
-      const material = materialFor(def);
-      for (const mesh of body.getChildMeshes()) {
-        if (material) mesh.material = material;
-        mesh.receiveShadows = true;
-          tagPick(mesh, { list: 'props', index });
-        if (def.shadow !== false) shadows?.add(mesh);
-      }
-      record.body = body;
-    });
+    // Not built here. Everything placed in this pass is gathered first, so an
+    // object standing on the map fifty times can be drawn once — see `flush`.
+    const group = waiting.get(def.id) ?? { def, root, shadows: shadows ?? null, of: [] };
+    group.of.push({ record, index });
+    waiting.set(def.id, group);
+    schedule();
 
     return record;
   }
 
+  /**
+   * Put a placement's node where the placement says.
+   *
+   * The ground it stands on, then the object's own lift, then this
+   * placement's — which is what puts a crate on top of a crate rather than
+   * inside it. The placement's own turn and scale go on top of the
+   * definition's: the definition says how the thing stands, and these say how
+   * this one does.
+   */
+  function stand(node: TransformNode, def: Prop, entry: PlacedProp, world: Heights): void {
+    const x = entry.gx + 0.5;
+    const z = entry.gy + 0.5;
+    node.position.set(x, world.heightAt(x, z) * LEVEL_H + (def.lift ?? 0) + (entry.lift ?? 0), z);
+    node.rotation.copyFrom(eulerOf(entry));
+    node.rotation.y += (def.rotY ?? 0) * DEG;
+    node.scaling.copyFrom(scaleOf(entry)).scaleInPlace(def.scale ?? 1);
+  }
+
+  /**
+   * Every placement of one object, drawn as thin instances of a single mesh.
+   *
+   * All of them, however few. There used to be a threshold — below it each
+   * placement got the model cloned into its own node — and the only thing that
+   * bought was a node the editor could slide during a drag. An instance can be
+   * slid now (see `move`), so the clone path bought nothing and cost a mesh per
+   * placement: building a map was proportional to how much was standing on it
+   * rather than to how many *kinds* of thing were.
+   *
+   * The model's own shape is baked into every instance rather than kept as a
+   * parent node: a thin instance is a matrix and nothing else, so where a mesh
+   * sits *inside* its model has to be folded into where the model stands on the
+   * map. That is `inside.multiply(at)` below, and it is what lets a model made
+   * of several meshes be instanced at all.
+   *
+   * The empty node each placement already has is left alone. It draws nothing
+   * and costs nothing, it is what a sprite sheet hangs off, and it is what
+   * says where this placement stands.
+   */
+  function attachMany(group: Waiting, holder: TransformNode): void {
+    const { def, root, shadows } = group;
+    const material = materialFor(def);
+    const indices = group.of.map((one) => one.index);
+
+    // Where each one stands, as a matrix. Read off the node rather than worked
+    // out again, so there is one answer to where an object goes.
+    const stood = group.of.map(({ record }) => standing(record.node, root));
+
+    holder.computeWorldMatrix(true);
+    for (const child of holder.getChildMeshes()) {
+      // A glTF arrives wrapped in a `__root__` node that carries no geometry of
+      // its own. Instancing it would be twelve copies of nothing, drawn and
+      // picked against for no reason.
+      if (!(child instanceof Mesh) || !child.getTotalVertices()) continue;
+      // Where this mesh sits inside the model. The holder is at the origin and
+      // untouched, so its children's world matrices *are* model space.
+      const inside = child.computeWorldMatrix(true).clone();
+
+      const mesh = child.clone(`props:${def.id}:${child.name}`, root, true);
+      if (!mesh) continue;
+      mesh.setEnabled(true);
+      // Identity, because `inside` rides on every instance instead.
+      mesh.position.set(0, 0, 0);
+      mesh.rotationQuaternion = null;
+      mesh.rotation.set(0, 0, 0);
+      mesh.scaling.set(1, 1, 1);
+      if (material) mesh.material = material;
+      mesh.receiveShadows = true;
+
+      // Where each instance really stands, kept so it can be moved and put
+      // back after being switched off. The buffer itself may say otherwise:
+      // a placement the panel has hidden goes in collapsed.
+      const here: Slot[] = stood.map((at, i) => ({
+        mesh,
+        at: i,
+        index: indices[i],
+        inside,
+        real: inside.multiply(at),
+      }));
+
+      const matrices = new Float32Array(stood.length * 16);
+      for (const slot of here) shown(slot).copyToArray(matrices, slot.at * 16);
+      // Updatable, said outright: Babylon's default is a static buffer, and a
+      // static buffer quietly ignores `thinInstanceSetMatrixAt` -- see `restand`.
+      mesh.thinInstanceSetBuffer('matrix', matrices, 16, false);
+      mesh.thinInstanceEnablePicking = true;
+
+      // One mesh standing in for many, so a pick says which instance it hit and
+      // this says which placement that instance is. The shape walls used.
+      tagPick(mesh, { list: 'props', instances: indices });
+      if (def.shadow !== false) shadows?.add(mesh);
+      instanced.push(mesh);
+
+      // Which instance belongs to which placement. See `move` and `show`.
+      for (const slot of here) {
+        const held = slots.get(slot.index);
+        if (held) held.push(slot);
+        else slots.set(slot.index, [slot]);
+      }
+    }
+  }
+
+  /** Where an instance is drawn: nowhere at all, if it has been switched off. */
+  const shown = (slot: Slot): Matrix => (off.has(slot.index) ? GONE : slot.real);
+
+  /**
+   * Where a placement's node stands, as the matrix an instance wears.
+   *
+   * Relative to the root the instances hang off rather than read straight off
+   * the node, because a node need not be the root's own child: a part of an
+   * actor hangs off another part — a helmet off a head — and stands wherever
+   * that part puts it.
+   */
+  const standing = (node: TransformNode, root: TransformNode): Matrix =>
+    node.computeWorldMatrix(true).multiply(Matrix.Invert(root.computeWorldMatrix(true)));
+
+  /**
+   * Stand one placement again, where the placement now says.
+   *
+   * What the editor calls while a thing is being dragged, turned or scaled,
+   * so the change shows without the map being built again: the node is put
+   * where the placement says and every instance drawn for it wears the whole
+   * matrix again. The whole matrix rather than a slide, because a turn or a
+   * scale changes every number in it.
+   *
+   * @returns false when this placement is not drawn.
+   */
+  function restand(index: number, entry: PlacedProp, world: Heights): boolean {
+    const record = placedAt.get(index);
+    if (!record) return false;
+    record.entry = entry;
+    stand(record.node, record.def, entry, world);
+    const here = slots.get(index);
+    if (!here?.length) return true;
+    const at = standing(record.node, record.root);
+    for (const slot of here) {
+      slot.real = slot.inside.multiply(at);
+      stamp(slot);
+    }
+    return true;
+  }
+
+  /** Put one instance's matrix into the buffer its mesh is reading. */
+  function stamp(slot: Slot): void {
+    // Cloned, because Babylon keeps the object it is handed as its own answer
+    // to where that instance is — a shared one would make every instance it
+    // was ever used for report the last place it went.
+    slot.mesh.thinInstanceSetMatrixAt(slot.at, shown(slot).clone());
+  }
+
+  /**
+   * Slide one placement, without rebuilding anything.
+   *
+   * The offset goes straight onto the matrix's translation. Babylon composes
+   * row-vector-first, so the last row *is* where the instance stands and adding
+   * to it is exactly a translation after everything else — which matters,
+   * because the matrix already has the mesh's place inside its model baked into
+   * it and re-deriving that here would be a second answer to `attachMany`.
+   *
+   * @returns false when this placement is not drawn — a sprite sheet, which
+   *   hangs off its own node, or a model that has not landed yet.
+   */
+  function move(index: number, dx: number, dy: number, dz: number): boolean {
+    const here = slots.get(index);
+    if (!here?.length) return false;
+    for (const slot of here) {
+      slot.real.addTranslationFromFloats(dx, dy, dz);
+      stamp(slot);
+    }
+    return true;
+  }
+
+  /**
+   * Draw one placement, or stop drawing it.
+   *
+   * A thin instance cannot be disabled — there is no node — so it is collapsed
+   * to a point instead. Remembered whether or not it is drawn yet: the panel
+   * can switch something off while its model is still on the way, and the
+   * instance that arrives afterwards has to arrive already switched off.
+   */
+  function show(index: number, on: boolean): void {
+    if (on === !off.has(index)) return;
+    if (on) off.delete(index);
+    else off.add(index);
+    for (const slot of slots.get(index) ?? []) stamp(slot);
+  }
+
+  /**
+   * Draw everything placed since the last time.
+   *
+   * Batched rather than drawn as it is placed, because whether an object is
+   * worth instancing is a question about *all* of them and a caller places them
+   * one at a time.
+   *
+   * A caller that places a batch should call `draw` when it has finished. The
+   * microtask below is the safety net for one that forgets, and it used to be
+   * the only way this ran — which cost a frame every time, because a render
+   * loop calls the update and the render from inside one task and microtasks
+   * do not get a turn between them. Every object on the map was missing from
+   * the first frame after every rebuild: on a drag, which rebuilt on every
+   * pointer move, that was every frame, and it read as the whole map blinking.
+   */
+  function flush(): void {
+    queued = false;
+    if (!alive) return;
+    const groups = [...waiting.values()];
+    waiting.clear();
+
+    for (const group of groups) {
+      const live = group.of.filter(({ record }) => !record.node.isDisposed());
+      if (!live.length) continue;
+      model(group.def, (holder) => {
+        if (!alive || !holder) return;
+        attachMany({ ...group, of: live }, holder);
+      });
+    }
+  }
+
+  function schedule(): void {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(flush);
+  }
+
   return {
     place,
+    /** Draw what has been placed. Call it once a batch is done. */
+    draw: flush,
+    move,
+    restand,
+    show,
     get placed() {
       return placed;
     },
@@ -422,6 +672,13 @@ export function createPropRuntime(
       // with its own root anyway, but the editor's stage outlives the runtime
       // on it — without this, every object you looked at stayed on the pad.
       for (const record of placed) record.node.dispose(false, false);
+      // Parented to the map's root, which usually takes them — but the editor's
+      // stage outlives a runtime on it, the same reason the nodes above go.
+      for (const mesh of instanced) mesh.dispose();
+      instanced.length = 0;
+      slots.clear();
+      off.clear();
+      waiting.clear();
       // Materials and textures are shared and are not scene-graph children, so
       // they are tracked rather than reached through the tree.
       for (const thing of owned) thing.dispose();

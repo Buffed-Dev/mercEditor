@@ -3,56 +3,61 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import '@babylonjs/core/Meshes/instancedMesh.js';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode.js';
 import { Matrix } from '@babylonjs/core/Maths/math.vector.js';
-import { kindOf, type Monster, type MonsterKind } from '../game/monsters.ts';
 import type { InstancedMesh } from '@babylonjs/core/Meshes/instancedMesh.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
-import type { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import type { Actor } from '../game/actor.ts';
+import type { Prefab } from '../data/prefabs.ts';
+import type { PlacedProp, Prop } from '../data/props.ts';
+import type { MaterialInput } from '../data/materials.ts';
 import type { Heights, Shadows } from './lights.ts';
-
-/** The two bars that make up one monster's health readout. */
-type Bar = { group: TransformNode; fill: InstancedMesh };
-
-/** The meshes every monster of one kind shares. */
-type Shared = { spec: MonsterKind; body: Mesh; half: number };
-
-/** One monster on screen. */
-type View = {
-  monster: Monster;
-  group: TransformNode;
-  /** Null for a prop, which has no eyes to light up. */
-  eyeMaterial: StandardMaterial | null;
-  bar: Bar | null;
-  barY: number;
-};
 import { LEVEL_H } from '../data/dimensions.ts';
 import { BILLBOARD } from './isoCamera.ts';
-import { colorOf, surface, unlit } from './materials.ts';
+import { surface, unlit } from './materials.ts';
+import { createPropRuntime, type PropRuntime } from './props.ts';
+import { BODY_LENGTH, BODY_RADIUS, riseToward } from './player.ts';
+
+/** The two bars that make up one actor's health readout. */
+type Bar = { group: TransformNode; fill: InstancedMesh };
+
+/** One actor on screen. */
+type View = {
+  actor: Actor;
+  group: TransformNode;
+  /** The parts, when the body is a prefab; null for the stand-in capsule. */
+  parts: PropRuntime | null;
+  bar: Bar | null;
+  barY: number;
+  /** The height the body is drawn at, which trails the one it stands at. */
+  shown: number | null;
+};
 
 /** Health bar geometry, in world units. */
 const BAR_WIDTH = 0.62;
 const BAR_HEIGHT = 0.085;
 const BAR_CLEARANCE = 0.22; // gap between the top of the head and the bar
 
-const CHASING_EYE = 0xff4d4d;
-const CALM_EYE = 0xffd166;
+/** No dependencies, no world: a part stands at its own height inside the body. */
+const FLAT: Heights = { heightAt: () => 0 };
 
 /**
- * Meshes for the monsters game/monsters.js is simulating: a capsule the colour
- * of its kind, with the same nub-on-the-front trick the player uses so its
- * facing is readable, and an eye-glow that brightens while it is chasing.
+ * Bodies for the actors game/ is simulating — the player and everything else.
  *
- * One source mesh per kind, and every monster of that kind is a Babylon
- * instance of it — so a room full of grunts is one draw call rather than one
- * each. The eyes cannot be instanced: their colour is animated per monster.
+ * An actor's body is its prefab: each part is placed through the same prop
+ * runtime the map uses, under one node the actor's position drives, so a body
+ * is whatever the library says it is and moves as one thing. A part naming a
+ * `parent` hangs off the part with that `slot` instead of the root, which is
+ * what makes a helmet turn with a head.
+ *
+ * ponytail: one prop runtime per actor, so forty grunts are forty clones of
+ * each part rather than one instanced mesh. Batch per prefab id if it shows.
  */
-export function createMonsterViews(
+export function createActorViews(
   scene: Scene,
   root: TransformNode,
   shadows: Shadows,
-  monsters: readonly Monster[],
+  deps: { props?: readonly Prop[] | null; game?: string; materials?: readonly MaterialInput[] | null } = {},
 ) {
-  const shared = new Map<string, Shared>();
   const owned: Mesh[] = [];
 
   /**
@@ -61,7 +66,7 @@ export function createMonsterViews(
    *
    * Two of them, because a Babylon instance always draws with its source's
    * material and the track and the fill are different colours. Each is a
-   * template: hidden itself, drawn once per monster as an instance.
+   * template: hidden itself, drawn once per actor as an instance.
    */
   function barSource(name: string, color: number): Mesh {
     const mesh = MeshBuilder.CreatePlane(name, { width: 1, height: 1 }, scene);
@@ -98,107 +103,102 @@ export function createMonsterViews(
     return { group, fill };
   }
 
-  function assetsFor(kind: string): Shared {
-    const found = shared.get(kind);
-    if (!found) {
-      const spec = kindOf(kind);
-      const height = 0.5 * spec.scale + spec.radius * 0.9 * 2;
-
-      // A prop is a pot: wider at the belly than at the lip, and squat enough
-      // that it reads as furniture rather than as something short and alive.
-      // Everything else about it — where it stands, that it can be hit, that it
-      // has health — is the same, which is why only the mesh differs.
-      const body = spec.prop
-        ? MeshBuilder.CreateCylinder(
-            `body-${kind}`,
-            {
-              height,
-              diameterTop: spec.radius * 1.1,
-              diameterBottom: spec.radius * 1.5,
-              tessellation: 10,
-            },
-            scene,
-          )
-        : MeshBuilder.CreateCapsule(
-            `body-${kind}`,
-            { radius: spec.radius * 0.9, height },
-            scene,
-          );
-      body.material = surface(`monster-${kind}`, scene, { color: spec.color, roughness: 0.75 });
-      body.receiveShadows = true;
-      body.setEnabled(false);
-      shadows.add(body);
-      owned.push(body);
-
-      const made: Shared = { spec, body, half: height / 2 };
-      shared.set(kind, made);
-      return made;
+  /**
+   * ponytail: a capsule with a nub on the front, for a prefab with no parts —
+   * there are no body models in the game yet. Goes when the prefabs get some.
+   */
+  let capsule: Mesh | null = null;
+  const CAPSULE_HEIGHT = BODY_RADIUS * 2 + BODY_LENGTH;
+  function standIn(): Mesh {
+    if (!capsule) {
+      capsule = MeshBuilder.CreateCapsule('body', { radius: BODY_RADIUS, height: CAPSULE_HEIGHT }, scene);
+      capsule.material = surface('body', scene, { color: 0xa8c06d, roughness: 0.6, metallic: 0.05 });
+      const visor = MeshBuilder.CreateBox('visor', { width: 0.26, height: 0.12, depth: 0.12 }, scene);
+      visor.material = surface('visor', scene, { color: 0x1f2532, roughness: 0.4 });
+      visor.position.set(0, BODY_LENGTH / 2 + BODY_RADIUS - 0.02, BODY_RADIUS * 0.85);
+      visor.parent = capsule;
+      capsule.setEnabled(false);
+      owned.push(capsule, visor);
     }
-    return found;
+    return capsule;
   }
 
-  /**
-   * Free one monster's own meshes. Never recursive over materials: the body is
-   * an instance, and disposing an instance's material would take the whole kind
-   * with it. Only the eye material belongs to this monster alone.
-   */
+  const views: View[] = [];
+
   function dropView(view: View): void {
+    view.parts?.dispose();
     view.group.dispose(false, false);
     view.bar?.group.dispose(false, false);
-    view.eyeMaterial?.dispose();
   }
 
-  const views: View[] = monsters.map((monster): View => {
-    const { spec, body, half } = assetsFor(monster.kind);
-    const group = new TransformNode(`monster-${monster.kind}`, scene);
-    group.parent = root;
-
-    const capsule = body.createInstance('body');
-    capsule.position.y = half;
-    capsule.parent = group;
-
-    // A prop gets neither of the two things that say "this is looking at you":
-    // an eye that brightens when it notices you, and a bar counting down its
-    // life. A pot is broken, not fought, and a health bar over one would
-    // promise a fight that is not coming.
-    const eyeMaterial = spec.prop ? null : unlit('eye', scene, { color: CALM_EYE });
-    if (eyeMaterial) {
-      const eyes = MeshBuilder.CreateSphere('eyes', { diameter: 0.14, segments: 6 }, scene);
-      eyes.material = eyeMaterial;
-      eyes.position.set(0, half * 1.5, spec.radius * 0.85);
-      eyes.parent = group;
-    }
-
-    const bar = spec.prop ? null : makeBar();
-    // Above the head: the capsule's full height, plus a gap.
-    const barY = half * 2 + BAR_CLEARANCE;
-
-    return { monster, group, eyeMaterial, bar, barY };
-  });
-
   return {
-    views,
+    /**
+     * Give an actor a body. `prefab` is what it is made of; null, or one with
+     * no parts, gets the stand-in. `bar` says whether its health is shown.
+     */
+    add(actor: Actor, prefab: Prefab | null, bar: boolean): void {
+      const group = new TransformNode(`actor:${actor.archetype}`, scene);
+      group.parent = root;
 
-    /** Put each mesh where its monster now is, on top of the surface. */
-    sync(world: Heights): void {
-      for (const { monster, group, eyeMaterial, bar, barY } of views) {
-        const { gx, gy } = monster.pos;
-        const ground = world.heightAt(gx, gy) * LEVEL_H;
+      let parts: PropRuntime | null = null;
+      let height = CAPSULE_HEIGHT;
+      if (prefab?.props.length) {
+        parts = createPropRuntime(scene, deps.props, deps.game, deps.materials);
+        // Parts stand about the prefab's middle, so the actor's position is
+        // its centre rather than its corner. Ground is the group's business.
+        const placed = prefab.props.map((child, index) =>
+          parts!.place(
+            { ...child, gx: child.gx - prefab.w / 2, gy: child.gy - prefab.h / 2 } as PlacedProp,
+            index,
+            FLAT,
+            group,
+            shadows,
+          ),
+        );
+        prefab.props.forEach((child, index) => {
+          const on = child.parent ? prefab.props.findIndex((one) => one.slot === child.parent) : -1;
+          const node = placed[index]?.node;
+          const over = on >= 0 ? placed[on]?.node : null;
+          if (node && over && over !== node) node.parent = over;
+        });
+        parts.draw();
+        height = Math.max(prefab.w, prefab.h);
+      } else {
+        const body = standIn().createInstance('body');
+        body.position.y = CAPSULE_HEIGHT / 2;
+        body.parent = group;
+        shadows.add(body);
+      }
+
+      views.push({
+        actor,
+        group,
+        parts,
+        bar: bar ? makeBar() : null,
+        barY: height + BAR_CLEARANCE,
+        shown: null,
+      });
+    },
+
+    /** Put each body where its actor now is, on top of the surface. */
+    sync(world: { standAt: (gx: number, gy: number) => number }, dt = 0): void {
+      for (const view of views) {
+        const { actor, group, bar, barY } = view;
+        const { gx, gy } = actor.pos;
+        // Climbing a step rather than hopping it; at once when first placed.
+        const target = world.standAt(gx, gy);
+        view.shown = view.shown === null ? target : riseToward(view.shown, target, dt);
+        const ground = view.shown * LEVEL_H;
 
         group.position.set(gx, ground, gy);
-        group.rotation.y = monster.facing;
-        if (eyeMaterial) {
-          eyeMaterial.emissiveColor = colorOf(monster.chasing ? CHASING_EYE : CALM_EYE);
-        }
+        group.rotation.y = actor.facing;
 
-        // A prop has neither eye nor bar; there is nothing left to move.
         if (!bar) continue;
-
         // The bar is not a child of the group: the group yaws to face the
-        // monster's heading, and the bar has to keep facing the camera.
+        // actor's heading, and the bar has to keep facing the camera.
         bar.group.position.set(gx, ground + barY, gy);
 
-        const attrs = monster.actor.attrs;
+        const attrs = actor.attrs;
         const max = attrs.value('health');
         const fraction = max > 0 ? Math.max(0, attrs.current('health') / max) : 0;
         bar.fill.scaling.x = BAR_WIDTH * fraction;
@@ -207,31 +207,24 @@ export function createMonsterViews(
       }
     },
 
-    /**
-     * Drop one monster's meshes — it died. The shared source mesh and its
-     * material stay: the rest of its kind is still using them.
-     */
-    remove(monster: Monster): boolean {
-      const index = views.findIndex((view) => view.monster === monster);
+    /** Drop one actor's body — it died. */
+    remove(actor: Actor): boolean {
+      const index = views.findIndex((view) => view.actor === actor);
       if (index < 0) return false;
       const [view] = views.splice(index, 1);
       dropView(view);
       return true;
     },
 
-    /**
-     * Shared meshes outlive any one monster, so they are freed here rather than
-     * with the map they happened to be standing on.
-     */
     dispose(): void {
       for (const view of views) dropView(view);
       // Templates, and their materials with them: nothing else is using either.
       for (const template of owned) template.dispose(false, true);
-      shared.clear();
+      capsule = null;
       views.length = 0;
     },
   };
 }
 
-/** Every monster currently drawn. */
-export type MonsterViews = ReturnType<typeof createMonsterViews>;
+/** Every actor currently drawn. */
+export type ActorViews = ReturnType<typeof createActorViews>;

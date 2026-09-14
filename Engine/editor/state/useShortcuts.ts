@@ -25,6 +25,15 @@ type Handlers = {
   /** Absent on a screen with nothing to copy between. */
   onCopy?: () => void;
   onPaste?: () => void;
+  /**
+   * What the digit row reaches for, when it is not the brush catalogue.
+   *
+   * The map places prefabs and nothing else, so on that screen a digit means
+   * the nth prefab. Without this it meant the nth brush, which was a way to
+   * put a loose wall on a map by pressing 1 -- past the shelf that exists to
+   * say you cannot.
+   */
+  onSlot?: (slot: number) => void;
 };
 
 export function useShortcuts(handlers: Handlers) {
@@ -85,6 +94,12 @@ export function useShortcuts(handlers: Handlers) {
       }
       if (key === 'f') return handlers.onFrame();
       if (key === 'g') return handlers.onToggleGrid();
+      // Turn what is about to be put down, by the snap step.
+      if (key === '[' || key === ']') {
+        const { snap, placeTurn, setPlaceTurn } = useTools.getState();
+        const by = snap.on ? snap.turn : 15;
+        return setPlaceTurn(placeTurn + (key === ']' ? by : -by));
+      }
       if (key === '?') return handlers.onHelp();
 
       // A digit picks the brush in that slot and reaches for the tool that
@@ -92,6 +107,7 @@ export function useShortcuts(handlers: Handlers) {
       // wish, and making them two keystrokes only ever has one answer.
       const slot = SLOT_KEYS.indexOf(key);
       if (slot >= 0) {
+        if (handlers.onSlot) return handlers.onSlot(slot);
         const brush = (BRUSHES as { id: string }[])[slot];
         if (brush) {
           setBrush(brush.id);

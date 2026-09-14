@@ -13,6 +13,11 @@ import type { FieldSpec } from './types';
  */
 const GROUPS: readonly { label: string; keys: readonly string[] }[] = [
   { label: 'Position', keys: ['posX', 'posY', 'posZ'] },
+  // A placed thing's transform, under the names the map format has always
+  // used: tile X and Z, a lift above the ground, and `rot` for the turn.
+  { label: 'Position', keys: ['gx', 'lift', 'gy'] },
+  { label: 'Rotation (deg)', keys: ['rotX', 'rot', 'rotZ'] },
+  { label: 'Scale', keys: ['scaleX', 'scaleY', 'scaleZ'] },
   { label: 'Rotation (deg)', keys: ['rotX', 'rotY', 'rotZ'] },
   { label: 'Size', keys: ['w', 'h'] },
   { label: 'Range', keys: ['min', 'max'] },

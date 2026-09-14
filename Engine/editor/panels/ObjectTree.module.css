@@ -168,3 +168,66 @@
   color: var(--e-fg);
 }
 
+
+/* The way to put something on a map that is not a prefab. Bottom right, over
+   the list rather than pushing it up: the list is the panel, and a button that
+   shortened it every time would cost a row to save a click. */
+.add {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 2px 2px;
+  margin-top: auto;
+  pointer-events: none;
+}
+
+.addButton {
+  pointer-events: auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--e-r);
+  border: 1px solid var(--e-line-2);
+  background: var(--e-panel-2);
+  color: var(--e-fg-2);
+  cursor: pointer;
+  box-shadow: var(--e-shadow);
+}
+
+.addButton:hover {
+  border-color: var(--e-accent);
+  color: var(--e-fg-1);
+}
+
+.addPopup {
+  min-width: 168px;
+  padding: 4px;
+  display: grid;
+  gap: 2px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.addItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: none;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-4);
+  text-align: left;
+  cursor: pointer;
+}
+
+.addItem:hover {
+  background: var(--e-input);
+  color: var(--e-fg-1);
+}

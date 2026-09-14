@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { gridOf, mapDoc } from './helpers/terrainFixtures.ts';
+import {
+  DEFAULT_RIM,
+  normalizeRim,
+  rimDrop,
+  rimOf,
+} from '../Engine/src/data/terrain/profile.ts';
 
 /**
  * Where a map's ground comes from, end to end: the file it is written to, and
@@ -11,6 +17,33 @@ import { gridOf, mapDoc } from './helpers/terrainFixtures.ts';
  * bevelled — is not here: it is derived from the cells around a tile rather
  * than stored, and terrain/mask and terrain/geometry test it directly.
  */
+
+test('a map keeps the edge it was given, and says nothing about the one it was not', () => {
+  // The two numbers the sliders tune, which is not what the file holds: the
+  // file holds the eight rings they bake into.
+  const tuned = serializeMap(mapDoc(['..', '..'], { terrainRim: rimOf(0.3, 0.25) }), () => 'gr');
+
+  assert.match(tuned, /terrainRim: \[/);
+  // The first ring is the full width in and no drop; the last is flush and the
+  // full depth down. Those two are the sliders, read back off the curve.
+  assert.match(tuned, /\{ inset: 0\.3, drop: 0 \}/);
+  assert.match(tuned, /\{ inset: 0, drop: 0\.25 \}/);
+
+  // And it comes back as the same rim rather than as the default.
+  const rings = [...tuned.matchAll(/\{ inset: ([\d.]+), drop: ([\d.]+) \}/g)].map(
+    ([, inset, drop]) => ({ inset: Number(inset), drop: Number(drop) }),
+  );
+  assert.equal(rings.length, DEFAULT_RIM.length);
+  assert.equal(normalizeRim(rings)[0].inset, 0.3);
+  assert.equal(rimDrop(normalizeRim(rings)), 0.25);
+
+  // The rim every map gets for free is not written down, the same way an
+  // ordinary step height is not.
+  const plain = serializeMap(mapDoc(['..', '..'], { terrainRim: DEFAULT_RIM }), () => 'gr');
+  assert.ok(!plain.includes('terrainRim'));
+  assert.ok(!serializeMap(mapDoc(['..', '..']), () => 'gr').includes('terrainRim'));
+});
+
 
 test('a map writes its terrain and its heights', () => {
   const grid = gridOf(['00', '01']);

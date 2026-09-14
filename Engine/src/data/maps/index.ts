@@ -1,7 +1,7 @@
 // The maps of whichever game this was built for. Finding the files is the
 // game folder's own job — see Games/<Name>/game.js — so this only holds them.
 import { maps as GAME_MAPS, startMap } from '#game';
-import { expandPrefabs } from '../prefabs.ts';
+import { expandPrefabs, isActorPrefab, prefabById } from '../prefabs.ts';
 import type { GameMap } from '../mapFormat.ts';
 
 // `#game` is content, outside the type checker. Naming the two shapes once
@@ -105,7 +105,8 @@ export function getMap(id: string): GameMap {
 
   const already = expanded.get(found);
   if (already) return already;
-  const out = expandPrefabs(found);
+  // Actors stay whole; render/level.ts spawns them from the placements.
+  const out = expandPrefabs(found, prefabById, 0, (prefab) => !isActorPrefab(prefab));
   expanded.set(found, out);
   return out;
 }

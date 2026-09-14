@@ -6,10 +6,11 @@
  */
 
 import { encodeTerrain } from '../src/data/terrain/codec.ts';
-import { quote } from './literal.ts';
+import { literal, quote } from './literal.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import type { GameMap } from '../src/data/mapFormat.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
+import { DEFAULT_RIM, normalizeRim, type RimRing } from '../src/data/terrain/profile.ts';
 
 /**
  * A map as the editor holds it.
@@ -37,6 +38,35 @@ type Entry = Record<string, unknown>;
 const num = (value: unknown, fallback = 0): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
+/**
+ * The rim, when it is not the one every map gets for free.
+ *
+ * Eight rings written out in full. They are *derived* from two numbers — the
+ * width and depth the sliders tune — but the file holds what the format says it
+ * holds, which is rings, so nothing has to import the curve that made them to
+ * read the map back.
+ *
+ * Left out entirely when it matches the default, the same way `stepHeight` is:
+ * a map that never touched the edge should not carry an answer to a question
+ * nobody asked. That the rim was not written *at all* is why edge settings did
+ * not survive a save.
+ */
+function rimLine(rim: readonly RimRing[] | null | undefined): string | null {
+  if (!rim || rim.length < 2) return null;
+  const rings = normalizeRim(rim);
+  const round = (value: number) => +num(value).toFixed(4);
+  const same =
+    rings.length === DEFAULT_RIM.length &&
+    rings.every(
+      (ring, i) =>
+        round(ring.inset) === round(DEFAULT_RIM[i].inset) &&
+        round(ring.drop) === round(DEFAULT_RIM[i].drop),
+    );
+  if (same) return null;
+  const body = rings.map((ring) => `{ inset: ${round(ring.inset)}, drop: ${round(ring.drop)} }`);
+  return `  terrainRim: [\n${body.map((one) => `    ${one},`).join('\n')}\n  ],`;
+}
+
 /** A map's lists, reached by name. See schema.ts for the same shape. */
 const listOf = (map: Record<string, unknown>, name: string): Entry[] => {
   const held = map[name];
@@ -56,6 +86,40 @@ const constName = (id: string) => id.replace(/[^a-z0-9]+/gi, '_').toUpperCase();
  * it but the editor's own list — which is why it is written only when set.
  */
 const grp = (entry: Entry) => (entry.group ? `, group: ${quote(entry.group)}` : '');
+
+/**
+ * Whatever the formatter above did not write.
+ *
+ * The comment on `Entry` has always promised that a field the editor never
+ * heard of survives a save. Every formatter below is a fixed column list, so it
+ * never did: a hand-edited extra was dropped silently the first time the map
+ * was saved. Each formatter now says which keys it handled and this prints the
+ * rest.
+ *
+ * That is also why an action's variables need no line anywhere in this file. A
+ * wiring is a bag on the object — `interact: { do: 'openUI', ui: 'crafting' }`
+ * — and `literal` already writes nested objects, quotes what needs quoting and
+ * keeps short ones on one line. Add the two hundredth action and this is
+ * untouched.
+ *
+ * `prefab` is skipped: it is the back-reference `expandPrefabs` staples onto a
+ * child so a pick can be resolved back to the placement that drew it, and it is
+ * never a thing a file holds.
+ */
+const rest = (entry: Entry, written: readonly string[]): string => {
+  const extra = Object.entries(entry)
+    .filter(
+      ([key, value]) =>
+        !written.includes(key) &&
+        key !== 'prefab' &&
+        value !== undefined &&
+        // An empty list is a trigger with nothing under it, which is nothing.
+        // The library writer drops these too, for the same reason.
+        !(Array.isArray(value) && !value.length),
+    )
+    .map(([key, value]) => `${key}: ${literal(value)}`);
+  return extra.length ? `, ${extra.join(', ')}` : '';
+};
 
 function listBody(
   entries: readonly Entry[],
@@ -92,30 +156,17 @@ export function serializeMap(
     .join(', ');
 
   const spawnEntries = Object.entries((map.spawns ?? {}) as Record<string, Entry>).map(
-    ([key, s]) => `    ${quote(key)}: { gx: ${num(s.gx)}, gy: ${num(s.gy)}${grp(s)} },`,
+    ([key, s]) =>
+      `    ${quote(key)}: { gx: ${num(s.gx)}, gy: ${num(s.gy)}${grp(s)}` +
+      `${rest(s, ['gx', 'gy', 'group'])} },`,
   );
   const spawns = spawnEntries.length
     ? `  spawns: {\n${spawnEntries.join('\n')}\n  },`
     : '  spawns: {},';
 
-  const portals = listBody(
-    listOf(lists, 'portals'),
-    (p) =>
-      `{ gx: ${num(p.gx)}, gy: ${num(p.gy)}, to: ${quote(p.to)}, spawn: ${quote(p.spawn)}, ` +
-      `color: ${hex(p.color)}, label: ${quote(p.label ?? p.to)}${grp(p)} }`,
-  );
-
-  // A wall of one block writes no stack, so the common case stays short.
-  const walls = listBody(listOf(lists, 'walls'), (w) => {
-    const stack = Math.max(1, Math.round(num(w.stack, 1)));
-    return stack > 1
-      ? `{ gx: ${num(w.gx)}, gy: ${num(w.gy)}, stack: ${stack}${grp(w)} }`
-      : `{ gx: ${num(w.gx)}, gy: ${num(w.gy)}${grp(w)} }`;
-  });
-
   const doors = listBody(
     listOf(lists, 'doors'),
-    (d) => `{ gx: ${num(d.gx)}, gy: ${num(d.gy)}${grp(d)} }`,
+    (d) => `{ gx: ${num(d.gx)}, gy: ${num(d.gy)}${grp(d)}${rest(d, ['gx', 'gy', 'group'])} }`,
   );
 
   // What makes this file a piece of a place rather than a place. Written only
@@ -128,23 +179,12 @@ export function serializeMap(
     map.stepHeight !== undefined && map.stepHeight !== 1
       ? `  stepHeight: ${+num(map.stepHeight).toFixed(3)},`
       : null,
+    rimLine(map.terrainRim),
     map.generated ? '  generated: true,' : null,
     map.chunkCount ? `  chunkCount: ${Math.round(num(map.chunkCount))},` : null,
   ]
     .filter(Boolean)
     .join('\n');
-
-  const monsters = listBody(
-    listOf(lists, 'monsters'),
-    (m) => `{ gx: ${num(m.gx)}, gy: ${num(m.gy)}, kind: ${quote(m.kind)}${grp(m)} }`,
-  );
-
-  const torches = listBody(
-    listOf(lists, 'torches'),
-    (t) =>
-      `{ gx: ${num(t.gx)}, gy: ${num(t.gy)}, face: ${quote(t.face)}, ` +
-      `radius: ${num(t.radius, 5)}${grp(t)} }`,
-  );
 
   // The rectangles a generated map is cut into. Written even when the map is
   // not generated: the toggle is a switch, and turning it off must not throw
@@ -152,15 +192,9 @@ export function serializeMap(
   const chunks = listBody(listOf(lists, 'chunks'), (c) => {
     const role = c.role ? `, role: ${quote(c.role)}` : '';
     const size = `w: ${Math.round(num(c.w, 8))}, h: ${Math.round(num(c.h, 8))}`;
-    return `{ gx: ${num(c.gx)}, gy: ${num(c.gy)}, ${size}, name: ${quote(c.name)}${role}${grp(c)} }`;
+    const more = rest(c, ['gx', 'gy', 'w', 'h', 'name', 'role', 'group']);
+    return `{ gx: ${num(c.gx)}, gy: ${num(c.gy)}, ${size}, name: ${quote(c.name)}${role}${grp(c)}${more} }`;
   });
-
-  const stations = listBody(
-    listOf(lists, 'stations'),
-    (station) =>
-      `{ gx: ${num(station.gx)}, gy: ${num(station.gy)}, ` +
-      `label: ${quote(station.label ?? 'Crafting bench')}${grp(station)} }`,
-  );
 
   // Lights carry different fields per type, so write whatever the light
   // actually has rather than a fixed column order.
@@ -187,7 +221,8 @@ export function serializeMap(
     const lift = raise ? `, lift: ${+raise.toFixed(3)}` : '';
     return (
       `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, ` +
-      `id: ${quote(entry.id ?? '')}${rot}${lift}${grp(entry)} }`
+      `id: ${quote(entry.id ?? '')}${rot}${lift}${grp(entry)}` +
+      `${rest(entry, ['gx', 'gy', 'id', 'rot', 'lift', 'group'])} }`
     );
   });
 
@@ -198,14 +233,16 @@ export function serializeMap(
     const rot = turn ? `, rot: ${turn}` : '';
     return (
       `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, ` +
-      `id: ${quote(entry.id ?? '')}${rot}${grp(entry)} }`
+      `id: ${quote(entry.id ?? '')}${rot}${grp(entry)}` +
+      `${rest(entry, ['gx', 'gy', 'id', 'rot', 'group'])} }`
     );
   });
 
   const effects = listBody(
     listOf(lists, 'vfx'),
     (entry) =>
-      `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, id: ${quote(entry.id ?? '')}${grp(entry)} }`,
+      `{ gx: ${num(entry.gx)}, gy: ${num(entry.gy)}, id: ${quote(entry.id ?? '')}${grp(entry)}` +
+      `${rest(entry, ['gx', 'gy', 'id', 'group'])} }`,
   );
 
   // Written from the table that defines what an env *is*, rather than from a
@@ -248,11 +285,6 @@ ${terrain}
 
 ${spawns}
 
-${block('walls', walls)}
-
-${block('portals', portals)}
-
-${block('monsters', monsters)}
 
 ${block('doors', doors)}
 
@@ -262,15 +294,11 @@ ${envLines}
 
 ${block('lights', lights)}
 
-${block('torches', torches)}
-
 ${block('props', placed)}
 
 ${block('vfx', effects)}
 
 ${block('prefabs', arrangements)}
-
-${block('stations', stations)}
 
 ${block('chunks', chunks)}
 };

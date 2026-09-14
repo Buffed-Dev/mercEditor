@@ -19,6 +19,7 @@ import {
 } from '../../src/data/vfx.ts';
 import { Field } from '../fields/Field';
 import type { FieldSpec, FieldValue } from '../fields/types';
+import type { Files } from '../ui/FilePicker';
 import { Section } from '../ui/Section';
 import { Row, RowList } from './subeditors/RowList';
 import { DropdownMenu, MenuItem } from '../ui/Menu';
@@ -99,12 +100,15 @@ export function VfxDetail({
   record,
   doc,
   onReplay,
+  files,
 }: {
   index: number;
   record: Record_;
   doc: VfxDoc;
   /** Start the stage again, because a change you cannot see is not a change. */
   onReplay: () => void;
+  /** The project's files, for the sheet's picture. */
+  files?: Files;
 }) {
   const def = normalizeVfx(record) as Record_;
 
@@ -179,6 +183,7 @@ export function VfxDetail({
                   value={values[key] as FieldValue}
                   onInput={(value) => patch(part, { [key]: value }, false)}
                   onChange={(value) => patch(part, { [key]: value })}
+                  files={files}
                 />
               ) : null,
             )}

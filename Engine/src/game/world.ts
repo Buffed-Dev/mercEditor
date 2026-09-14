@@ -1,10 +1,4 @@
-import {
-  spawnPoint,
-  wallStacks,
-  type GameMap,
-  type MapObject,
-  type Placed,
-} from '../data/mapFormat.ts';
+import { spawnPoint, type GameMap, type Placed } from '../data/mapFormat.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { blockedTiles, standHeights, type Prop, type PropLookup } from '../data/props.ts';
 import { decodeTerrain } from '../data/terrain/codec.ts';
@@ -46,9 +40,6 @@ export class World {
   levelAt: (tx: number, ty: number) => number | null;
   stepHeight: number;
   spawn: Placed;
-  portals: readonly MapObject[];
-  /** How many wall blocks stand on a tile, by "gx,gy". */
-  walls: Map<string, number>;
   /** Tiles a prop refuses to be walked through, by "gx,gy". */
   blockers: Set<string>;
   /** How high a prop lets something stand on it, by "gx,gy". */
@@ -81,10 +72,11 @@ export class World {
     // How much of a rise counts as a step rather than a cliff.
     this.stepHeight = map.stepHeight ?? DEFAULT_STEP;
     this.spawn = spawnPoint(map, { spawn: { gx: this.cols / 2, gy: this.rows / 2 } }, spawnName);
-    this.portals = map.portals ?? [];
-    // Walls are objects standing on the ground now, so what blocks movement is
-    // a lookup in a list rather than a character in the grid.
-    this.walls = wallStacks(map.walls);
+    // Nothing on a map is a wall, a portal or a bench any more. What blocks
+    // the way is the ground running out and objects that say they block; what
+    // a thing *does* is the wirings on it. Both are general, and neither is a
+    // list this class has to be told about — see data/props.ts and
+    // game/events/.
     // Objects that block the way. Kept apart from the walls rather than added
     // to them: a wall stack is also what gets *drawn* as a wall, and a boulder
     // you cannot walk through is not a wall with a boulder next to it.
@@ -126,30 +118,17 @@ export class World {
     return this.heightAt(gx, gy) + top / LEVEL_H;
   }
 
-  /**
-   * The portal the given position is standing on, if any. Portals occupy a
-   * single tile, so this is just a tile-index comparison.
-   */
-  portalAt(gx: number, gy: number): MapObject | null {
-    const tx = Math.floor(gx);
-    const ty = Math.floor(gy);
-    return this.portals.find((p) => p.gx === tx && p.gy === ty) ?? null;
-  }
-
   inBounds(tx: number, ty: number): boolean {
     return tx >= 0 && ty >= 0 && tx < this.cols && ty < this.rows;
-  }
-
-  /** How many wall blocks stand on a tile. Zero for open ground. */
-  wallStack(tx: number, ty: number): number {
-    return this.walls.get(`${tx},${ty}`) ?? 0;
   }
 
   /**
    * For collision: out of bounds is solid, so the map border needs no case.
    *
-   * One block or six, a wall is impassable — stacking changes how tall it looks
-   * and nothing about whether you can walk through it.
+   * Two things stop you now, and neither is a kind of object: ground that is
+   * not there, and something standing on the tile that says it blocks. A wall
+   * is a prefab holding one of those, which is why this no longer knows the
+   * word.
    */
   isWall(tx: number, ty: number): boolean {
     if (!this.inBounds(tx, ty)) return true;
@@ -157,12 +136,7 @@ export class World {
     // walk. Out of bounds was always solid for this reason; now that a map can
     // have holes in the middle of it, the middle needs the same answer.
     if (this.levelAt(tx, ty) === null) return true;
-    return this.wallStack(tx, ty) > 0 || this.blockers.has(`${tx},${ty}`);
-  }
-
-  /** For geometry and lighting: out of bounds is empty space, not wall. */
-  isWallTile(tx: number, ty: number): boolean {
-    return this.inBounds(tx, ty) && this.wallStack(tx, ty) > 0;
+    return this.blockers.has(`${tx},${ty}`);
   }
 
   /**

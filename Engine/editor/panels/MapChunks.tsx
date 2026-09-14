@@ -46,7 +46,7 @@ const roleLabel = (role?: string) =>
   CHUNK_ROLES.find(([id]) => id === (role ?? ''))?.[1] ?? '';
 
 /** The object lists a chunk can contain — the same set `chunksOf` cuts out. */
-const LISTS = ['walls', 'portals', 'monsters', 'torches', 'stations', 'lights', 'doors'];
+const LISTS = ['lights', 'doors'];
 
 /**
  * What is drawn on the map but inside no chunk, and so would not be generated.

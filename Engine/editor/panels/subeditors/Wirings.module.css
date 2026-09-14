@@ -1,0 +1,53 @@
+/*
+ * Triggers, and the actions under them.
+ *
+ * A trigger is a list inside a list, so it is inset and loses the divider the
+ * outer one draws — otherwise every trigger reads as a section of the panel
+ * rather than as one entry of Events.
+ */
+.event {
+  margin: 0 6px 4px;
+  border-left: 2px solid var(--e-line-2);
+  border-radius: 0 var(--e-r) var(--e-r) 0;
+  background: color-mix(in srgb, var(--e-panel) 60%, transparent);
+}
+
+.event > * {
+  border-top: 0;
+}
+
+/* Takes the whole trigger away, beside the button that adds to it. Quiet, and
+   shown only on hover, the way a row's own remove is: a permanent bin next to
+   every trigger reads as the most important thing in the panel. */
+.drop {
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-3);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.event:hover .drop,
+.drop:focus-visible {
+  opacity: 1;
+}
+
+.drop:hover {
+  background: var(--e-danger);
+  color: var(--e-on-accent);
+}
+
+/* One line under the action picker, saying what the action does. A list meant
+   to grow to a hundred entries is not readable from its names alone. */
+.hint {
+  margin: 0 0 4px;
+  font-size: var(--e-fs-5);
+  line-height: 1.4;
+  color: var(--e-fg-3);
+}

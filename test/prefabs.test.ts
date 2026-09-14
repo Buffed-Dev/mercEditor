@@ -2,14 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   expandPrefabs,
+  isActorPrefab,
   normalizePrefab,
+  prefabBounds,
   prefabFootprint,
   prefabObjects,
 } from '../Engine/src/data/prefabs.ts';
 import { turnEntry } from '../Engine/src/data/maps/rotate.ts';
 import { rotatePart } from '../Engine/src/data/maps/generate.ts';
 import type { ChunkPart } from '../Engine/src/data/maps/chunks.ts';
-import type { GameMap, MapObject } from '../Engine/src/data/mapFormat.ts';
+import type { GameMap } from '../Engine/src/data/mapFormat.ts';
 import { createDocument } from '../Engine/editor/document.ts';
 import { createDataDocument } from '../Engine/editor/dataDocument.ts';
 import { prefabFromSelection, unpackPrefab } from '../Engine/editor/prefabFromSelection.ts';
@@ -36,7 +38,7 @@ const camp = normalizePrefab({
     { gx: 2, gy: 0, id: 'pot', rot: 90 },
     { gx: 0, gy: 1, id: 'stone' },
   ],
-  torches: [{ gx: 1, gy: 0, face: '+x' }],
+  vfx: [{ gx: 1, gy: 0, id: 'smoke' }],
 });
 
 test('a prefab is measured from what is in it, not told how big it is', () => {
@@ -72,36 +74,31 @@ test('a quarter turn moves a tile where the arithmetic says, and comes back roun
   assert.deepEqual(turnEntry({ gx: 2, gy: 0 }, 2), { gx: 1, gy: 2 });
   assert.deepEqual(turnEntry({ gx: 0, gy: 1 }, 2), { gx: 0, gy: 0 });
 
-  // Four turns is where you started, which is the cheapest check that the box
-  // is being swapped along with the tiles.
-  for (const rot of [0, 90, 180, 270]) {
-    const there = prefabObjects(camp, { gx: 0, gy: 0, rot });
-    const back = prefabObjects(
-      normalizePrefab({ id: 'x', ...there }),
-      { gx: 0, gy: 0, rot: 360 - rot === 360 ? 0 : 360 - rot },
-    );
-    assert.deepEqual(
-      back.props.map((one) => [one.gx, one.gy]).sort(),
-      camp.props.map((one) => [one.gx, one.gy]).sort(),
-      `${rot}° and back`,
-    );
-  }
+  // A placement turns about the middle of its box, so a 3×2 turned a quarter
+  // stands across its old middle (1.5, 1) and overhangs its corner tile by
+  // half a tile: the fire at (0, 0) comes round to (0.5, 1.5).
+  const turned = prefabObjects(camp, { gx: 0, gy: 0, rot: 90 });
+  assert.deepEqual(
+    turned.props.map((one) => [one.gx, one.gy]),
+    [
+      [0.5, 1.5],
+      [0.5, -0.5],
+      [1.5, 1.5],
+    ],
+  );
+  // And a whole turn is where you started.
+  assert.deepEqual(
+    prefabObjects(camp, { gx: 0, gy: 0, rot: 360 }).props.map((one) => [one.gx, one.gy]),
+    camp.props.map((one) => [one.gx, one.gy]),
+  );
 });
 
 test('everything carrying a direction turns with the tiles', () => {
-  // A torch mounts on a wall's face. Left behind, it comes out of a turned
-  // prefab hanging in the air off the wrong side.
-  const faces = [0, 90, 180, 270].map(
-    (rot) => String(prefabObjects(camp, { gx: 0, gy: 0, rot }).torches[0].face),
-  );
-  assert.deepEqual(faces, ['+x', '+y', '-x', '-y']);
-
-  // An object's own turn, by the same amount and in the same direction: a tile
-  // is one unit on X and Z, so turning the grid clockwise turns the world the
-  // other way, which is why ninety comes off rather than on.
+  // An object's own turn, by the same amount and in the same direction: a
+  // placement's `rot` is the same turn about Y an object's is, so the two add.
   const pot = (rot: number) =>
     prefabObjects(camp, { gx: 0, gy: 0, rot }).props.find((one) => one.id === 'pot')?.rot;
-  assert.deepEqual([pot(0), pot(90), pot(180), pot(270)], [90, 0, 270, 180]);
+  assert.deepEqual([pot(0), pot(90), pot(180), pot(270)], [90, 180, 270, 0]);
 
   // A sun's bearing is on the same compass and turns the same way.
   assert.equal(turnEntry({ gx: 0, gy: 0, azimuth: 45 }, 1).azimuth, 315);
@@ -133,7 +130,7 @@ const withCamp = (): GameMap =>
   ({
     ...mapDoc(['....', '....'], { id: 'yard' }),
     props: [{ gx: 0, gy: 0, id: 'barrel' }],
-    walls: [{ gx: 3, gy: 3, stack: 1 }],
+    vfx: [{ gx: 3, gy: 3, id: 'smoke' }],
     prefabs: [{ gx: 1, gy: 1, id: 'camp' }],
   }) as GameMap;
 
@@ -148,7 +145,7 @@ test('expansion appends, and never moves what was already there', () => {
 
   assert.deepEqual(out.props?.[0], map.props?.[0], 'the map’s own prop is still index 0');
   assert.equal(out.props?.length, 4, 'and the three children came after it');
-  assert.equal(out.walls?.[0]?.gx, 3, 'an untouched list keeps its first entry');
+  assert.equal(out.vfx?.[0]?.gx, 3, 'an untouched list keeps its first entry');
 
   // Each child says which placement drew it, so a pick on one resolves back to
   // the single thing you can select.
@@ -180,28 +177,6 @@ test('a placement naming a prefab that is gone draws nothing', () => {
   assert.equal(out.props?.length, 1, 'only the map’s own');
 });
 
-test('a prefab door takes the wall it lands on with it', () => {
-  // The editor refuses to leave a door and a wall on one tile, but that rule
-  // runs when you draw -- and this is the one moment the two lists meet with
-  // nobody drawing.
-  const doorway = normalizePrefab({ id: 'doorway', doors: [{ gx: 0, gy: 0 }] });
-  const map = {
-    ...mapDoc(['....', '....'], { id: 'yard' }),
-    walls: [
-      { gx: 2, gy: 2, stack: 1 },
-      { gx: 3, gy: 3, stack: 1 },
-    ],
-    prefabs: [{ gx: 2, gy: 2, id: 'doorway' }],
-  } as GameMap;
-
-  const out = expandPrefabs(map, (id) => (id === 'doorway' ? doorway : null));
-  assert.deepEqual(
-    (out.walls ?? []).map((one) => [one.gx, one.gy]),
-    [[3, 3]],
-    'the wall under the door is gone, the other is not',
-  );
-});
-
 test('a prefab reaching through prefabs stops rather than running forever', () => {
   // Nesting is not offered by the editor, but a file can say anything and a
   // cycle would be a page that never finished loading.
@@ -215,17 +190,37 @@ test('a prefab reaching through prefabs stops rather than running forever', () =
 });
 
 test('a prefab is one thing however many lists it reaches into', () => {
-  const out = expandPrefabs(withCamp(), lookup) as GameMap & { torches?: readonly MapObject[] };
-  assert.equal(out.torches?.length, 1);
-  assert.deepEqual([out.torches?.[0].gx, out.torches?.[0].gy], [2, 1]);
-  assert.equal(out.torches?.[0].prefab, 0);
+  const out = expandPrefabs(withCamp(), lookup);
+  // The map's own effect is index 0; the camp's is the one that came after.
+  assert.equal(out.vfx?.length, 2);
+  assert.deepEqual([out.vfx?.[1].gx, out.vfx?.[1].gy], [2, 1]);
+  assert.equal((out.vfx?.[1] as { prefab?: number }).prefab, 0);
+});
+
+test('an actor prefab is left whole when asked, while scenery still flattens', () => {
+  // The game keeps a body in one piece — it has to move — and the editor
+  // flattens everything so a part of one can be picked. Same function, one
+  // predicate; and what is not flattened is not tagged either.
+  const goblin = normalizePrefab({ id: 'goblin', label: 'Goblin', archetype: 'grunt', props: [{ gx: 0, gy: 0, id: 'body' }] });
+  assert.equal(isActorPrefab(goblin), true);
+  assert.equal(isActorPrefab(camp), false);
+  const map = { ...withCamp(), prefabs: [{ gx: 1, gy: 1, id: 'camp' }, { gx: 3, gy: 0, id: 'goblin' }] } as GameMap;
+  const both = (id: string) => (id === 'goblin' ? goblin : lookup(id));
+
+  const game = expandPrefabs(map, both, 0, (one) => !isActorPrefab(one));
+  assert.equal(game.props?.length, 4, 'the camp came apart; the goblin did not');
+  assert.ok(game.props?.every((one) => one.prefab !== 1), 'nothing was tagged with the goblin');
+
+  const editor = expandPrefabs(map, both);
+  assert.equal(editor.props?.length, 5, 'the editor flattens the goblin too');
+  assert.equal(editor.props?.[4].prefab, 1);
 });
 
 test('a chunk carries its prefabs, and turns them with the room', () => {
-  // The failure this guards is the one test/stations.test.ts was written for:
-  // a list the rotation had not been told about is carried through unrotated,
-  // with no error either way. Every list turns now, rather than seven written
-  // out by hand, so `prefabs` joining MAP_LISTS was enough.
+  // The failure this guards: a list the rotation has not been told about is
+  // carried through unrotated, with no error either way. Every list turns now,
+  // rather than several written out by hand, so `prefabs` joining MAP_LISTS was
+  // enough.
   const room: ChunkPart = {
     id: 'room',
     name: 'room',
@@ -233,11 +228,6 @@ test('a chunk carries its prefabs, and turns them with the room', () => {
     rows: ['111', '1.1', '111'],
     spawns: {},
     env: {},
-    walls: [],
-    portals: [],
-    monsters: [],
-    torches: [],
-    stations: [],
     lights: [],
     doors: [],
     prefabs: [{ gx: 0, gy: 0, id: 'camp', rot: 0 }],
@@ -331,12 +321,12 @@ test('a selection becomes a prefab, and the map keeps its shape', () => {
         { gx: 3, gy: 1, id: 'pot' },
         { gx: 5, gy: 2, id: 'keep-me' },
       ],
-      torches: [{ gx: 1, gy: 2, face: '+x' }],
+      vfx: [{ gx: 1, gy: 2, id: 'smoke' }],
     } as GameMap,
     lookup,
   );
   const rules = createDataDocument({});
-  const picked = new Set(['props:0', 'props:1', 'torches:0']);
+  const picked = new Set(['props:0', 'props:1', 'vfx:0']);
 
   const made = prefabFromSelection(doc, picked, rules, 'Camp');
   assert.ok(typeof made !== 'string', String(made));
@@ -348,7 +338,6 @@ test('a selection becomes a prefab, and the map keeps its shape', () => {
     ['keep-me'],
     'what was not picked is untouched',
   );
-  assert.equal(doc.map.torches.length, 0);
   assert.deepEqual(
     doc.map.prefabs.map((one) => [one.gx, one.gy]),
     [[1, 1]],
@@ -363,7 +352,11 @@ test('a selection becomes a prefab, and the map keeps its shape', () => {
       [2, 0, 'pot'],
     ],
   );
-  assert.deepEqual(prefab.torches.map((one) => [one.gx, one.gy]), [[0, 1]]);
+  // The effect came too, one row down — which is what makes the box two tall.
+  assert.deepEqual(
+    prefab.vfx.map((one) => [one.gx, one.gy]),
+    [[0, 1]],
+  );
   assert.deepEqual([prefab.w, prefab.h], [3, 2]);
 });
 
@@ -409,10 +402,6 @@ test('unpacking gives back exactly what was drawn', () => {
     doc.map.props.map((one) => [one.gx, one.gy, one.id, one.rot]),
     drawn.props.map((one) => [one.gx, one.gy, one.id, one.rot]),
   );
-  assert.deepEqual(
-    doc.map.torches.map((one) => [one.gx, one.gy, one.face]),
-    drawn.torches.map((one) => [one.gx, one.gy, one.face]),
-  );
   // The marker saying which placement drew a child does not survive: these are
   // the map's own objects now.
   assert.ok(doc.map.props.every((one) => one.prefab === undefined));
@@ -420,4 +409,34 @@ test('unpacking gives back exactly what was drawn', () => {
   doc.undo();
   assert.equal(doc.map.prefabs.length, 1, 'one undo put the placement back');
   assert.equal(doc.map.props.length, 0);
+});
+
+test('a placement is a whole transform, and its children go through it', () => {
+  // A tilted, doubled, lifted placement: the child's own turn is composed with
+  // the prefab's rather than added, and its offset is scaled and lifted.
+  const tall = normalizePrefab({ id: 'tall', props: [{ gx: 1, gy: 0, id: 'post', rot: 90 }] });
+  const [post] = prefabObjects(tall, {
+    gx: 0,
+    gy: 0,
+    lift: 2,
+    rot: 90,
+    scaleX: 2,
+    scaleY: 3,
+    scaleZ: 2,
+  }).props;
+  // Measured to its own corner first, so the post stands at (0, 0) in a 1×1
+  // prefab -- which is the middle the placement turns about, so however it is
+  // turned or scaled it stays put. Only its lift moves.
+  assert.deepEqual([post.gx, post.gy, post.lift], [0, 0, 2]);
+  assert.equal(post.rot, 180);
+  assert.deepEqual([post.scaleX, post.scaleY, post.scaleZ], [2, 3, 2]);
+  // Twice as wide, then on its side: twice as tall, and overhanging its tile
+  // by half a tile each way, since it turned about its middle.
+  assert.deepEqual(prefabFootprint(tall, { gx: 0, gy: 0, rot: 90, scaleX: 2 }), { w: 1, h: 2 });
+  assert.deepEqual(prefabBounds(tall, { gx: 3, gy: 3, rot: 90, scaleX: 2 }), {
+    gx: 3,
+    gy: 2.5,
+    w: 1,
+    h: 2,
+  });
 });

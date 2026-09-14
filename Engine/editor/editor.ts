@@ -10,16 +10,18 @@ import { Plane } from '@babylonjs/core/Maths/math.plane.js';
 // Side-effect only: this is what adds `createPickingRay` to Scene.
 import '@babylonjs/core/Culling/ray.js';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture.js';
 import { CAMERA_OFFSET } from '../src/render/isoCamera.ts';
 import { buildMapView } from '../src/render/mapView.ts';
 import { LEVEL_H } from '../src/data/dimensions.ts';
 import { colorOf, unlit } from '../src/render/materials.ts';
-import { normalizeLight } from '../src/data/lights.ts';
+import { LIGHT_FIELDS, normalizeLight } from '../src/data/lights.ts';
 
-import { kindOf } from '../src/game/monsters.ts';
 import { World } from '../src/game/world.ts';
 import { createDocument } from './document.ts';
-import { expandPrefabs, normalizePrefab, prefabById } from '../src/data/prefabs.ts';
+import { expandPrefabs, normalizePrefab, prefabById, prefabObjects } from '../src/data/prefabs.ts';
+import { eulerOf, scaleOf, wrapDeg, type Transform } from '../src/data/transform.ts';
+import { createGizmos, snapSpot, type GizmoMode, type Snap } from './gizmos.ts';
 import { pickOf, tagPick } from '../src/render/pick.ts';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
@@ -31,15 +33,21 @@ import type { Scene } from '@babylonjs/core/scene.js';
 import type { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import type { PickTag } from '../src/render/pick.ts';
 import type { MapContent } from '../src/render/mapView.ts';
-import type { Prefab } from '../src/data/prefabs.ts';
+import type { PlacedPrefab, Prefab } from '../src/data/prefabs.ts';
 import type { RimRing } from '../src/data/terrain/profile.ts';
+import type { TerrainLayer } from '../src/render/terrainLayer.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
 import type { GameMap, MapObject, Placed } from '../src/data/mapFormat.ts';
 import type { MapDoc, MapDocument } from './document.ts';
 import type { Selection } from './state/selection.ts';
 
 /** One tile. */
-type Cell = { gx: number; gy: number };
+/**
+ * A tile, and the exact point on the ground the pointer was over when there
+ * is one. The tile is what terrain is painted on; the point is where a thing
+ * is put down, since only terrain is tiles.
+ */
+type Cell = { gx: number; gy: number; x?: number; z?: number };
 
 /** The rectangle the view is cut down to. */
 type Rect = { gx: number; gy: number; w: number; h: number };
@@ -53,8 +61,27 @@ type Target = Box & { color: number; hug?: boolean };
 /** What a ray found: the tag, plus the node and the hit that carried it. */
 type Pick = PickTag & { object: TransformNode; hit: PickingInfo };
 
-/** Which handle a drag has hold of. */
-type Axis = 'x' | 'z' | 'turn';
+/**
+ * A part of the view that an edit can change on its own.
+ *
+ * Named after what the *document* changed rather than after the meshes that
+ * draw it, because the caller making the edit knows the first and has no
+ * business knowing the second.
+ *
+ * - `map` — everything. Opening a map, resizing one, or a change some other
+ *   domain looked at and could not reconcile.
+ * - `terrain` — the ground moved. Refills instance buffers; keeps every mesh,
+ *   material and shader.
+ * - `lights` — a light's settings were edited. Pushed onto the live light.
+ * - `grid` — the map's size changed, which is the only thing the grid draws.
+ * - `markers` — the things that stand *for* something: the selection cage, the
+ *   start ring, the spawn cones, the effect beads. Drawn again from the
+ *   document, so this is for a change to *which* of them there are.
+ * - `standing` — the same markers, still the right ones, standing on ground
+ *   that has moved under them. A handful of heights rather than a few dozen
+ *   meshes, which is what the terrain brush asks for on every pointer move.
+ */
+type Domain = 'map' | 'terrain' | 'lights' | 'grid' | 'markers' | 'standing';
 
 /** Which tool the cursor is serving. */
 export type CursorMode = 'select' | 'move' | 'terrain' | 'paint' | 'erase';
@@ -71,15 +98,20 @@ type Listeners = {
   erase: ((cell: Cell, first: boolean) => void) | null;
   hover: ((cell: Cell | null) => void) | null;
   release: (() => void) | null;
-  drag: ((gx: number, gy: number) => void) | null;
-  turn: ((heading: number) => void) | null;
+  /**
+   * The selection has been moved, turned or scaled by a handle, to this. Live,
+   * on every frame of the drag: the panel writes it and asks the view to show
+   * it, and `transformEnd` is where it settles.
+   */
+  transform: ((to: Transform) => void) | null;
+  transformEnd: (() => void) | null;
   pick: ((selection: Selection) => void) | null;
 };
 
 /**
  * A map's lists, reached by a name worked out at runtime.
  *
- * The panels address a list by its name -- 'walls', 'portals' -- which an
+ * The panels address a list by its name -- 'monsters', 'props' -- which an
  * object type cannot be indexed by. document.ts holds the same cast for the
  * same reason.
  */
@@ -101,15 +133,13 @@ const listsOf = (map: MapDoc): Record<string, MapObject[] | undefined> =>
  */
 
 const PAN_SPEED = 12; // tiles per second with the keyboard
+const DEG_ = Math.PI / 180;
 const MIN_FRUSTUM = 6;
 const MAX_FRUSTUM = 60;
 
 const SPAWN_MARKER_COLOR = 0x35d07f;
 /** The map's own start, told apart from the arrival points by colour. */
 const START_MARKER_COLOR = 0xffc247;
-
-/** The '@' tile, or null. Read out of the rows because that is where it lives. */
-const WALL_PREVIEW_H = 1.3; // matches WALL_H in data/dimensions.ts
 
 /**
  * Rendering groups. Babylon clears the depth buffer between them, so a higher
@@ -118,7 +148,6 @@ const WALL_PREVIEW_H = 1.3; // matches WALL_H in data/dimensions.ts
  */
 const GROUP_MAP = 0;
 const GROUP_OVERLAY = 1;
-const GROUP_GIZMO = 2;
 
 const clamp = (value: number, low: number, high: number) =>
   Math.min(high, Math.max(low, value));
@@ -179,19 +208,37 @@ export function createEditor({
     return typeof entry?.prefab === 'number' ? entry.prefab : null;
   }
   let mapView: ReturnType<typeof buildMapView> | null = null;
+  /**
+   * The ground, which outlives the view it is drawn in.
+   *
+   * Held here rather than by the map view, because the map view is thrown away
+   * on every click and this is the one part of it that does not depend on
+   * anything a click changes. See `retarget` in terrainLayer.ts for what has to
+   * be pointed at the new view each time, and `rebuild` for why.
+   */
+  let terrain: TerrainLayer | null = null;
   // Kept from the last rebuild so the cursor can ask how high the ground is
   // under a tile without parsing the map again every frame.
   let world: World | null = null;
-  let needsRebuild = false;
   /**
-   * A terrain edit, which is a much smaller thing than a rebuild.
+   * What has changed and has not been drawn yet.
    *
-   * The ground is instanced blocks, so moving a tile means refilling matrix
-   * buffers — no mesh, material, texture or shader is touched. Rebuilding the
-   * whole map view around that would throw all of them away and make them
-   * again, which is the pause a brush stroke used to cost.
+   * The view used to have one question — "does this need rebuilding?" — and one
+   * answer, which was to throw the whole map away and build it again. That is
+   * why a brush stroke, a slider and clicking a row in the object list all cost
+   * the same: every mesh, every material and every light, gone and remade.
+   *
+   * A set instead, so an edit can say what it actually touched. `sync` below is
+   * the only thing that reads it, once a frame, and each domain knows how to
+   * bring itself up to date without disposing anything it does not have to.
+   *
+   * `'map'` is the one that still means everything, for the edits that genuinely
+   * change everything — opening a map, resizing one — and as the fallback for a
+   * domain that finds a change it cannot reconcile.
    */
-  let needsTerrain = false;
+  const dirty = new Set<Domain>();
+  /** What the grid was last drawn for, so it is only redrawn when that changes. */
+  let gridSize = { cols: 0, rows: 0 };
   /**
    * The rectangle the view is cut down to, or null for the whole map.
    *
@@ -229,15 +276,15 @@ export function createEditor({
   let painting: number | null = null;
   /** Whether a drag fills in the cells between pointer samples. */
   let interpolate = false; // the mouse button currently held: 0 paint, 2 erase
-  // The drag and turn listeners are the gizmo's: the editor works out where a
+  // The transform listeners are the gizmo's: the editor works out where a
   // handle was dragged to, and the panel decides what that means.
   const listeners: Listeners = {
     paint: null,
     erase: null,
     hover: null,
     release: null,
-    drag: null,
-    turn: null,
+    transform: null,
+    transformEnd: null,
     pick: null,
   };
 
@@ -251,6 +298,31 @@ export function createEditor({
     const material = unlit(name, scene, { color, alpha });
     material.disableDepthWrite = group !== GROUP_MAP;
     return material;
+  }
+
+  /**
+   * A flat colour for a marker, made once and kept.
+   *
+   * The markers are drawn again whenever the ground moves, which while the
+   * terrain brush is being dragged is every frame. They used to bring their
+   * materials with them and take them away again — a dozen shaders looked up,
+   * registered on the scene and unregistered, sixty times a second, to end up
+   * with the same dozen colours. The meshes are cheap; this was not.
+   *
+   * Keyed by what it looks like rather than by what wears it, so two lights of
+   * one colour share, and a light that changes colour gets a different one
+   * rather than a stale one.
+   */
+  const markerMaterials = new Map<string, Material>();
+  /** The cage's own, which is the one marker material that is not flat. */
+  let cageMaterialOnce: Material | null = null;
+  function markerMaterial(color: number, alpha = 1): Material {
+    const key = `${color}:${alpha}`;
+    const held = markerMaterials.get(key);
+    if (held) return held;
+    const made = unlit(`marker:${key}`, scene, { color, alpha });
+    markerMaterials.set(key, made);
+    return made;
   }
 
   const cursor = MeshBuilder.CreateBox('cursor', { width: 1, height: 0.06, depth: 1 }, scene);
@@ -294,106 +366,87 @@ export function createEditor({
    * enough to say "this one", which is all a highlight has to do.
    */
   const OBJECT_BOUNDS: Record<string, { size: [number, number, number]; base: number }> = {
-    monsters: { size: [0.75, 1, 0.75], base: 0 },
-    portals: { size: [0.95, 0.8, 0.95], base: 0 },
     lights: { size: [0.5, 0.5, 0.5], base: 0.85 },
     vfx: { size: [0.5, 0.5, 0.5], base: 0.2 },
-    // Mounted on the side of a wall, so measured from the ground rather than
-    // from a surface you could stand on.
-    torches: { size: [0.5, 0.45, 0.5], base: 0.72 },
-    stations: { size: [0.9, 0.75, 0.9], base: 0 },
     // Picked by its corner like everything else; the highlight marks the
     // anchor rather than the whole rectangle, which the outline already shows.
     chunks: { size: [0.9, 0.2, 0.9], base: 0 },
     spawns: { size: [0.6, 0.7, 0.6], base: 0.55 },
-    // Filled by the stack it actually is, since a wall's height is editable.
-    walls: { size: [1, WALL_PREVIEW_H, 1], base: 0 },
+    // A tile's worth, which is what an object standing on one occupies. Only
+    // reached for one drawn as an instance, where there is no single mesh to
+    // measure — see `pickedBox`.
+    props: { size: [1, 1, 1], base: 0 },
+    prefabs: { size: [1, 1, 1], base: 0 },
   };
 
   let cursorMode: CursorMode = 'select';
 
   /**
-   * The handles drawn on a selected object so it can be moved and turned where
-   * it stands, rather than by typing coordinates into the inspector.
+   * Where the handles stand: a node the gizmos hold, stood where the selected
+   * thing is.
    *
-   * Two arrows and a ring, in the plane the world is laid out on. There is no
-   * Y arrow because nothing is placed at a height of its own — an object sits
-   * on whatever the ground under it reaches — so an up handle would be a
-   * control with nothing behind it.
-   *
-   * The ring only appears for things that have a facing to change. A portal and
-   * a monster look the same from every side, and a handle that turned them
-   * would move a number nothing reads.
+   * Never the thing itself. An object drawn as one instance among many has no
+   * node, and a prefab is several -- so the handles move this, and each frame
+   * of the drag the editor reads it back as a transform and shows the thing
+   * there. See gizmos.ts.
    */
-  const gizmo = new TransformNode('gizmo', scene);
-  gizmo.parent = overlay;
-  gizmo.setEnabled(false);
+  const pivot = new TransformNode('pivot', scene);
+  pivot.parent = overlay;
+  /**
+   * How the pivot relates to the entry it stands for, taken when it is stood:
+   * the offset from the entry's position to its middle, and the ground under
+   * it. Read back off the pivot after a drag to get the entry's numbers.
+   */
+  let grab = { dx: 0.5, dz: 0.5, ground: 0 };
+  let gizmoMode: GizmoMode | null = null;
+  let snap: Snap = { on: true, move: 0.5, turn: 15, scale: 0.25 };
+  /** How the ghost, and so the next thing put down, is turned. Degrees. */
+  let placeTurn = 0;
+
+  const gizmos = createGizmos(scene, {
+    onStart: () => {},
+    onChange: () => {
+      const entry = selectedEntry();
+      if (!entry) return;
+      const round = (value: number) => Math.round(value * 100) / 100;
+      listeners.transform?.({
+        gx: round(pivot.position.x - grab.dx),
+        gy: round(pivot.position.z - grab.dz),
+        lift: round(pivot.position.y - grab.ground),
+        rotX: round(wrapDeg(pivot.rotation.x / DEG_)),
+        rot: round(wrapDeg(pivot.rotation.y / DEG_)),
+        rotZ: round(wrapDeg(pivot.rotation.z / DEG_)),
+        scaleX: round(pivot.scaling.x),
+        scaleY: round(pivot.scaling.y),
+        scaleZ: round(pivot.scaling.z),
+      });
+    },
+    onEnd: () => listeners.transformEnd?.(),
+  });
+
+  /** Stand the pivot on the selected thing, as it is in the document now. */
+  function standPivot(): void {
+    const entry = selectedEntry();
+    if (!entry || !selection) return;
+    const middle = footprintOf(selection.list, entry);
+    const ground = (world?.heightAt(middle.x, middle.z) ?? 0) * LEVEL_H;
+    const lift = Number((entry as { lift?: unknown }).lift ?? 0) || 0;
+    pivot.position.set(middle.x, ground + lift, middle.z);
+    pivot.rotation.copyFrom(eulerOf(entry as Transform));
+    pivot.scaling.copyFrom(scaleOf(entry as Transform));
+    grab = { dx: middle.x - entry.gx, dz: middle.z - entry.gy, ground };
+  }
+
   // Nothing is drawn until a map is opened.
   root.setEnabled(false);
-
-  let gizmoRotatable = false;
-  /** The handle being dragged, or null. */
-  let gizmoDrag: { axis: Axis } | null = null;
-  /** Every mesh belonging to a handle, and which axis it drags. */
-  const handleAxis = new Map<AbstractMesh, Axis>();
-
-  const GIZMO_X = 0xe5484d;
-  const GIZMO_Z = 0x3d7eff;
-  const GIZMO_TURN = 0x4ade80;
-
-  function tagHandle(mesh: Mesh, axis: Axis): Mesh {
-    mesh.renderingGroupId = GROUP_GIZMO;
-    handleAxis.set(mesh, axis);
-    return mesh;
-  }
-
-  /** An arrow from the centre out along one axis. */
-  function buildArrow(axis: Axis, color: number, rotation: Vector3): TransformNode {
-    const group = new TransformNode(`arrow-${axis}`, scene);
-    group.parent = gizmo;
-    group.rotation.copyFrom(rotation);
-
-    const material = overlayMaterial(`handle-${axis}`, color, 0.95, GROUP_GIZMO);
-
-    const shaft = MeshBuilder.CreateCylinder(
-      'shaft',
-      { diameter: 0.07, height: 0.6, tessellation: 8 },
-      scene,
-    );
-    shaft.material = material;
-    shaft.position.y = 0.45;
-    shaft.parent = group;
-
-    const head = MeshBuilder.CreateCylinder(
-      'head',
-      { diameterTop: 0, diameterBottom: 0.22, height: 0.28, tessellation: 10 },
-      scene,
-    );
-    head.material = material;
-    head.position.y = 0.89;
-    head.parent = group;
-
-    tagHandle(shaft, axis);
-    tagHandle(head, axis);
-    return group;
-  }
-
-  buildArrow('x', GIZMO_X, new Vector3(0, 0, -Math.PI / 2));
-  buildArrow('z', GIZMO_Z, new Vector3(Math.PI / 2, 0, 0));
-
-  const turnRing = MeshBuilder.CreateTorus(
-    'turn',
-    { diameter: 1.44, thickness: 0.07, tessellation: 40 },
-    scene,
-  );
-  turnRing.material = overlayMaterial('handle-turn', GIZMO_TURN, 0.95, GROUP_GIZMO);
-  turnRing.parent = gizmo;
-  tagHandle(turnRing, 'turn');
 
   // Ghost of whatever the active brush would drop here, so a click is never a
   // guess. Built once per brush and cached: switching brushes is frequent.
   const previews = new Map<string, TransformNode | null>();
   let preview: TransformNode | null = null;
+  /** What the ghost hangs off, so it can be turned about its middle. */
+  const previewPivot = new TransformNode('previewPivot', scene);
+  previewPivot.parent = overlay;
   let previewKind: string | null = null;
   // How high the ghost floats. A ramp drawn at level 2 has to be previewed
   // where it would actually land, not on the ground under it.
@@ -403,9 +456,65 @@ export function createEditor({
   /** Whether the tile lines are drawn. Kept across rebuilds, not per map. */
   let gridShown = true;
   let markers: TransformNode | null = null;
+  /** The outline round the selection, so a drag can carry it along. */
+  let selectionCage: TransformNode | null = null;
   // { list, index } for the indexed lists, { list: "spawns", key } for a named
   // spawn, or null when nothing is selected.
   let selection: Selection = null;
+
+  /**
+   * How to slide each thing on the map, by `list:index`.
+   *
+   * A drag used to ask the view to find what it had just moved, by walking
+   * every node under the map and comparing tags. That walk answered "no" far
+   * more often than it answered at all -- a monster is drawn as a marker rather
+   * than as part of the map, a prefab's children carry their own list and not
+   * the prefab's, and an object drawn as thin instances has no node to move --
+   * and every "no" was a full rebuild of the map, on every pointer move. That
+   * is what made dragging cost fifteen frames a second and made everything
+   * around the thing you were dragging blink: a mesh built this frame is a mesh
+   * whose material has to be found ready again before it can be drawn at all.
+   *
+   * So it is an index instead, built once with the view. A drag is a lookup and
+   * a handful of additions, and nothing is created or destroyed until you let
+   * go.
+   *
+   * Null when it has to be built again, which is whenever the view is.
+   */
+  let movers: Map<string, ((dx: number, dz: number) => void)[]> | null = null;
+
+  /**
+   * Where a marker-drawn thing was last shown, so a live edit can slide it by
+   * the difference. Reset with the view, which stands everything afresh.
+   */
+  let slid: { key: string; gx: number; gy: number } | null = null;
+
+  /** Slide the selection's markers to where its entry now says. */
+  function slideMarkers(entry: Placed): void {
+    if (!selection) return;
+    const key = `${selection.list}:${selection.key ?? selection.index}`;
+    const from = slid?.key === key ? slid : null;
+    if (!from) {
+      // First move of this thing since the view was built: it is drawn where
+      // the document said then, which is where the pivot was stood from.
+      slid = { key, gx: pivotEntryX(), gy: pivotEntryZ() };
+    }
+    const dx = entry.gx - (slid?.gx ?? entry.gx);
+    const dz = entry.gy - (slid?.gy ?? entry.gy);
+    if (dx || dz) {
+      movers ??= buildMovers();
+      const at = selection.key ?? selection.index;
+      for (const move of (at === undefined ? [] : movers.get(`${selection.list}:${at}`) ?? [])) {
+        move(dx, dz);
+      }
+      restamp();
+    }
+    slid = { key, gx: entry.gx, gy: entry.gy };
+  }
+
+  /** The entry position the pivot was last stood from. */
+  const pivotEntryX = () => pivot.position.x - grab.dx;
+  const pivotEntryZ = () => pivot.position.z - grab.dz;
 
   /** The map entry the selection points at, or null. */
   function selectedEntry(): Placed | null {
@@ -432,22 +541,17 @@ export function createEditor({
     );
   };
 
-  /** Where on the ground the pointer is, at the height the gizmo sits at. */
-  function pointerOnPlane(event: PointerEvent, y: number): Vector3 | null {
-    const ray = pickingRay(event);
-    groundPlane.d = -y;
-    const distance = ray.intersectsPlane(groundPlane);
-    if (distance === null) return null;
-    return ray.direction.scale(distance).addInPlace(ray.origin);
-  }
-
-  /** Which handle, if any, is under the pointer. */
-  function handleUnderPointer(event: PointerEvent): Axis | null {
-    if (!gizmo.isEnabled()) return null;
-    const hit = scene.pickWithRay(pickingRay(event), (mesh) => handleAxis.has(mesh));
-    if (!hit?.hit || !hit.pickedMesh) return null;
-    return handleAxis.get(hit.pickedMesh) ?? null;
-  }
+  /**
+   * One ray against the drawn map.
+   *
+   * A pointer move asks the scene two questions -- which tile is under it, and
+   * which object -- and they used to be two casts of the same ray through the
+   * same predicate. On instanced ground a cast walks every tile, so that was
+   * the whole map swept twice per mouse move, on the input path. The answer to
+   * both is in one hit, so it is taken once and handed to each.
+   */
+  const castAt = (ray: ReturnType<typeof pickingRay>): PickingInfo | null =>
+    mapView ? scene.pickWithRay(ray, isMapMesh) : null;
 
   /** Only the map itself answers a pick — never the cursor, grid or handles. */
   const isMapMesh = (mesh: AbstractMesh) =>
@@ -466,9 +570,8 @@ export function createEditor({
    * one thin instance per block, so the instance index is looked through to the
    * wall it belongs to.
    */
-  function pickAt(event: PointerEvent): Pick | null {
+  function pickAt(event: PointerEvent, hit = castAt(pickingRay(event))): Pick | null {
     if (!mapView || !doc) return null;
-    const hit = scene.pickWithRay(pickingRay(event), isMapMesh);
     if (!hit?.hit) return null;
 
     for (let node: Node | null = hit.pickedMesh; node; node = node.parent) {
@@ -501,11 +604,14 @@ export function createEditor({
   function pickedBox(pick: Pick | null): Box | null {
     if (!pick || !doc) return null;
 
-    if (pick.list === 'walls') {
-      // A thin instance has no object of its own to measure, and a wall may be
-      // several of them, so this one is built from what the wall is.
-      const wall = pick.index === undefined ? null : doc.map.walls[pick.index];
-      return wall ? boundsFor('walls', wall.gx, wall.gy) : null;
+    // One mesh standing in for many: its bounds cover every instance of it, so
+    // measuring the geometry would draw a cage round the whole row. Where this
+    // one entry stands is the answer instead.
+    const many = (pick.object as { thinInstanceCount?: number }).thinInstanceCount;
+    if (many) {
+      const lists = doc.map as unknown as Record<string, { gx: number; gy: number }[]>;
+      const entry = pick.index === undefined ? null : lists[pick.list]?.[pick.index];
+      return entry ? boundsFor(pick.list, entry) : null;
     }
 
     const { min, max } = pick.object.getHierarchyBoundingVectors(true);
@@ -525,27 +631,45 @@ export function createEditor({
    * Shared by the cage that marks the selection and the highlight that follows
    * the pointer, because they are answering the same question.
    */
-  function boundsFor(list: string, gx: number, gy: number): Box {
-    const spec = OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.monsters;
-    const [w, own, d] = spec.size;
-    // A wall is as tall as it has been stacked; everything else is one size.
-    const h = list === 'walls' ? Math.max(1, world?.wallStack(gx, gy) ?? 1) * WALL_PREVIEW_H : own;
+  function boundsFor(list: string, at: Placed): Box {
+    const spec = OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props;
+    const [, own] = spec.size;
+    const h = own;
+    const { x, z, w, d } = footprintOf(list, at);
     // The top of the tile's own column, which is where anything standing on it
     // rests — and on a ramp tile it is the high end, so nothing is drawn sunk
     // into the slope.
-    const surface = (world?.levelAt(gx, gy) ?? 0) * LEVEL_H;
-    return { x: gx + 0.5, y: surface + spec.base + h / 2, z: gy + 0.5, w, h, d };
+    const surface = (world?.levelAt(Math.floor(at.gx), Math.floor(at.gy)) ?? 0) * LEVEL_H;
+    const lift = Number((at as { lift?: unknown }).lift ?? 0) || 0;
+    return { x, y: surface + lift + spec.base + h / 2, z, w, h, d };
+  }
+
+  /**
+   * Where a thing's middle is on the ground, and how much ground it covers.
+   *
+   * Most things are a tile's worth, centred on the tile. A prefab is the box
+   * its children cover, and its position is that box's corner -- so its middle,
+   * where the cage and the handles belong, is half the box along.
+   */
+  function footprintOf(list: string, at: Placed): { x: number; z: number; w: number; d: number } {
+    if (list === 'prefabs' && doc) {
+      const box = doc.prefabBox(at as PlacedPrefab);
+      const w = Math.max(1, box.w);
+      const d = Math.max(1, box.h);
+      return { x: box.gx + w / 2, z: box.gy + d / 2, w, d };
+    }
+    const [w, , d] = (OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props).size;
+    return { x: at.gx + 0.5, z: at.gy + 0.5, w, d };
   }
 
   /** How tall everything standing on a tile reaches, above the ground. */
   function stackHeight(gx: number, gy: number): number {
-    const walls = (world?.wallStack(gx, gy) ?? 0) * WALL_PREVIEW_H;
-    if (!doc) return walls;
+    if (!doc) return 0;
     const objects = doc
       .objectsAt(gx, gy)
-      .map(({ list }) => OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.monsters);
+      .map(({ list }) => OBJECT_BOUNDS[list] ?? OBJECT_BOUNDS.props);
     const tallest = objects.reduce((top, b) => Math.max(top, b.base + b.size[1]), 0);
-    return Math.max(walls, tallest);
+    return tallest;
   }
 
   /**
@@ -613,7 +737,7 @@ export function createEditor({
    */
   function buildPreview(kind: string): TransformNode | null {
     const group = new TransformNode(`preview-${kind}`, scene);
-    group.parent = overlay;
+    group.parent = previewPivot;
 
     const ghost = (color: number, alpha = 0.5) => {
       const material = unlit(`ghost-${kind}`, scene, { color, alpha });
@@ -652,16 +776,6 @@ export function createEditor({
     }
 
     switch (kind) {
-      case 'wall':
-        place(
-          MeshBuilder.CreateBox('wall', { width: 1, height: WALL_PREVIEW_H, depth: 1 }, scene),
-          ghost(0xd6cdb8),
-          0.5,
-          WALL_PREVIEW_H / 2,
-          0.5,
-        );
-        break;
-
       case 'rampE':
       case 'rampW':
       case 'rampS':
@@ -704,63 +818,18 @@ export function createEditor({
         );
         break;
 
-      case 'torch':
+      // One shape for every monster there will ever be. Which one it is, is
+      // chosen in the inspector after it is down, so the ghost cannot know —
+      // and a preview per kind would be this game's cast in the editor again.
+      case 'monster':
         place(
-          MeshBuilder.CreateSphere('flame', { diameter: 0.18, segments: 8 }, scene),
-          ghost(0xffd9a0, 0.8),
-          0.5,
-          0.94,
-          0.5,
-        );
-        place(
-          MeshBuilder.CreateCylinder(
-            'bracket',
-            { diameterTop: 0.1, diameterBottom: 0.14, height: 0.14, tessellation: 8 },
-            scene,
-          ),
-          ghost(0x2a2118, 0.7),
-          0.5,
-          0.81,
-          0.5,
-        );
-        break;
-
-      case 'portal': {
-        place(
-          MeshBuilder.CreateTorus(
-            'ring',
-            { diameter: 0.68, thickness: 0.09, tessellation: 24 },
-            scene,
-          ),
-          ghost(0x9d6bff, 0.7),
-          0.5,
-          0.55,
-          0.5,
-        );
-        const disc = place(
-          MeshBuilder.CreateDisc('disc', { radius: 0.42, tessellation: 28 }, scene),
-          ghost(0x9d6bff, 0.35),
-          0.5,
-          0.02,
-          0.5,
-        );
-        disc.rotation.x = -Math.PI / 2;
-        break;
-      }
-
-      case 'grunt':
-      case 'brute': {
-        const spec = kindOf(kind);
-        const mesh = place(
           MeshBuilder.CreateCapsule('monster', { radius: 0.24, height: 0.88 }, scene),
-          ghost(spec.color, 0.6),
+          ghost(0xb4553f, 0.6),
           0.5,
           0.45,
           0.5,
         );
-        mesh.scaling.setAll(spec.scale);
         break;
-      }
 
       default:
         group.dispose();
@@ -882,9 +951,47 @@ export function createEditor({
     layer.mesh.setEnabled(true);
   }
 
+  /**
+   * How high the ground is under a tile, for the things that stand on it.
+   *
+   * On top of whatever is on the tile rather than on the tile itself, so a
+   * start put on a stack of crates is drawn on the crates rather than buried
+   * in them.
+   */
+  const footing = (gx: number, gy: number) =>
+    (world?.standAt(gx + 0.5, gy + 0.5) ?? 0) * LEVEL_H;
+
+  /**
+   * The markers that follow the ground, and how far above it each one floats.
+   *
+   * Kept so a terrain edit can move them rather than draw them all again. Most
+   * markers are not in here: a light hangs at its own height and a monster
+   * stands at a fixed one, so the brush passing under them changes nothing.
+   */
+  let standing: { node: TransformNode; gx: number; gy: number; lift: number }[] = [];
+
+  /** Put the ground-standing markers back on the ground. See `standing`. */
+  function restand(): void {
+    for (const one of standing) one.node.position.y = footing(one.gx, one.gy) + one.lift;
+    // The cage is sized from a table and stood on the terrain, so raising the
+    // ground under the selection moves it and nothing else about it.
+    const at = doc ? selectedTile(doc.map) : null;
+    if (selectionCage && selection && at) {
+      selectionCage.position.y = boundsFor(selection.list, at).y;
+    }
+  }
+
   function buildMarkers(map: MapDoc): TransformNode {
     const group = new TransformNode('markers', scene);
     group.parent = overlay;
+    selectionCage = null;
+    standing = [];
+
+    /** Stand a marker on the ground, and remember that it is standing on it. */
+    const stand = (node: TransformNode, gx: number, gy: number, lift: number): void => {
+      node.position.y = footing(gx, gy) + lift;
+      standing.push({ node, gx, gy, lift });
+    };
 
     // Markers stand in the map and are occluded by it, the way the objects
     // they stand for would be. Only the cursor and the handles float above.
@@ -894,23 +1001,10 @@ export function createEditor({
       return pick ? tagPick(mesh, pick) : mesh;
     };
 
-    // Built on first use rather than up front: markers are rebuilt with the map
-    // — which in terrain mode is every stroke of the brush — and a material for
-    // a marker the map does not have is one nothing is ever attached to, so
-    // nothing ever takes it down again. That leaked one material and one shader
-    // per edit, on a map with no effects placed on it.
-    let spawnMaterial: Material | null = null;
-    let vfxMaterial: Material | null = null;
 
     // Where the player comes up. It is a character in the terrain, which parses
     // to ordinary ground — so without a marker the one tile that decides where
     // the map begins is the one tile you cannot see.
-    // Both kinds of marker stand where the player would: on top of whatever is
-    // on the tile, so a start put on a stack of crates is drawn on the crates
-    // rather than buried in them.
-    const footing = (gx: number, gy: number) =>
-      (world?.standAt(gx + 0.5, gy + 0.5) ?? 0) * LEVEL_H;
-
     const start = map.spawns.default ?? null;
     if (start) {
       const ring = MeshBuilder.CreateTorus(
@@ -918,15 +1012,17 @@ export function createEditor({
         { diameter: 0.8, thickness: 0.12, tessellation: 20 },
         scene,
       );
-      ring.position.set(start.gx + 0.5, footing(start.gx, start.gy) + 0.08, start.gy + 0.5);
-      marker(ring, unlit('start', scene, { color: START_MARKER_COLOR }));
+      ring.position.set(start.gx + 0.5, 0, start.gy + 0.5);
+      stand(ring, start.gx, start.gy, 0.08);
+      marker(ring, markerMaterial(START_MARKER_COLOR));
       const pin = MeshBuilder.CreateCylinder(
         'start',
         { diameterTop: 0, diameterBottom: 0.34, height: 0.55, tessellation: 4 },
         scene,
       );
-      pin.position.set(start.gx + 0.5, footing(start.gx, start.gy) + 0.5, start.gy + 0.5);
-      marker(pin, unlit('start', scene, { color: START_MARKER_COLOR }));
+      pin.position.set(start.gx + 0.5, 0, start.gy + 0.5);
+      stand(pin, start.gx, start.gy, 0.5);
+      marker(pin, markerMaterial(START_MARKER_COLOR));
     }
 
     for (const [key, spawn] of Object.entries(map.spawns)) {
@@ -935,9 +1031,9 @@ export function createEditor({
         { diameterTop: 0.44, diameterBottom: 0, height: 0.5, tessellation: 4 },
         scene,
       );
-      cone.position.set(spawn.gx + 0.5, footing(spawn.gx, spawn.gy) + 0.9, spawn.gy + 0.5);
-      spawnMaterial ??= unlit('spawn', scene, { color: SPAWN_MARKER_COLOR });
-      marker(cone, spawnMaterial, { list: 'spawns', key });
+      cone.position.set(spawn.gx + 0.5, 0, spawn.gy + 0.5);
+      stand(cone, spawn.gx, spawn.gy, 0.9);
+      marker(cone, markerMaterial(SPAWN_MARKER_COLOR), { list: 'spawns', key });
     }
 
     // Lights: a bulb at the light's own height with a stem down to its tile,
@@ -945,7 +1041,7 @@ export function createEditor({
     (map.lights ?? []).forEach((raw, index) => {
       const def = normalizeLight(raw);
       const selected = selection?.list === 'lights' && selection.index === index;
-      const material = unlit(`light${index}`, scene, { color: selected ? 0xffffff : def.color });
+      const material = markerMaterial(selected ? 0xffffff : (def.color ?? LIGHT_FIELDS.color.default));
 
       const height =
         def.type === 'directional' || def.type === 'hemisphere' ? 2.6 : (def.height ?? 2.6);
@@ -993,26 +1089,7 @@ export function createEditor({
       const bead = MeshBuilder.CreateSphere('vfxMarker', { diameter: 0.26, segments: 6 }, scene);
       bead.position.set(entry.gx + 0.5, 0.45, entry.gy + 0.5);
       bead.scaling.setAll(selected ? 1.6 : 1);
-      vfxMaterial ??= unlit('vfxMarker', scene, { color: 0xffd9a0, alpha: 0.9 });
-      marker(bead, vfxMaterial, { list: 'vfx', index });
-    });
-
-    // One material per kind, so a monster reads as the colour it will be.
-    const monsterMaterials = new Map<string, Material>();
-    (map.monsters ?? []).forEach((monster, index) => {
-      const kind = monster.kind ?? 'grunt';
-      const spec = kindOf(kind);
-      if (!monsterMaterials.has(kind)) {
-        monsterMaterials.set(
-          kind,
-          unlit(`monster-${kind}`, scene, { color: spec.color, alpha: 0.8 }),
-        );
-      }
-      const mesh = MeshBuilder.CreateCapsule('monster', { radius: 0.24, height: 0.88 }, scene);
-      mesh.position.set(monster.gx + 0.5, 0.45, monster.gy + 0.5);
-      mesh.scaling.setAll(spec.scale);
-      const material = monsterMaterials.get(kind);
-      if (material) marker(mesh, material, { list: 'monsters', index });
+      marker(bead, markerMaterial(0xffd9a0, 0.9), { list: 'vfx', index });
     });
 
     // A cage around the selected object, so a row picked in the panel is
@@ -1021,14 +1098,13 @@ export function createEditor({
     // the wrong part of what you have selected.
     const at = selectedTile(map);
     if (at && selection) {
-      const box = boundsFor(selection.list, at.gx, at.gy);
+      const box = boundsFor(selection.list, at);
       const cage = MeshBuilder.CreateBox(
         'cage',
         { width: box.w + 0.02, height: box.h + 0.02, depth: box.d + 0.02 },
         scene,
       );
-      const cageMaterial = overlayMaterial('cage', 0x8be9fd, 0);
-      cage.material = cageMaterial;
+      cage.material = cageMaterialOnce ??= overlayMaterial('cage', 0x8be9fd, 0);
       cage.position.set(box.x, box.y, box.z);
       cage.renderingGroupId = GROUP_OVERLAY;
       cage.isPickable = false;
@@ -1038,9 +1114,103 @@ export function createEditor({
       cage.enableEdgesRendering();
       cage.edgesWidth = 3;
       cage.edgesColor = new Color4(0.545, 0.914, 0.992, 1);
+      selectionCage = cage;
     }
 
     return group;
+  }
+
+  /**
+   * Work out how to slide everything that is drawn. See `movers`.
+   *
+   * Only the topmost tagged node of each thing is registered. A model's meshes
+   * carry their group's tag as well -- a pick walks up the tree, so tagging the
+   * leaves is belt and braces -- and moving a node *and* its children would
+   * move the object twice as far as the pointer went.
+   *
+   * A prefab's children answer to the prefab as well as to themselves, because
+   * a prefab is what you can select and its children are what is drawn.
+   */
+  function buildMovers(): Map<string, ((dx: number, dz: number) => void)[]> {
+    const found = new Map<string, ((dx: number, dz: number) => void)[]>();
+    const add = (key: string, move: (dx: number, dz: number) => void): void => {
+      const held = found.get(key);
+      if (held) held.push(move);
+      else found.set(key, [move]);
+    };
+
+    /** Register this node if it stands for something, else look inside it. */
+    const walk = (node: Node): void => {
+      const pick = pickOf(node);
+      const at = pick ? (pick.key ?? pick.index) : undefined;
+      if (pick && at !== undefined && !pick.instances && node instanceof TransformNode) {
+        const move = (dx: number, dz: number): void => {
+          node.position.x += dx;
+          node.position.z += dz;
+        };
+        add(`${pick.list}:${at}`, move);
+        // A prefab's objects are stood again outright by a live edit -- see
+        // `previewTransform` -- so they are kept apart from the markers that
+        // can only slide, or a preview would stand them and then slide them.
+        const owner = drawnBy(pick.list, pick.index);
+        if (owner !== null) add(`prefabs:${owner}${pick.list === 'props' ? ':props' : ''}`, move);
+        // Whatever hangs off it goes with it, so there is nothing below to
+        // register and registering it would move it twice.
+        return;
+      }
+      for (const child of node.getChildren()) walk(child);
+    };
+
+    if (mapView) for (const child of mapView.root.getChildren()) walk(child);
+    // The markers are how a monster, a light or an effect is drawn at all in
+    // the editor, so a drag that did not carry them moved nothing you could
+    // see.
+    if (markers) for (const child of markers.getChildren()) walk(child);
+
+    // An object drawn as one instance among many has no node. The runtime that
+    // made that decision is the one that knows where its matrix is.
+    const view = mapView;
+    if (view) {
+      // `shown`, not the document: a prefab's objects are drawn too, and it is
+      // the expanded list the view was built from that these indices are into.
+      (shown?.props ?? []).forEach((_, index) => {
+        const move = (dx: number, dz: number): void => {
+          view.moveProp(index, dx, 0, dz);
+        };
+        // Registered blind: `moveProp` says no for a placement with a node of
+        // its own, which has already registered one above. Asking first would
+        // mean this file knowing which objects were worth instancing.
+        add(`props:${index}`, move);
+        const owner = drawnBy('props', index);
+        if (owner !== null) add(`prefabs:${owner}:props`, move);
+      });
+    }
+
+    // An effect is attached at a point and told to follow it: a marker slid
+    // without its fire would be a lie about where the fire is.
+    for (const one of mapView?.vfx ?? []) {
+      const move = (dx: number, dz: number): void => {
+        one.at.x += dx;
+        one.at.z += dz;
+        one.handle.follow(one.at);
+      };
+      add(`vfx:${one.index}`, move);
+      const owner = drawnBy('vfx', one.index);
+      if (owner !== null) add(`prefabs:${owner}`, move);
+    }
+
+    // A light is not a node in the tree either: it is a Babylon light with a
+    // position of its own, and a hemisphere light has not even got that.
+    (mapView?.lights ?? []).forEach((entry, index) => {
+      const at = (entry.light as { position?: Vector3 }).position;
+      if (!at) return;
+      add(`lights:${index}`, (dx, dz) => {
+        at.x += dx;
+        at.z += dz;
+      });
+    });
+
+    return found;
   }
 
   /** Where the current selection sits on the grid, if it still exists. */
@@ -1059,6 +1229,9 @@ export function createEditor({
    * little map floating on its own rather than a highlighted part of a big one.
    */
   function applyFocus(): void {
+    // The clip planes cut the shadow map too, so what is drawn into it changes
+    // with the cut.
+    restamp();
     if (!focus) {
       scene.clipPlane = null;
       scene.clipPlane2 = null;
@@ -1087,11 +1260,154 @@ export function createEditor({
     return gx >= focus.gx && gx < focus.gx + focus.w && gy >= focus.gy && gy < focus.gy + focus.h;
   }
 
+  /**
+   * Draw the markers again from the document.
+   *
+   * The cage round the selection, the start ring, the spawn cones, the effect
+   * beads: everything that stands *for* something rather than being it. A few
+   * dozen small meshes, so it is redone whole rather than reconciled -- and it
+   * is what both a terrain edit and a change of selection actually need, as
+   * opposed to the map rebuild they used to ask for.
+   *
+   * `applyHidden` comes with it because the markers are new nodes under `root`
+   * and the panel's switched-off rows are a fact about the old ones. Without
+   * it a hidden spawn came back the moment you touched the ground -- which was
+   * survivable while this ran once a stroke, and would not be now that it runs
+   * while you paint. Skipped entirely when nothing is hidden, which is almost
+   * always.
+   */
+  function remarkMarkers(): void {
+    // Not the materials: they are shared and kept. See `markerMaterial`.
+    markers?.dispose(false, false);
+    if (doc) markers = buildMarkers(doc.map);
+    // The index holds nodes, and these are new ones.
+    movers = null;
+    if (hidden.size) applyHidden();
+  }
+
+  /**
+   * The grid, which only ever depends on how big the map is.
+   *
+   * It was rebuilt with the map because it was built inside `rebuild`, not
+   * because anything about it had changed. A few hundred line vertices, redrawn
+   * every time you nudged a crate.
+   */
+  function syncGrid(): void {
+    if (!doc) return;
+    if (grid && gridSize.cols === doc.cols && gridSize.rows === doc.rows) return;
+    grid?.dispose(false, true);
+    grid = buildGrid(doc.cols, doc.rows);
+    grid.setEnabled(gridShown);
+    gridSize = { cols: doc.cols, rows: doc.rows };
+  }
+
+  /**
+   * Push edited definitions onto the lights that are already burning.
+   *
+   * `refresh` is the light's own primitive and has been here all along — it is
+   * what `previewLight` uses so a slider drag does not rebuild the map. This is
+   * that, for every light and for the settled value as well as the moving one.
+   *
+   * Returns false when the set of lights itself changed rather than their
+   * settings, and the caller falls back to a rebuild. Two cases:
+   *
+   * - a light was added or removed;
+   * - a light changed `type`, which is a different Babylon class and a
+   *   different shadow map, so there is nothing to refresh in place.
+   *
+   * Both are a click rather than a drag. The stall this exists to remove is on
+   * the sliders, and re-registering shadow casters onto a generator built after
+   * the meshes it lights is real work for something nobody does twice a second.
+   */
+  function syncLights(): boolean {
+    const defs = doc?.map.lights ?? [];
+    const live = mapView?.lights ?? [];
+    if (live.length !== defs.length) return false;
+    for (let i = 0; i < defs.length; i += 1) {
+      if (live[i]?.def?.type !== defs[i]?.type) return false;
+    }
+    for (let i = 0; i < defs.length; i += 1) live[i].refresh(defs[i]);
+    return true;
+  }
+
+  /**
+   * Draw the shadow maps again, next frame.
+   *
+   * Nothing in a map being edited moves on its own: the ground, the objects and
+   * the sun all sit where they were put until you put them somewhere else. So
+   * the maps are drawn once and kept, rather than re-rendered sixty times a
+   * second to produce the same picture — which on a sun fitted to the whole
+   * level is the largest single thing a frame does.
+   *
+   * Called from everywhere something can move. The cost of missing one is a
+   * stale shadow, so the rule is that every path that touches what is drawn
+   * ends here: `sync`, a drag, and the cut. A caster arriving late re-arms
+   * itself, in `shadows.add`.
+   */
+  function restamp(): void {
+    for (const entry of mapView?.lights ?? []) {
+      entry.generator?.getShadowMap()?.resetRefreshCounter();
+    }
+  }
+
+  /**
+   * Bring the view up to date with whatever changed, once a frame.
+   *
+   * Order is not arbitrary. `terrain` runs before `markers` because the markers
+   * stand on the ground — `buildMarkers` asks `world.standAt` how high each one
+   * sits — so moving the ground moves them, and drawing them first would put
+   * them where the ground used to be.
+   */
+  function sync(): void {
+    // Everything, and it has already drawn the rest of them.
+    if (dirty.has('map')) {
+      rebuild();
+      dirty.clear();
+      restamp();
+      return;
+    }
+
+    if (dirty.has('terrain')) {
+      mapView?.blocks.refresh();
+      // Not `markers`: the set of them has not changed, only the ground they
+      // are standing on. That distinction is the difference between moving
+      // three heights and building forty meshes, on every pointer move.
+      dirty.add('standing');
+    }
+    // A light set that cannot be reconciled asks for the big hammer instead.
+    if (dirty.has('lights') && !syncLights()) {
+      rebuild();
+      dirty.clear();
+      restamp();
+      return;
+    }
+    if (dirty.has('grid')) syncGrid();
+    // Drawn again, or just stood back up — never both, because drawing them
+    // again already stands them where they go.
+    if (dirty.has('markers')) remarkMarkers();
+    else if (dirty.has('standing')) restand();
+    dirty.clear();
+    restamp();
+  }
+
+  /**
+   * Throw the whole view away and build it again.
+   *
+   * What a full `invalidate()` means, and now only what a *click* means:
+   * placing, erasing, deleting, pasting, undoing, and settling a drag once it
+   * is over. A gesture that repeats does not come here any more — see `nudge`
+   * for a move and `invalidateTerrain` for the brush.
+   *
+   * The ground is the exception: it is three quarters of what this used to
+   * cost — thirty-odd meshes and their vertex buffers made again to draw a
+   * grid that had not changed — and it does not depend on anything a click
+   * changes, so it is kept and pointed at the new view instead. See `terrain`
+   * above and `retarget` in terrainLayer.ts.
+   */
   function rebuild(): void {
     if (!doc) return;
     mapView?.dispose();
-    grid?.dispose(false, true);
-    markers?.dispose(false, true);
+    markers?.dispose(false, false);
 
     // What the map is drawn from: the rules as they are being edited, not as
     // they were on disk when the page loaded. Absent — a test, a check script —
@@ -1104,28 +1420,40 @@ export function createEditor({
     );
     shown = expandPrefabs(doc.map, prefabOf);
     world = new World(shown, 'default', now.props);
-    mapView = buildMapView(scene, world, now);
+    // The slot says the ground is this file's: handed over when there is one,
+    // filled in by the first build when there is not, and never disposed by
+    // the view around it. See `terrain` above.
+    mapView = buildMapView(scene, world, now, { blocks: terrain });
+    terrain = mapView.blocks;
     mapView.root.parent = root;
     // Not part of the map's own subtree: the pipeline is the renderer's, so the
     // map can only ask for a setting rather than carry one.
     setAmbientOcclusion?.(mapView.env.aoStrength);
 
-    grid = buildGrid(doc.cols, doc.rows);
-    grid.setEnabled(gridShown);
+    // Drawn once and kept, rather than every frame. See `restamp`.
+    for (const entry of mapView.lights) {
+      const map = entry.generator?.getShadowMap();
+      if (map) map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+    }
+
+    syncGrid();
     markers = buildMarkers(doc.map);
+    // Built on the next drag rather than now: most rebuilds are not the start
+    // of one, and walking the map to answer a question nobody asked is the
+    // habit this whole change is about.
+    movers = null;
+    slid = null;
 
     applyHidden();
-    needsRebuild = false;
   }
 
   /**
    * Switch off whatever the panel has hidden.
    *
    * Everything selectable already carries `metadata.pick` so a ray can say what
-   * it hit; the same tag says what to hide. A pick with no index or key is the
-   * wall mesh, which is one mesh carrying every wall as an instance — there is
-   * no single node to switch off, so walls cannot be hidden and the panel does
-   * not offer to.
+   * it hit; the same tag says what to hide. A tag with no index or key is a
+   * mesh standing in for many placements at once — there is no single node to
+   * switch off, so those are asked at the end instead.
    *
    * A light needs its lamp marker hidden *and* the light itself switched off,
    * or the room stays lit by something you cannot see.
@@ -1149,6 +1477,18 @@ export function createEditor({
       const id = owner === null ? `lights:${index}` : `prefabs:${owner}`;
       entry.light?.setEnabled(!hidden.has(id));
     });
+
+    // An object is drawn as one instance among many and has no node of its
+    // own to switch off, so it is asked rather than found. Cheap when nothing
+    // changed: the runtime only touches the ones whose answer is different.
+    const view = mapView;
+    if (view) {
+      (shown?.props ?? []).forEach((_, index) => {
+        const owner = drawnBy('props', index);
+        const id = owner === null ? `props:${index}` : `prefabs:${owner}`;
+        view.showProp(index, !hidden.has(id));
+      });
+    }
   }
 
   /**
@@ -1167,31 +1507,24 @@ export function createEditor({
    * The plane is still the fallback: off the edge of the geometry, and while a
    * scene is being rebuilt, it is the only answer there is.
    */
-  function tileUnderPointer(event: PointerEvent): Cell | null {
-    const ray = pickingRay(event);
+  function tileUnderPointer(
+    event: PointerEvent,
+    ray = pickingRay(event),
+    hit = castAt(ray),
+  ): Cell | null {
     // Outside the cut there is nothing to hover: the tiles are still in the
     // document, but they are not on screen and a click that landed on one would
     // edit something invisible.
-    const inBounds = (gx: number, gy: number): Cell | null =>
-      doc?.inBounds(gx, gy) && inFocus(gx, gy) ? { gx, gy } : null;
+    const inBounds = (x: number, z: number): Cell | null => {
+      const gx = Math.floor(x);
+      const gy = Math.floor(z);
+      return doc?.inBounds(gx, gy) && inFocus(gx, gy) ? { gx, gy, x, z } : null;
+    };
 
     if (mapView) {
-      const hit = scene.pickWithRay(ray, isMapMesh);
       if (hit?.hit) {
-        const instances = pickOf(hit.pickedMesh)?.instances;
-        if (instances && hit.thinInstanceIndex >= 0) {
-          // The wall the block belongs to, so a face shared by two tiles
-          // belongs to the block it is a face of rather than to whichever tile
-          // the boundary rounds towards.
-          // Read against what was *drawn*, not against the document. The
-          // instance index is an index into the list the mesh was built from,
-          // and the moment a prefab contributes a wall those two lists differ —
-          // so this looked the right shape and silently found another wall.
-          const wall = shown?.walls?.[instances[hit.thinInstanceIndex]];
-          const found = wall && inBounds(wall.gx, wall.gy);
-          if (found) return found;
-        } else if (hit.pickedPoint) {
-          const found = inBounds(Math.floor(hit.pickedPoint.x), Math.floor(hit.pickedPoint.z));
+        if (hit.pickedPoint) {
+          const found = inBounds(hit.pickedPoint.x, hit.pickedPoint.z);
           if (found) return found;
         }
       }
@@ -1201,17 +1534,18 @@ export function createEditor({
     const distance = ray.intersectsPlane(groundPlane);
     if (distance === null) return null;
     const at = ray.direction.scale(distance).addInPlace(ray.origin);
-    return inBounds(Math.floor(at.x), Math.floor(at.z));
+    return inBounds(at.x, at.z);
   }
 
   function onPointerMove(event: PointerEvent): void {
-    if (gizmoDrag) {
-      dragHandle(event);
-      return;
-    }
+    // A handle has the pointer; the map does not.
+    if (gizmos.dragging) return;
     const from = hover;
-    hover = tileUnderPointer(event);
-    hoverPick = pickAt(event);
+    // Both answers come out of one cast: see `castAt`.
+    const ray = pickingRay(event);
+    const hit = castAt(ray);
+    hover = tileUnderPointer(event, ray, hit);
+    hoverPick = pickAt(event, hit);
     listeners.hover?.(hover);
     if (painting === null || !hover) return;
 
@@ -1234,17 +1568,18 @@ export function createEditor({
 
     // A handle is grabbed before anything else: it is drawn on top of the map,
     // so a click that lands on one was meant for it and not for the tile
-    // behind.
+    // behind. The gizmo layer has already taken it.
     if (event.button === 0) {
-      const axis = handleUnderPointer(event);
-      if (axis) {
-        gizmoDrag = { axis };
-        return;
-      }
+      const rect = scene.getEngine().getRenderingCanvasClientRect();
+      const x = event.clientX - (rect?.left ?? 0);
+      const y = event.clientY - (rect?.top ?? 0);
+      if (gizmos.dragging || gizmos.underPointer(x, y)) return;
     }
 
-    hover = tileUnderPointer(event);
-    hoverPick = pickAt(event);
+    const ray = pickingRay(event);
+    const hit = castAt(ray);
+    hover = tileUnderPointer(event, ray, hit);
+    hoverPick = pickAt(event, hit);
 
     // The Select tool acts on what the pointer is over, not on the tile under
     // it. Clicking nothing clears the selection, which is what clicking away
@@ -1262,39 +1597,8 @@ export function createEditor({
     else listeners.erase?.(hover, true);
   }
 
-  /**
-   * One frame of a handle drag.
-   *
-   * Movement snaps to tiles, because that is the only place an object can be —
-   * a map entry is a pair of integers. Turning does not snap here; whoever
-   * applies it decides, since a torch has four faces to choose between and a
-   * light has a whole compass.
-   */
-  function dragHandle(event: PointerEvent): void {
-    const entry = selectedEntry();
-    if (!entry || !gizmoDrag) return;
-
-    const at = pointerOnPlane(event, gizmo.position.y);
-    if (!at) return;
-
-    if (gizmoDrag.axis === 'turn') {
-      // Same atan2(dx, dz) heading every actor in the game uses.
-      listeners.turn?.(Math.atan2(at.x - (entry.gx + 0.5), at.z - (entry.gy + 0.5)));
-      return;
-    }
-
-    const gx = gizmoDrag.axis === 'x' ? Math.floor(at.x) : entry.gx;
-    const gy = gizmoDrag.axis === 'z' ? Math.floor(at.z) : entry.gy;
-    if (gx === entry.gx && gy === entry.gy) return;
-    listeners.drag?.(gx, gy);
-  }
-
   const onPointerUp = () => {
-    if (gizmoDrag) {
-      gizmoDrag = null;
-      listeners.release?.();
-      return;
-    }
+    if (gizmos.dragging) return;
     if (painting !== null) listeners.release?.();
     painting = null;
   };
@@ -1339,9 +1643,18 @@ export function createEditor({
       return hover;
     },
 
-    /** Called by the UI whenever it mutates the document. */
-    invalidate() {
-      needsRebuild = true;
+    /**
+     * Called by the UI whenever it mutates the document, saying what it
+     * touched.
+     *
+     * Named nothing means everything, which is what it has always meant and
+     * what most callers still want: an edit that adds or removes an object
+     * genuinely does change the map. The narrow ones are for the gestures that
+     * repeat — a slider being dragged, a brush being pulled across the ground.
+     */
+    invalidate(...what: Domain[]) {
+      if (!what.length) dirty.add('map');
+      else for (const one of what) dirty.add(one);
     },
 
     /**
@@ -1355,9 +1668,15 @@ export function createEditor({
       applyHidden();
     },
 
-    /** The same, for an edit that only moved terrain blocks about. */
+    /**
+     * The same, for an edit that only moved terrain blocks about.
+     *
+     * Kept as a name of its own rather than folded into `invalidate('terrain')`
+     * because it is what the brush calls on every pointer move, and a name is
+     * cheaper to read at that call site than a string.
+     */
     invalidateTerrain() {
-      needsTerrain = true;
+      dirty.add('terrain');
     },
 
     /**
@@ -1380,7 +1699,60 @@ export function createEditor({
         selection?.key === next?.key;
       if (same) return;
       selection = next;
-      needsRebuild = true; // the highlight moves
+      dirty.add('markers'); // the highlight moves, and only the highlight
+    },
+
+    /**
+     * Slide what is already drawn, without building anything.
+     *
+     * The sibling of `previewLight`, for the gesture that actually stutters:
+     * dragging a thing across the map wrote the document and then rebuilt the
+     * whole view, once per pointer move — every mesh, every material and every
+     * light thrown away and made again so that one crate could sit a tile to
+     * the left.
+     *
+     * A move changes one thing about what is drawn, which is where it is, so
+     * that is all this touches. It is given the step rather than the
+     * destination because a node's position is its builder's business — a torch
+     * hangs on a wall face, a prop stands on its own footing — and adding a
+     * delta keeps whatever that builder worked out instead of guessing at it
+     * again.
+     *
+     * Height is deliberately left alone. It follows the ground, and dragging
+     * onto a taller tile is the one case this gets visibly wrong — for the
+     * length of the drag, because `release` rebuilds and settles it.
+     *
+     * @returns false when nothing on screen stands for this selection, which is
+     *   now only a selection that has just been deleted. Everything a map can
+     *   draw has a mover; see `buildMovers`.
+     */
+    nudge(sel: Selection, dx: number, dz: number): boolean {
+      if (!sel || !mapView) return false;
+      if (!dx && !dz) return true;
+
+      movers ??= buildMovers();
+      const at = sel.key ?? sel.index;
+      const here =
+        at === undefined
+          ? null
+          : [
+              ...(movers.get(`${sel.list}:${at}`) ?? []),
+              ...(movers.get(`${sel.list}:${at}:props`) ?? []),
+            ];
+      if (!here?.length) return false;
+      for (const move of here) move(dx, dz);
+
+      // The outline round it goes with it. Moved rather than drawn again: the
+      // markers are a few dozen meshes and their materials, and making them
+      // afresh on every pointer move is the smaller half of the stall this
+      // exists to remove.
+      if (selectionCage) {
+        selectionCage.position.x += dx;
+        selectionCage.position.z += dz;
+      }
+      // What it throws goes with it.
+      restamp();
+      return true;
     },
 
     /**
@@ -1414,17 +1786,66 @@ export function createEditor({
       interpolate = Boolean(on);
     },
 
-    /**
-     * Whether the selected thing has a facing worth a turn handle. The panel
-     * knows — it is the one that renders the field — so it says.
-     */
-    setRotatable(on: unknown) {
-      gizmoRotatable = Boolean(on);
+    /** Which handles to draw on the selection, or none. */
+    setGizmoMode(mode: GizmoMode | null) {
+      gizmoMode = mode;
+      if (mode) gizmos.setMode(mode);
+    },
+
+    setSnap(next: Snap) {
+      snap = next;
+      gizmos.setSnap(next);
+    },
+
+    setPlaceTurn(deg: number) {
+      placeTurn = deg;
     },
 
     /** Is a handle being dragged? The panel suppresses its own drag if so. */
     get draggingHandle() {
-      return gizmoDrag !== null;
+      return gizmos.dragging;
+    },
+
+    /**
+     * Show the selected thing where the document now says it is, without
+     * building the map again.
+     *
+     * What every live edit goes through -- a handle mid-drag, a number field
+     * mid-drag -- so the thing follows the pointer at frame rate. An object is
+     * stood again by the runtime that draws it; a prefab's children are worked
+     * out again and each stood; anything drawn as a marker slides. The map is
+     * built again when the edit settles, which is what makes the rest of it
+     * (the shadows, the ground it blocks) catch up.
+     */
+    previewTransform() {
+      const entry = selectedEntry();
+      if (!entry || !selection || !mapView || !world) return;
+      const { list, index } = selection;
+      if (list === 'props' && index !== undefined) {
+        mapView.restandProp(index, entry as MapObject, world);
+      } else if (list === 'prefabs' && index !== undefined) {
+        const at = entry as PlacedPrefab;
+        const prefab = prefabOf(String(at.id ?? ''));
+        const fresh = prefab ? prefabObjects(prefab, at).props : [];
+        let k = 0;
+        (shown?.props ?? []).forEach((child, i) => {
+          if (child.prefab !== index) return;
+          const now = fresh[k++];
+          if (now) mapView?.restandProp(i, now, world!);
+        });
+        slideMarkers(entry);
+      } else {
+        slideMarkers(entry);
+      }
+      // What it throws goes with it.
+      restamp();
+      // The outline and the handles go with it.
+      if (!gizmos.dragging) standPivot();
+      if (selectionCage) {
+        selectionCage.position.copyFrom(pivot.position);
+        selectionCage.position.y = boundsFor(list, entry).y;
+        selectionCage.rotation.copyFrom(pivot.rotation);
+      }
     },
 
     /**
@@ -1529,10 +1950,18 @@ export function createEditor({
 
       mapView?.dispose();
       mapView = null;
+      // Unhooked by the view's own dispose rather than taken down with it,
+      // because it is this file's. See `terrain`.
+      terrain?.dispose();
+      terrain = null;
       grid?.dispose(false, true);
       grid = null;
-      markers?.dispose(false, true);
+      markers?.dispose(false, false);
       markers = null;
+      for (const material of markerMaterials.values()) material.dispose();
+      markerMaterials.clear();
+      cageMaterialOnce?.dispose();
+      cageMaterialOnce = null;
       world = null;
       doc = null;
       root.setEnabled(false);
@@ -1544,14 +1973,10 @@ export function createEditor({
       // something of its own. Panning it from here — or rebuilding a map
       // nobody is looking at — is work that lands on somebody else's frame.
       if (!root.isEnabled()) return;
-      if (needsRebuild) rebuild();
-      else if (needsTerrain) {
-        mapView?.blocks.refresh();
-        // Markers stand on the ground, so a height change moves them too.
-        markers?.dispose(false, true);
-        if (doc) markers = buildMarkers(doc.map);
-        needsTerrain = false;
-      }
+      // Widest first, and each one is the whole of what its edit needs: a
+      // rebuild has already drawn the markers, and a terrain edit moves them
+      // because they stand on the ground it just changed.
+      if (dirty.size) sync();
 
       let forward = 0;
       let right = 0;
@@ -1592,16 +2017,12 @@ export function createEditor({
         highlight.edgesColor = new Color4(edge.r, edge.g, edge.b, 0.9);
       }
 
-      // The handles follow the selection, and only while the tool that uses
-      // them is up. Anchored on the tile centre at the height of the ground
-      // under it, so they sit on the object rather than through it.
-      const entry = cursorMode === 'select' ? selectedEntry() : null;
-      gizmo.setEnabled(Boolean(entry));
-      if (entry) {
-        const y = (world?.heightAt(entry.gx + 0.5, entry.gy + 0.5) ?? 0) * LEVEL_H;
-        gizmo.position.set(entry.gx + 0.5, y + 0.05, entry.gy + 0.5);
-      }
-      turnRing.setEnabled(gizmoRotatable);
+      // The handles follow the selection, and only while a tool that uses
+      // them is up. Stood on the thing's middle, at its height; while a handle
+      // is held the pivot is the thing being dragged, and is left alone.
+      const entry = gizmoMode ? selectedEntry() : null;
+      if (entry && !gizmos.dragging) standPivot();
+      gizmos.attach(entry ? pivot : null);
 
       // The flat square is the *tile* cursor, so it belongs to the tools whose
       // subject is a tile: Terrain, which sets its height, and Paint, which
@@ -1610,23 +2031,29 @@ export function createEditor({
       const tileTool = cursorMode === 'terrain' || cursorMode === 'paint' || cursorMode === 'move';
       if (hover && !target && tileTool) {
         cursor.setEnabled(true);
-        // On top of whatever is there: the ground, or the wall standing on it.
+        // On top of the ground.
         // The tile's centre, because on a slope its corners are at four
         // different heights and the middle is the one the square sits over.
         const top = world?.heightAt(hover.gx + 0.5, hover.gy + 0.5) ?? 0;
-        const stack = world?.wallStack(hover.gx, hover.gy) ?? 0;
-        cursor.position.set(
-          hover.gx + 0.5,
-          top * LEVEL_H + stack * WALL_PREVIEW_H + 0.04,
-          hover.gy + 0.5,
-        );
+        cursor.position.set(hover.gx + 0.5, top * LEVEL_H + 0.04, hover.gy + 0.5);
       } else {
         cursor.setEnabled(false);
       }
 
+      // The ghost stands where the thing would land: on the pointer, snapped
+      // the way the drop will be, turned the way it will be. Turned about its
+      // middle, which is half a tile in from where its node is.
       if (preview) {
         preview.setEnabled(Boolean(hover));
-        if (hover) preview.position.set(hover.gx, previewY, hover.gy);
+        if (hover) {
+          const at =
+            hover.x === undefined || hover.z === undefined
+              ? { gx: hover.gx, gy: hover.gy }
+              : snapSpot(hover.x, hover.z, snap);
+          previewPivot.position.set(at.gx + 0.5, previewY, at.gy + 0.5);
+          previewPivot.rotation.y = placeTurn * DEG_;
+          preview.position.set(-0.5, 0, -0.5);
+        }
       }
     },
 

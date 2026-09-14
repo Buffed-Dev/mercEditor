@@ -3,11 +3,12 @@ import { toolById as terrainToolById } from '../terrain/tools.ts';
 import { BRUSHES } from '../document.ts';
 import type { MapDocument } from '../document.ts';
 import type { MapObject } from '../../src/data/mapFormat.ts';
+import type { Transform } from '../../src/data/transform.ts';
+import { snapSpot, type GizmoMode } from '../gizmos.ts';
 import type { CursorMode, MapEditor } from '../editor.ts';
 import { say } from '../state/status';
 import { useSelection, type Selection } from '../state/selection';
 import { isTerrainTool, toolById, useTools, type ToolId } from '../state/tools';
-import { headingToDegrees, headingToFace } from './heading';
 
 /**
  * What a click on the map means.
@@ -24,7 +25,18 @@ import { headingToDegrees, headingToFace } from './heading';
  * panel around it.
  */
 
-type Tile = { gx: number; gy: number };
+/** A tile, and the exact point on it the pointer is over. See `Cell` in editor.ts. */
+type Tile = { gx: number; gy: number; x?: number; z?: number };
+
+/**
+ * Where a thing is put down: on the point under the pointer, snapped as the
+ * snap settings say. Only terrain is tiles; a chunk is a rectangle of terrain,
+ * so it keeps to whole ones.
+ */
+const spot = (tile: Tile, whole = false): { gx: number; gy: number } =>
+  whole || tile.x === undefined || tile.z === undefined
+    ? { gx: tile.gx, gy: tile.gy }
+    : snapSpot(tile.x, tile.z, useTools.getState().snap);
 
 /** The document, under the name this file has always called it. */
 type MapDoc = MapDocument;
@@ -33,10 +45,26 @@ type MapDoc = MapDocument;
 const listsOf = (map: MapDoc['map']): Record<string, MapObject[] | undefined> =>
   map as unknown as Record<string, MapObject[] | undefined>;
 
+/**
+ * What of a transform a list keeps.
+ *
+ * Only an object and a prefab carry all nine numbers. A light turns by its
+ * compass bearing rather than a rotation, so a turn about Y goes there; the
+ * rest stand somewhere and that is all.
+ */
+function patchFor(list: string, to: Transform): Record<string, unknown> {
+  if (list === 'props' || list === 'prefabs') return { ...to };
+  const place = { gx: to.gx, gy: to.gy, lift: to.lift };
+  if (list === 'lights') return { gx: to.gx, gy: to.gy, azimuth: to.rot };
+  return place;
+}
+
 /** The cursor the 3D view should draw, for each tool. */
 const CURSOR: Record<ToolId, CursorMode> = {
   select: 'select',
   move: 'move',
+  rotate: 'select',
+  scale: 'select',
   place: 'paint',
   erase: 'erase',
   'terrain.height': 'terrain',
@@ -45,19 +73,37 @@ const CURSOR: Record<ToolId, CursorMode> = {
   'terrain.select': 'terrain',
 };
 
-/** Which field, if any, holds the selected thing's facing. */
-function facingField(doc: MapDoc | null, selection: Selection): string | null {
-  if (!doc || !selection) return null;
-  if (selection.list === 'torches') return 'face';
-  const list = listsOf(doc.map)[selection.list];
-  const entry = selection.index === undefined ? null : list?.[selection.index];
-  if (selection.list === 'lights' && entry && 'azimuth' in (entry as object)) return 'azimuth';
-  return null;
+/**
+ * Where a selected thing currently sits on the grid, or null if it is not the
+ * kind of thing that sits anywhere.
+ *
+ * Read before the document is written, so a drag can work out how far the thing
+ * moved and slide what is drawn by exactly that.
+ */
+function positionOf(doc: MapDoc, selection: Selection): { gx: number; gy: number } | null {
+  if (!selection) return null;
+  const entry =
+    selection.list === 'spawns' && selection.key !== undefined
+      ? doc.map.spawns?.[selection.key]
+      : selection.index === undefined
+        ? null
+        : listsOf(doc.map)[selection.list]?.[selection.index];
+  const at = entry as { gx?: number; gy?: number } | null | undefined;
+  return at && typeof at.gx === 'number' && typeof at.gy === 'number'
+    ? { gx: at.gx, gy: at.gy }
+    : null;
 }
+
+
+/** Which handles a tool puts on the selection, if any. */
+const GIZMO: Partial<Record<ToolId, GizmoMode>> = { move: 'move', rotate: 'rotate', scale: 'scale' };
 
 export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
   const tool = useTools((state) => state.tool);
   const brushId = useTools((state) => state.brush);
+  const terrainOptions = useTools((state) => state.terrainOptions);
+  const snap = useTools((state) => state.snap);
+  const placeTurn = useTools((state) => state.placeTurn);
   const select = useSelection((state) => state.select);
   const selection = useSelection((state) => state.selection);
 
@@ -66,6 +112,16 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
   // would be churn, and a handler closed over a stale tool would act on the
   // tool you had a moment ago.
   const live = useRef({ tool, brushId, doc, editor, select });
+  /**
+   * The brush footprint redraw, reachable from outside the handlers.
+   *
+   * The outline follows the settings as well as the pointer, and the settings
+   * are changed in a popover standing over the map -- so at the moment the
+   * brush grows, the pointer is on the popover rather than on a tile and no
+   * pointermove is coming. Held here so the effect below can ask for the same
+   * redraw the pointer would have.
+   */
+  const redrawBrush = useRef<(tile: Tile) => void>(() => {});
   live.current = { tool, brushId, doc, editor, select };
 
   /** State that belongs to a gesture rather than to a render. */
@@ -87,11 +143,24 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
     editor.setInterpolate?.(Boolean(terrain && terrainToolById(terrain).continuous));
   }, [editor, tool, brushId]);
 
-  // The turn handle is only worth drawing when there is something for it to
-  // write to. A portal, a monster and a spawn look the same from every side.
+  // A brush that grew has to show it before the pointer moves again: the size
+  // is changed on the tool itself, which stands over the map, so the pointer
+  // is on the popover at the moment it changes. Redrawn against the tile it
+  // was last over, which is where the outline already is.
   useEffect(() => {
-    editor?.setRotatable?.(Boolean(facingField(doc, selection)));
-  }, [editor, doc, selection]);
+    if (editor) redrawBrush.current(editor.hover as Tile);
+  }, [editor, tool, terrainOptions]);
+
+  // Which handles, and what they land on.
+  useEffect(() => {
+    editor?.setGizmoMode(GIZMO[tool] ?? null);
+  }, [editor, tool]);
+  useEffect(() => {
+    editor?.setSnap(snap);
+  }, [editor, snap]);
+  useEffect(() => {
+    editor?.setPlaceTurn(placeTurn);
+  }, [editor, placeTurn]);
 
   // Mirror the selection into the 3D view, which draws the handles on it.
   useEffect(() => {
@@ -117,6 +186,54 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       say,
     });
 
+    /**
+     * Just enough of a context to ask a tool what it *would* touch.
+     *
+     * `terrainContext` cannot be used for this. It resolves the chosen terrain
+     * to a grid value, and resolving one the map has not used yet adds it to
+     * the map's terrain table — so building one on every pointer move would
+     * mean sweeping across the canvas quietly edited the document. A preview is
+     * a question, not an edit, and the two tools that answer it read only the
+     * grid and their own settings.
+     */
+    const previewContext = (current: MapDoc, opts: Record<string, unknown>) => ({
+      grid: current.terrain,
+      opts,
+    });
+
+    /**
+     * The footprint the brush would cover, under the pointer.
+     *
+     * Drawn from the tool's own `preview`, which is the same function the drag
+     * uses — so what is outlined cannot drift from what a click would actually
+     * write, and it is clipped at the edges of the map and follows the ground
+     * for free.
+     *
+     * Only when it covers more than the one tile the cursor already marks: at a
+     * brush of one the square outline and the tile cursor are the same square,
+     * drawn twice.
+     */
+    const hoverBrush = (tile: Tile) => {
+      const current = live.current.doc;
+      if (!current) return;
+      // Mid-gesture the stroke is already drawing this, with an anchor this
+      // does not have.
+      if (gesture.current.stroke) return;
+
+      const active = live.current.tool;
+      if (!tile || !isTerrainTool(active)) {
+        editor.setCellOverlay('brush', []);
+        return;
+      }
+
+      const spec = terrainToolById(toolById(active).terrainTool ?? 'paint');
+      const ctx = previewContext(current, useTools.getState().terrainOptions[spec.id] ?? {});
+      const cells = spec.preview?.(ctx as never, tile as never) ?? [];
+      editor.setCellOverlay('brush', cells.length > 1 ? cells : [], current.terrain);
+    };
+
+    redrawBrush.current = hoverBrush;
+
     const terrainDown = (current: MapDoc, tile: Tile) => {
       const { terrainId, terrainOptions } = useTools.getState();
       const spec = terrainToolById(toolById(live.current.tool).terrainTool ?? 'paint');
@@ -136,6 +253,15 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       const ctx = terrainContext(current, terrainId, terrainOptions[spec.id] ?? {});
       spec.onMove?.(ctx as never, tile as never);
       marks(current, tile, ctx);
+      // The stroke has already written the grid -- `set` mutates it on the spot
+      // -- so the only thing standing between a drag and the paint appearing
+      // under it was that nobody told the view. This says so. It sets a flag
+      // the render loop drains once a frame, so a burst of pointer events is
+      // still one refresh, and the refresh keeps its meshes and its materials.
+      //
+      // The undo entry still waits for `terrainUp`: one drag is one thing you
+      // did, however many cells and however many events it took.
+      editor.invalidateTerrain();
     };
 
     const terrainUp = (current: MapDoc) => {
@@ -170,7 +296,8 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       // The start marker is a named spawn rather than a character in the grid,
       // so placing it is setting one rather than painting terrain.
       if (brush.id === 'spawn') {
-        if (current.setStart(tile.gx, tile.gy)) editor.invalidate();
+        const at = spot(tile);
+        if (current.setStart(at.gx, at.gy)) editor.invalidate();
         return true;
       }
 
@@ -178,8 +305,10 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       // handled above, has none.
       if (!brush.list) return false;
 
-      const error = current.place(tile.gx, tile.gy, brush, {
+      const at = spot(tile, brush.list === 'chunks');
+      const error = current.place(at.gx, at.gy, brush, {
         ...useTools.getState().options[brush.id],
+        rot: useTools.getState().placeTurn,
       });
       if (error) {
         say(error, 'error');
@@ -222,12 +351,20 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       const checkpointed = !held.committed;
       held.committed = true;
 
+      // Read before the write, so the step is the difference between the two.
+      const before = positionOf(current, held);
+      const at = spot(tile, held.list === 'chunks');
       if (held.list === 'spawns' && held.key !== undefined) {
-        current.moveSpawn(held.key, tile.gx, tile.gy, checkpointed);
+        current.moveSpawn(held.key, at.gx, at.gy, checkpointed);
       } else if (held.index !== undefined) {
-        current.updateObject(held.list, held.index, { gx: tile.gx, gy: tile.gy }, checkpointed);
+        current.updateObject(held.list, held.index, at, checkpointed);
       }
-      editor.invalidate();
+      // Slide what is already drawn. `release` rebuilds once at the end, which
+      // is what settles the height and anything else the slide only
+      // approximated -- and what a thing that cannot be slid falls back to.
+      if (!before || !editor.nudge(held, at.gx - before.gx, at.gy - before.gy)) {
+        editor.invalidate();
+      }
     };
 
     editor.on('paint', ((tile: Tile, first: boolean) => {
@@ -256,6 +393,8 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       }
     }) as never);
 
+    editor.on('hover', ((tile: Tile) => hoverBrush(tile)) as never);
+
     editor.on('erase', ((tile: Tile, first: boolean) => {
       const current = live.current.doc;
       if (current) eraseAt(current, tile, first);
@@ -267,8 +406,12 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       // is where a rectangle is finally written, and where one press becomes
       // one undo step.
       if (current && isTerrainTool(live.current.tool)) return terrainUp(current);
+      // A drag slid what was drawn rather than rebuilding it on every move, so
+      // this is where the view is made authoritative again.
+      const dragged = Boolean(gesture.current.dragging?.committed) || gesture.current.handleDrag;
       gesture.current.dragging = null;
       gesture.current.handleDrag = false;
+      if (dragged) editor.invalidate();
     }) as never);
 
     // Handed straight from the raycast rather than worked back from a tile, so
@@ -276,37 +419,31 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
     // a moment before. Null is a click on nothing, which clears the selection.
     editor.on('pick', ((picked: Selection) => live.current.select(picked ?? null)) as never);
 
-    editor.on('drag', ((gx: number, gy: number) => {
+    // A handle mid-drag: the document is written every frame and the view is
+    // asked to show it without being built again. One checkpoint for the whole
+    // drag, so undo puts it back where it started.
+    editor.on('transform', ((to: Transform) => {
       const current = live.current.doc;
       const held = useSelection.getState().selection;
-      if (!current || !held || !current.inBounds(gx, gy)) return;
+      if (!current || !held) return;
+      if (!current.inBounds(Math.floor(to.gx), Math.floor(to.gy))) return;
 
       const checkpointed = !gesture.current.handleDrag;
       gesture.current.handleDrag = true;
 
       if (held.list === 'spawns' && held.key !== undefined) {
-        current.moveSpawn(held.key, gx, gy, checkpointed);
+        current.moveSpawn(held.key, to.gx, to.gy, checkpointed);
       } else if (held.index !== undefined) {
-        current.updateObject(held.list, held.index, { gx, gy }, checkpointed);
+        current.updateObject(held.list, held.index, patchFor(held.list, to), checkpointed);
       }
-      editor.invalidate();
+      editor.previewTransform();
     }) as never);
 
-    editor.on('turn', ((heading: number) => {
-      const current = live.current.doc;
-      const held = useSelection.getState().selection;
-      const field = facingField(current, held);
-      if (!current || !held || !field || held.index === undefined) return;
-
-      const checkpointed = !gesture.current.handleDrag;
-      gesture.current.handleDrag = true;
-
-      const value =
-        field === 'face'
-          ? headingToFace(heading)
-          : headingToDegrees(heading, useTools.getState().snapTurns);
-
-      current.updateObject(held.list, held.index, { [field]: value }, checkpointed);
+    // Let go: the map is built again, so everything that follows from where a
+    // thing stands -- its shadow, the tiles it blocks -- catches up.
+    editor.on('transformEnd', (() => {
+      if (!gesture.current.handleDrag) return;
+      gesture.current.handleDrag = false;
       editor.invalidate();
     }) as never);
   }, [editor]);

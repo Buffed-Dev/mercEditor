@@ -2,6 +2,7 @@ import { Field } from './Field';
 import { VectorRow } from './VectorRow';
 import { groupFields } from './grouping';
 import type { FieldSpec, FieldValue } from './types';
+import type { Files } from '../ui/FilePicker';
 
 /**
  * A whole descriptor list, rendered.
@@ -13,6 +14,20 @@ import type { FieldSpec, FieldValue } from './types';
  * `onInput` previews and `onChange` commits, all the way down — which is what
  * lets a whole drag be one undo step rather than forty.
  */
+/**
+ * A value, reached by a key that may point one level in.
+ *
+ * `interact.ui` is the panel an object's interact wiring opens. See
+ * `updateObject` in ../document.ts, which writes them back the same way, and
+ * `Engine/src/game/actions/` for why a wiring is a bag rather than loose fields.
+ */
+const at = (values: Record<string, unknown>, key: string): unknown => {
+  const dot = key.indexOf('.');
+  if (dot < 0) return values[key];
+  const bag = values[key.slice(0, dot)] as Record<string, unknown> | undefined;
+  return bag?.[key.slice(dot + 1)];
+};
+
 export function FieldList({
   fields,
   values,
@@ -20,6 +35,7 @@ export function FieldList({
   onChange,
   resolveOptions,
   used,
+  files,
 }: {
   fields: readonly FieldSpec[];
   values: Record<string, unknown>;
@@ -27,6 +43,7 @@ export function FieldList({
   onChange: (key: string, value: FieldValue) => void;
   resolveOptions?: (field: FieldSpec) => readonly (readonly [string, string])[];
   used?: readonly number[];
+  files?: Files;
 }) {
   return (
     <>
@@ -36,7 +53,7 @@ export function FieldList({
             key={row.parts.map((part) => part.key).join('-')}
             label={row.label}
             parts={row.parts}
-            values={row.parts.map((part) => Number(values[part.key] ?? part.default ?? 0))}
+            values={row.parts.map((part) => Number(at(values, part.key) ?? part.default ?? 0))}
             onInput={onInput}
             onChange={onChange}
           />
@@ -44,11 +61,12 @@ export function FieldList({
           <Field
             key={row.field.key}
             field={row.field}
-            value={values[row.field.key] as FieldValue}
+            value={at(values, row.field.key) as FieldValue}
             onInput={(value) => onInput(row.field.key, value)}
             onChange={(value) => onChange(row.field.key, value)}
             resolveOptions={resolveOptions}
             used={used}
+            files={files}
           />
         ),
       )}

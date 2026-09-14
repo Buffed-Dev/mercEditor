@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef } from 'react';
 import {
   DndContext,
   PointerSensor,
@@ -16,28 +16,28 @@ import {
   IconFolder,
   IconChevronDown,
   IconFolderPlus,
+  IconMountain,
   IconPlus,
   IconRefresh,
   IconPackage,
   IconPaint,
   IconPhoto,
   IconSparkles,
-  IconStack2,
 } from '@tabler/icons-react';
 import { Button } from '../ui/Button';
 import { DropdownMenu, MenuItem } from '../ui/Menu';
 import { LIBRARY_KINDS, type LibraryKind } from '../rules/library';
 import {
   crumbs,
-  filterRows,
   libraryRows,
   rowsIn,
   thumbFor,
+  TOP,
   type LibraryRow,
   type LibraryScan,
 } from '../rules/libraryTree.ts';
 import { useLayout } from '../state/layout';
-import { useMaterialThumb } from '../preview/thumbnails.ts';
+import { urlOfGame, useMaterialThumb } from '../preview/thumbnails.ts';
 import { fileUrl } from '../../src/data/assets.ts';
 import styles from './LibraryTree.module.css';
 
@@ -64,29 +64,10 @@ import styles from './LibraryTree.module.css';
 const GLYPHS: Record<string, typeof IconBox> = {
   materials: IconPaint,
   props: IconBox,
-  terrains: IconStack2,
+  terrains: IconMountain,
   vfx: IconSparkles,
   prefabs: IconPackage,
 };
-
-/**
- * How a file path becomes a url, one function per game.
- *
- * Kept rather than built per render because `useMaterialThumb` watches it: a
- * fresh function every render would be a fresh reason to redraw every sphere.
- */
-const URL_OF = new Map<string, (path: string) => string>();
-const urlOfGame = (game: string) => {
-  const held = URL_OF.get(game) ?? ((path: string) => fileUrl(path, game));
-  URL_OF.set(game, held);
-  return held;
-};
-
-/** The chips, in the order they are offered. Files last: it is the leftovers. */
-const CHIPS: readonly { id: string; label: string }[] = [
-  ...LIBRARY_KINDS.map((kind) => ({ id: kind.id as string, label: kind.label })),
-  { id: 'files', label: 'Files' },
-];
 
 export function LibraryTree({
   game,
@@ -100,6 +81,9 @@ export function LibraryTree({
   onNew,
   onRefresh,
   onDelete,
+  onRename,
+  renaming,
+  onRenamed,
 }: {
   game: string;
   scan: LibraryScan | null;
@@ -112,14 +96,27 @@ export function LibraryTree({
   onNew: (kind: LibraryKind) => void;
   onRefresh: () => void;
   onDelete: (row: LibraryRow) => void;
+  /** Name this one in place. */
+  onRename: (row: LibraryRow) => void;
+  /** The row being named in place, by path. See `RenameInput`. */
+  renaming?: string;
+  /** The name typed, or null if it was called off. */
+  onRenamed: (row: LibraryRow, name: string | null) => void;
 }) {
-  const [wanted, setWanted] = useState<ReadonlySet<string>>(new Set());
-  const { folder, setFolder } = useLayout(game);
+  const { folder: kept, setFolder } = useLayout(game);
+
+  // The five top folders are tabs down the side rather than cards at the
+  // root: there is nothing else at the root, and a kind is a place you go to
+  // rather than a folder you open. Anywhere outside one of them lands on the
+  // first tab.
+  const within = (id: LibraryKind) => kept === TOP[id] || kept.startsWith(`${TOP[id]}/`);
+  const tab = LIBRARY_KINDS.find(({ id }) => within(id)) ?? LIBRARY_KINDS[0];
+  const folder = within(tab.id) ? kept : TOP[tab.id];
 
   // Not memoized: the records arrive from a document edited in place, so their
   // identity is stable while their contents are not -- a memo over them would
   // never recompute and a rename would never reach this list.
-  const rows = rowsIn(filterRows(libraryRows(scan, records), wanted), folder);
+  const rows = rowsIn(libraryRows(scan, records), folder);
 
   // A pointer has to travel before a click becomes a drag, or selecting a card
   // by clicking it would start one every time.
@@ -138,93 +135,99 @@ export function LibraryTree({
 
   return (
     <div className={styles.panel}>
-      <nav className={styles.crumbs} aria-label="Folder">
-        {crumbs(folder).map((crumb, at) => (
-          <span key={crumb.path}>
-            {at > 0 && <span className={styles.slash}>/</span>}
+      <div className={styles.tabs} role="tablist" aria-label="Kind">
+        {LIBRARY_KINDS.map((kind) => {
+          const Glyph = GLYPHS[kind.id] ?? IconBox;
+          return (
             <button
+              key={kind.id}
               type="button"
-              className={styles.crumb}
-              disabled={crumb.path === folder}
-              onClick={() => setFolder(crumb.path)}
+              role="tab"
+              className={styles.tab}
+              aria-selected={kind.id === tab.id}
+              title={kind.label}
+              onClick={() => setFolder(TOP[kind.id])}
             >
-              {crumb.name}
+              <Glyph size={16} />
             </button>
-          </span>
-        ))}
-      </nav>
+          );
+        })}
+      </div>
+      <div className={styles.body}>
+        <nav className={styles.crumbs} aria-label="Folder">
+          {/* The tab is the root, so the crumbs start at its folder. */}
+          {crumbs(folder)
+            .slice(1)
+            .map((crumb, at) => (
+              <span key={crumb.path}>
+                {at > 0 && <span className={styles.slash}>/</span>}
+                <button
+                  type="button"
+                  className={styles.crumb}
+                  disabled={crumb.path === folder}
+                  onClick={() => setFolder(crumb.path)}
+                >
+                  {crumb.name}
+                </button>
+              </span>
+            ))}
+        </nav>
 
-      <div className={styles.chips} role="toolbar" aria-label="Filter by type">
-        {CHIPS.map((chip) => (
-          <button
-            key={chip.id}
-            type="button"
-            className={`${styles.chip} ${wanted.has(chip.id) ? styles.chipOn : ''}`}
-            aria-pressed={wanted.has(chip.id)}
-            onClick={() =>
-              setWanted((set) => {
-                const next = new Set(set);
-                if (!next.delete(chip.id)) next.add(chip.id);
-                return next;
-              })
+        <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
+          <div className={styles.grid}>
+            {rows.map((row) => (
+              <Card
+                key={row.path}
+                row={row}
+                thumb={thumbFor(row, records)}
+                game={game}
+                on={row.path === selected}
+                onOpen={() => (row.row === 'folder' ? setFolder(row.path) : onOpen(row))}
+                onImport={() => onImport(row.path)}
+                onDelete={() => onDelete(row)}
+                onRename={() => onRename(row)}
+                renaming={row.path === renaming}
+                onRenamed={(name) => onRenamed(row, name)}
+              />
+            ))}
+            {!rows.length && (
+              <p className={styles.empty}>
+                {scan ? 'Nothing in this folder.' : 'Reading the library…'}
+              </p>
+            )}
+          </div>
+        </DndContext>
+
+        <div className={styles.tools}>
+          {/* Which kind is a question here rather than a mode, because the folder
+              holds all of them at once -- there is no open shelf to infer it
+              from any more. */}
+          <DropdownMenu
+            trigger={
+              <Button variant="quiet">
+                <IconPlus size={14} />
+                New
+                <IconChevronDown size={14} />
+              </Button>
             }
           >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-
-      <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragEnd={onDragEnd}>
-        <div className={styles.grid}>
-          {rows.map((row) => (
-            <Card
-              key={row.path}
-              row={row}
-              thumb={thumbFor(row, records)}
-              game={game}
-              on={row.path === selected}
-              onOpen={() => (row.row === 'folder' ? setFolder(row.path) : onOpen(row))}
-              onImport={() => onImport(row.path)}
-              onDelete={() => onDelete(row)}
-            />
-          ))}
-          {!rows.length && (
-            <p className={styles.empty}>
-              {scan ? 'Nothing in this folder.' : 'Reading the library…'}
-            </p>
-          )}
+            {LIBRARY_KINDS.map((kind) => (
+              <MenuItem key={kind.id} onClick={() => onNew(kind.id)}>
+                {kind.singular}
+              </MenuItem>
+            ))}
+          </DropdownMenu>
+          <Button variant="quiet" onClick={() => onNewFolder(folder)}>
+            <IconFolderPlus size={14} />
+            Folder
+          </Button>
+          {/* The folder is the truth and the editor is not the only thing that
+              writes to it: a migration, a branch change, or somebody dropping a
+              file in with the mouse all happen without asking. Read it again. */}
+          <Button variant="quiet" onClick={onRefresh} title="Read the folder again">
+            <IconRefresh size={14} />
+          </Button>
         </div>
-      </DndContext>
-
-      <div className={styles.tools}>
-        {/* Which kind is a question here rather than a mode, because the folder
-            holds all of them at once -- there is no open shelf to infer it
-            from any more. */}
-        <DropdownMenu
-          trigger={
-            <Button variant="quiet">
-              <IconPlus size={14} />
-              New
-              <IconChevronDown size={14} />
-            </Button>
-          }
-        >
-          {LIBRARY_KINDS.map((kind) => (
-            <MenuItem key={kind.id} onClick={() => onNew(kind.id)}>
-              {kind.singular}
-            </MenuItem>
-          ))}
-        </DropdownMenu>
-        <Button variant="quiet" onClick={() => onNewFolder(folder)}>
-          <IconFolderPlus size={14} />
-          Folder
-        </Button>
-        {/* The folder is the truth and the editor is not the only thing that
-            writes to it: a migration, a branch change, or somebody dropping a
-            file in with the mouse all happen without asking. Read it again. */}
-        <Button variant="quiet" onClick={onRefresh} title="Read the folder again">
-          <IconRefresh size={14} />
-        </Button>
       </div>
     </div>
   );
@@ -244,6 +247,9 @@ function Card({
   onOpen,
   onImport,
   onDelete,
+  onRename,
+  renaming,
+  onRenamed,
 }: {
   row: LibraryRow;
   thumb: ReturnType<typeof thumbFor>;
@@ -252,6 +258,9 @@ function Card({
   onOpen: () => void;
   onImport: () => void;
   onDelete: () => void;
+  onRename: () => void;
+  renaming: boolean;
+  onRenamed: (name: string | null) => void;
 }) {
   const folder = row.row === 'folder';
   const drag = useDraggable({ id: row.path });
@@ -330,6 +339,11 @@ function Card({
               </button>
             }
           >
+            {/* A record's name is its filename, and there is nowhere else to
+                type it: the detail panel has no name box. */}
+            {(row.row === 'record' || (row.row === 'folder' && row.holds)) && (
+              <MenuItem onClick={onRename}>Rename</MenuItem>
+            )}
             <MenuItem danger onClick={onDelete}>
               Delete
             </MenuItem>
@@ -337,9 +351,11 @@ function Card({
         </span>
       </div>
 
-      <span className={`${styles.name} ${unimported ? styles.quiet : ''}`}>
-        {row.row === 'record' ? row.label : row.name}
-      </span>
+      {renaming ? (
+        <RenameInput value={named(row)} onDone={onRenamed} />
+      ) : (
+        <span className={`${styles.name} ${unimported ? styles.quiet : ''}`}>{named(row)}</span>
+      )}
 
       {/* A file no record names. Not a mistake in itself -- it is how a file
           arrives -- but it is invisible to the game until something claims it,
@@ -394,4 +410,55 @@ function MaterialFace({
 }) {
   const made = useMaterialThumb(record, urlOfGame(game));
   return made ? <img className={styles.thumb} src={made} alt="" /> : <>{fallback}</>;
+}
+
+/** What a card calls itself: a record's name, or a folder's own. */
+function named(row: LibraryRow): string {
+  if (row.row === 'record') return row.label;
+  return row.row === 'folder' ? (row.label ?? row.name) : row.name;
+}
+
+/**
+ * Naming a card in place, the way a file manager names a new folder: the box
+ * is already open with the name selected, so the first thing you type replaces
+ * it and Enter is the only key you need.
+ *
+ * Every pointer event is stopped here rather than let through. The card around
+ * it is a drag handle and a click target, so without this, clicking into the
+ * box to fix a typo starts dragging the record into a folder.
+ */
+function RenameInput({
+  value,
+  onDone,
+}: {
+  value: string;
+  onDone: (name: string | null) => void;
+}) {
+  // Escape has to be remembered rather than acted on: it moves focus out, and
+  // the blur that follows would otherwise commit what Escape just refused.
+  const called = useRef(false);
+  // Blurred through a ref rather than `event.currentTarget`, which React has
+  // already let go of by the time the key handler runs.
+  const box = useRef<HTMLInputElement>(null);
+  return (
+    <input
+      ref={box}
+      className={styles.rename}
+      defaultValue={value}
+      autoFocus
+      aria-label="Name"
+      onFocus={(event) => event.target.select()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key !== 'Enter' && event.key !== 'Escape') return;
+        // Either key ends it; only one of them keeps what was typed. The blur
+        // that follows is what commits, so there is one path out.
+        called.current = event.key === 'Escape';
+        box.current?.blur();
+      }}
+      onBlur={(event) => onDone(called.current ? null : event.target.value)}
+    />
+  );
 }

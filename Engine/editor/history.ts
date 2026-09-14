@@ -136,3 +136,28 @@ export function createHistory(limit = LIMIT) {
 }
 
 export type History = ReturnType<typeof createHistory>;
+/**
+ * Show what an undo or redo just did, as narrowly as it can be shown.
+ *
+ * `undo` and `redo` hand back the rectangle the entry touched, or null when the
+ * entry cannot say — and cannot say is every entry except a terrain stroke,
+ * which is the only kind that tracks one. So a rectangle means the ground moved
+ * and nothing else did, which the view can put right by refilling instance
+ * buffers; null means assume the worst and rebuild.
+ *
+ * Here rather than in each of the eight places that undo something, because
+ * that is eight chances to write the condition backwards.
+ *
+ * @returns whether there was anything to undo, so a caller can tell a step that
+ *   did nothing from one that did.
+ */
+export function redraw(
+  result: Rect | null | false,
+  view: { invalidate: () => void; invalidateTerrain: () => void },
+): boolean {
+  if (result === false) return false;
+  if (result) view.invalidateTerrain();
+  else view.invalidate();
+  return true;
+}
+

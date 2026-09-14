@@ -78,6 +78,29 @@ type Bucket = {
   mesh: Mesh;
   matrices: Float32Array;
   count: number;
+  /** What it is a bucket *of*, so it can be repainted without parsing its key. */
+  at: number;
+  tier: 'top' | 'sub';
+  kind: number;
+};
+
+/** A paintable ground is a PBRCustomMaterial, which is a PBRMaterial. */
+type Decals = { paintable(name: string, scene: unknown, options?: object): PBRMaterial } | null;
+
+/**
+ * Everything the layer draws *against*, as opposed to what it draws.
+ *
+ * Held in one place and swappable, because the layer now outlives the view
+ * around it — see `retarget`. Every one of these is a different object after a
+ * rebuild even when the ground has not moved an inch: the world is made afresh,
+ * the lights and their shadow generators are new, and so is the decal registry.
+ */
+type Against = {
+  world: World;
+  env: { soilColor: number; floorColor: number };
+  content: Content;
+  shadows: Shadows | null;
+  decals: Decals;
 };
 
 export function createTerrainLayer(
@@ -86,31 +109,52 @@ export function createTerrainLayer(
   env: { soilColor: number; floorColor: number },
   content: Content = {},
   shadows: Shadows | null = null,
-  // A paintable ground is a PBRCustomMaterial, which is a PBRMaterial: saying
-  // so is what lets the tint below be written without asking first.
-  decals: {
-    paintable(name: string, scene: unknown, options?: object): PBRMaterial;
-  } | null = null,
+  decals: Decals = null,
 ) {
   const root = new TransformNode('terrain', scene);
-  const owned: { dispose(): void }[] = [];
 
-  const terrainDefs = content.terrains?.length ? content.terrains : TERRAINS;
-  const byId = terrainsById(terrainDefs);
+  let now: Against = { world, env, content, shadows, decals };
+
+  let terrainDefs = now.content.terrains?.length ? now.content.terrains : TERRAINS;
+  let byId = terrainsById(terrainDefs);
   // Kind 1 is the map's first terrain, so this is offset by one throughout.
   // A map naming a terrain the rules no longer define keeps its cells and
   // draws them in the fallback colour rather than losing them.
-  const terrainOf = (kind: number): Terrain | null => byId.get(world.terrainIds[kind - 1]) ?? null;
+  const terrainOf = (kind: number): Terrain | null =>
+    byId.get(now.world.terrainIds[kind - 1]) ?? null;
 
   const materialOf = (id: string) =>
-    (content.materials ? content.materials.find((m) => m.id === id) : materialById(id)) ?? null;
+    (now.content.materials ? now.content.materials.find((m) => m.id === id) : materialById(id)) ??
+    null;
   // A path under assets/, not an asset id: a material names its pictures
   // relative to its own folder and resolves them before asking for a url.
-  const urlOf = (path: string) => fileUrl(path, content.game);
+  const urlOf = (path: string) => fileUrl(path, now.content.game);
 
-  let templates = buildTemplates(normalizeRim(world.map?.terrainRim), LEVEL_H);
+  /** What the templates below were baked from, so a retarget can tell. */
+  let rimSource: unknown = world.map?.terrainRim;
+  let templates = buildTemplates(normalizeRim(rimSource as readonly RimRing[] | null), LEVEL_H);
   const buckets = new Map<string, Bucket>();
   const materials = new Map<string, Surface>();
+
+  /**
+   * The grid as it was when these buckets were last filled.
+   *
+   * A copy, not a reference. The editor's grid is decoded once and written in
+   * place ever after — the document, the world and this all hold the same two
+   * typed arrays — so there is nothing to compare a later state *against*
+   * unless it was kept. Two bytes a tile, which on the biggest map anyone will
+   * hand-author is a few kilobytes.
+   */
+  let drawn: { cols: number; rows: number; kind: Uint8Array; level: Uint8Array } | null = null;
+
+  /** Whether the ground has moved since the buffers were last filled. */
+  function moved(grid: TerrainGrid): boolean {
+    if (!drawn || drawn.cols !== grid.cols || drawn.rows !== grid.rows) return true;
+    for (let i = 0; i < grid.kind.length; i += 1) {
+      if (drawn.kind[i] !== grid.kind[i] || drawn.level[i] !== grid.level[i]) return true;
+    }
+    return false;
+  }
 
   // --- materials ----------------------------------------------------------
 
@@ -130,7 +174,7 @@ export function createTerrainLayer(
     if (hit) return hit;
 
     const named = id ? materialOf(id) : null;
-    const tint = terrain?.tint ?? (tier === 'top' ? env.floorColor : env.soilColor);
+    const tint = terrain?.tint ?? (tier === 'top' ? now.env.floorColor : now.env.soilColor);
 
     let material: Surface;
     if (tier === 'sub' && named) {
@@ -142,11 +186,34 @@ export function createTerrainLayer(
       // Both arms are lit materials -- `paintable` builds a PBRCustomMaterial
       // and `surface` a PBRMaterial -- so the tint has somewhere to go without
       // asking first whether this one has an albedo.
-      const lit =
-        tier === 'top' && decals
-          ? decals.paintable(`terrain:${cacheKey}`, scene, { roughness: 0.9 })
-          : surface(`terrain:${cacheKey}`, scene, { color: tint, roughness: 0.9 });
-      owned.push(lit);
+      //
+      // Kept by the scene rather than built per layer. A material's shader has
+      // to compile before anything wearing it is drawn *at all*, so a top face
+      // rebuilt on every edit is a floor that vanishes for as long as that
+      // compile takes -- which is what made the ground blink under the brush.
+      // The ground's own material has been kept for exactly this reason for as
+      // long as it has existed (see `decals.material`); this is that same
+      // bargain for the blocks standing on it.
+      //
+      // Keyed by what the material is made *of*, never by `kind`: a kind is an
+      // index into this map's terrain list and the cache outlives the map, so
+      // keying on it would hand the next map the material this one built for
+      // whichever terrain it happened to list third.
+      // `paintable` is in the key because it picks the material's *class*, and
+      // the cache cannot hand a plain PBRMaterial to a caller that asked for a
+      // paintable one. Today the only layer built without decals is the asset
+      // preview, which has a Scene of its own -- but the cache is what makes
+      // that a coincidence rather than a rule, so it is written down here.
+      const paintable = tier === 'top' && now.decals;
+      const key = `terrain:${tier}:${paintable ? 'decal' : 'plain'}:${named ? materialKey(named) : `tint:${tint}`}`;
+      const lit = keep(scene, key, () =>
+        paintable
+          ? paintable.paintable(key, scene, { roughness: 0.9 })
+          : surface(key, scene, { color: tint, roughness: 0.9 }),
+      );
+      // Re-applied rather than assumed, exactly as the `sub` arm above does:
+      // the cache hands back what the first caller built, and a colour or a
+      // picture edited in the library since then still has to land on it.
       if (named) applyMaterial({ ...named, unlit: false }, lit, scene, urlOf);
       else lit.albedoColor = colorOf(tint);
       material = lit;
@@ -180,9 +247,9 @@ export function createTerrainLayer(
     // editor's "which tile is under the pointer" answers from the base
     // geometry sitting at the origin.
     mesh.thinInstanceEnablePicking = true;
-    if (tier === 'top') shadows?.add(mesh);
+    if (tier === 'top') now.shadows?.add(mesh);
 
-    const bucket: Bucket = { mesh, matrices: new Float32Array(16 * 64), count: 0 };
+    const bucket: Bucket = { mesh, matrices: new Float32Array(16 * 64), count: 0, at, tier, kind };
     buckets.set(key, bucket);
     return bucket;
   }
@@ -204,7 +271,7 @@ export function createTerrainLayer(
 
   /** Rebuild every instance buffer from the grid. Meshes and materials survive. */
   function refresh(): void {
-    const grid = world.terrain;
+    const grid = now.world.terrain;
     for (const bucket of buckets.values()) bucket.count = 0;
 
     for (let gy = 0; gy < grid.rows; gy += 1) {
@@ -228,6 +295,12 @@ export function createTerrainLayer(
     }
 
     for (const bucket of buckets.values()) upload(bucket);
+    drawn = {
+      cols: grid.cols,
+      rows: grid.rows,
+      kind: Uint8Array.from(grid.kind),
+      level: Uint8Array.from(grid.level),
+    };
   }
 
   function upload(bucket: Bucket): void {
@@ -257,10 +330,72 @@ export function createTerrainLayer(
    * just a full rebuild of the layer.
    */
   function setRim(rim: readonly RimRing[] | null | undefined): void {
+    rimSource = rim;
     templates = buildTemplates(normalizeRim(rim), LEVEL_H);
     for (const bucket of buckets.values()) bucket.mesh.dispose(false, false);
     buckets.clear();
     refresh();
+  }
+
+  /**
+   * Point the layer at a new world, and keep the ground it already has.
+   *
+   * The map view around this is thrown away and built again on every click —
+   * placing something, erasing it, undoing — and rebuilding the ground with it
+   * was three quarters of what that cost: thirty-odd meshes and their vertex
+   * buffers made again to draw a grid that had not changed. Nothing about the
+   * ground depends on where a crate is standing, so it stays.
+   *
+   * What *is* new every time is everything it is drawn against, and each one
+   * has a way of going wrong quietly:
+   *
+   * - the **world** is a fresh object round the same grid, and the closure held
+   *   the old one — so a layer that kept it would redraw the map you had before
+   *   the edit;
+   * - the **shadow generators** went with the old lights, and a caster is
+   *   registered on a generator rather than flagged on a mesh — so without
+   *   re-registering, the ground silently stops casting;
+   * - the **materials** are worked out once per bucket, when the bucket is
+   *   made. A terrain repainted in the library changes nothing about the grid,
+   *   so nothing would ask again. That is the trap, and it is why every bucket
+   *   is repainted here rather than only the ones the grid touched.
+   *
+   * The rim is the one thing that changes the geometry, so it is compared and
+   * the templates rebaked only when it actually moved.
+   */
+  function retarget(next: Against): void {
+    now = next;
+    terrainDefs = now.content.terrains?.length ? now.content.terrains : TERRAINS;
+    byId = terrainsById(terrainDefs);
+
+    // Before either branch below, because both of them ask what a bucket wears
+    // and the answer is what may have changed. `setRim` keeps this cache on
+    // purpose -- it is dragged, and re-resolving a material per frame is what
+    // that would cost -- so clearing it is this function's business, not its.
+    materials.clear();
+
+    const rim = now.world.map?.terrainRim;
+    if (rim !== rimSource) {
+      // A different edge profile is different geometry, so the buckets go and
+      // are built again -- painted from the cleared cache as they are made,
+      // and registered with the new shadows. Everything else survives.
+      setRim(rim);
+      return;
+    }
+
+    // Worked out again from the tables as they are now, and put back on the
+    // meshes that are already wearing the old answer.
+    for (const bucket of buckets.values()) {
+      bucket.mesh.material = materialFor(bucket.kind, bucket.tier, shapeOf(bucket.at).rot);
+      if (bucket.tier === 'top') now.shadows?.add(bucket.mesh);
+    }
+
+    // And only walk the grid if the ground actually moved. Most rebuilds are a
+    // click on something standing *on* it, and refilling every buffer to draw
+    // the same blocks in the same places is the bulk of what this used to cost.
+    // Compared against a copy rather than against the world we had before,
+    // because in the editor they are the same two arrays -- see `drawn`.
+    if (moved(now.world.terrain)) refresh();
   }
 
   refresh();
@@ -269,6 +404,7 @@ export function createTerrainLayer(
     root,
     refresh,
     setRim,
+    retarget,
     /** How many draw calls the ground currently costs. Read by the debug panel. */
     get drawCalls() {
       let live = 0;
@@ -278,7 +414,6 @@ export function createTerrainLayer(
     dispose() {
       for (const bucket of buckets.values()) bucket.mesh.dispose(false, false);
       buckets.clear();
-      for (const thing of owned) thing.dispose();
       root.dispose(false, false);
     },
   };

@@ -18,7 +18,7 @@ import {
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
 import { PREFABS, defaultPrefab, normalizePrefab } from '../src/data/prefabs.ts';
-import { ID_PATTERN, idFromLabel, LIBRARY_FOLDERS } from './serializeData.ts';
+import { ID_PATTERN, idFromLabel, LIBRARY_FILE_ONLY, LIBRARY_FOLDERS } from './serializeData.ts';
 
 // Where a name becomes an id lives beside where it becomes a filename, so
 // the two cannot drift. Re-exported because this is where callers look.
@@ -140,10 +140,21 @@ const makers: Record<string, ((id: string) => unknown) | undefined> = {
  * Only the first name it gets. Renaming the record afterwards does not move
  * the folder — the two are separate on purpose, so that filing something under
  * a name you later change does not rewrite paths under it.
+ *
+ * A file-only kind gets no folder of its own: it is written straight into
+ * `into`, which is wherever you were standing. See `LIBRARY_FILE_ONLY`.
  */
-function folderFor(list: string, entries: readonly RuleRecord[], label: string): string {
+function folderFor(
+  list: string,
+  entries: readonly RuleRecord[],
+  label: string,
+  into = '',
+): string {
   const top = LIBRARY_FOLDERS[list];
   if (!top) return '';
+  // Where you are, if that is somewhere this kind lives; otherwise the top.
+  const base = into === top || into.startsWith(`${top}/`) ? into : top;
+  if (LIBRARY_FILE_ONLY.has(list)) return base;
   const stem =
     String(label)
       .split(/[^A-Za-z0-9]+/)
@@ -152,7 +163,7 @@ function folderFor(list: string, entries: readonly RuleRecord[], label: string):
       .join('') || 'Record';
   const taken = new Set(entries.map((entry) => String(entry.path ?? '').toLowerCase()));
   for (let n = 1; ; n += 1) {
-    const path = `${top}/${stem}${n > 1 ? n : ''}`;
+    const path = `${base}/${stem}${n > 1 ? n : ''}`;
     if (!taken.has(path.toLowerCase())) return path;
   }
 }
@@ -329,6 +340,11 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       ]);
     },
 
+    /** Archetype ids, for the picker that makes a prefab an actor. */
+    archetypeOptions(): [string, string][] {
+      return listOf('archetypes').map((one): [string, string] => [text(one.id), text(one.label) || text(one.id)]);
+    },
+
     vfxOptions(): [string, string][] {
       return listOf('vfx').map((effect): [string, string] => [text(effect.id), text(effect.label) || text(effect.id)]);
     },
@@ -357,7 +373,8 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
         .map((item): [string, string] => [text(item.id), text(item.label) || text(item.id)]);
     },
 
-    add(list: string) {
+    /** `into` is the folder you are looking at, for a kind that files by hand. */
+    add(list: string, into = '') {
       const stem: Record<string, string> = {
         attributes: 'attribute',
         effects: 'effect',
@@ -382,7 +399,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       // A library record is a folder, so it gets one now rather than at save:
       // a record with nowhere to live is one a save would have to skip, and a
       // save that quietly skips something is the worst kind.
-      const path = folderFor(list, listOf(list), id);
+      const path = folderFor(list, listOf(list), id, into);
       if (path) entry.path = path;
       data()[list].push(entry);
       return { list, index: data()[list].length - 1 };

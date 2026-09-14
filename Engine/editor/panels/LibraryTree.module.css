@@ -7,10 +7,49 @@
    the filter stays where you left it while you read the folder. */
 .panel {
   display: flex;
-  flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* One kind per tab, down the left: the top folders, as places rather than
+   cards. */
+.tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 3px;
+  border-right: 1px solid var(--e-line);
+}
+
+.tab {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--e-fg-3);
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--e-work);
+  color: var(--e-fg);
+}
+
+.tab[aria-selected='true'] {
+  background: var(--e-raised);
+  color: var(--e-accent);
 }
 
 .grid {
@@ -100,6 +139,21 @@
   white-space: nowrap;
 }
 
+/* Naming a card in place, the way a new folder is named in a file manager.
+   Sized like the name it replaces so the card does not jump. */
+.rename {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 1px 3px;
+  font: inherit;
+  color: var(--e-fg);
+  background: var(--e-input);
+  border: 1px solid var(--e-accent);
+  border-radius: var(--e-r);
+  outline: none;
+  text-align: center;
+}
+
 /* A file nothing has claimed, and a record naming a file that is gone. Both
    are disagreements between the folder and the records in it, which is the one
    thing this panel exists to show. */
@@ -181,37 +235,6 @@
 
 .slash {
   color: var(--e-fg-3);
-}
-
-/* The type filter. Chips rather than tabs, because more than one can be on and
-   because "all of them" is the state with none pressed. */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 6px;
-  border-bottom: 1px solid var(--e-line);
-}
-
-.chip {
-  padding: 2px 8px;
-  border: 1px solid var(--e-line);
-  border-radius: 10px;
-  background: transparent;
-  color: var(--e-fg-2);
-  font: inherit;
-  font-size: var(--e-fs-5);
-  cursor: pointer;
-}
-
-.chip:hover {
-  color: var(--e-fg);
-}
-
-.chipOn {
-  background: var(--e-raised);
-  border-color: var(--e-fg-3);
-  color: var(--e-fg);
 }
 
 .tools {

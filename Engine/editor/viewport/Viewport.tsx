@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode, type RefObject } from 'react';
-import { IconGridDots, IconMaximize } from '@tabler/icons-react';
+import { IconActivity, IconGridDots, IconMaximize } from '@tabler/icons-react';
 import { IconButton } from '../ui/Button';
+import { Stats } from './Stats';
+import type { Scene } from '@babylonjs/core/scene.js';
 import styles from './Viewport.module.css';
 
 /** The id the input reader uses to tell the map apart from the interface. */
@@ -15,6 +17,7 @@ export const VIEWPORT_ID = 'ed-viewport';
  */
 export function Viewport({
   hostRef,
+  scene,
   gridVisible,
   onToggleGrid,
   onFrameAll,
@@ -22,6 +25,8 @@ export function Viewport({
   children,
 }: {
   hostRef: RefObject<HTMLDivElement | null>;
+  /** What to measure, once Babylon is up. No scene, no performance button. */
+  scene?: Scene | null;
   gridVisible: boolean;
   onToggleGrid: () => void;
   onFrameAll: () => void;
@@ -29,6 +34,10 @@ export function Viewport({
   overlay?: ReactNode;
   children?: ReactNode;
 }) {
+  // Held here rather than in the workspace: nothing outside this box acts on
+  // it, and the instruments behind it are built and dropped with the panel.
+  const [stats, setStats] = useState(false);
+
   return (
     <div className={styles.viewport}>
       <div id={VIEWPORT_ID} className={styles.host} ref={hostRef} />
@@ -43,10 +52,20 @@ export function Viewport({
         <IconButton label="Frame the whole map (F)" onClick={onFrameAll}>
           <IconMaximize size={17} />
         </IconButton>
+        {scene && (
+          <IconButton
+            label="Where the frame goes"
+            active={stats}
+            onClick={() => setStats((on) => !on)}
+          >
+            <IconActivity size={17} />
+          </IconButton>
+        )}
         {children && <span className={styles.sep} />}
         {children}
       </div>
       {overlay}
+      {scene && stats && <Stats scene={scene} />}
     </div>
   );
 }

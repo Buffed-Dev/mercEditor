@@ -10,6 +10,7 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial.js';
 import { Constants } from '@babylonjs/core/Engines/constants.js';
 import { colorOf } from './materials.ts';
+import { filePath, fileUrl } from '../data/assets.ts';
 import {
   SLASH_FALLBACK,
   VFX,
@@ -56,7 +57,13 @@ export type VfxHandle = {
 };
 
 /** How an effect is played. */
-export type SpawnOptions = { shape?: VfxShape | null; looping?: boolean; forever?: boolean };
+export type SpawnOptions = {
+  shape?: VfxShape | null;
+  looping?: boolean;
+  forever?: boolean;
+  /** Which game folder a picture is fetched from. The editor names one; a built game's files are found by manifest. */
+  game?: string;
+};
 
 /**
  * Per-scene and per-system state that used to be stashed on the Babylon
@@ -761,10 +768,15 @@ function anchorFor(
     );
   }
 
-  // A node anchor is read for where it stands right now. `copyFrom` used to
-  // be handed the node itself, which has no x/y/z -- so attaching an effect
-  // that needed a host of its own put it at NaN and it was never seen.
-  host.position.copyFrom(at instanceof Vector3 ? at : at.absolutePosition).addInPlace(offset);
+  // A node anchor is followed rather than read once: the host hangs off it,
+  // so wherever the node goes -- the editor sliding a placement live -- the
+  // effect goes too. A point is a point, and is copied.
+  if (at instanceof Vector3) {
+    host.position.copyFrom(at).addInPlace(offset);
+  } else {
+    host.parent = at;
+    host.position.copyFrom(offset);
+  }
   // Handed back rather than left implicit in the position, because following
   // something means moving the anchor — and an offset that only existed as
   // part of the first position is an offset the first move throws away.
@@ -788,9 +800,16 @@ export function spawnVfx(
   scene: Scene,
   raw: VfxInput,
   at: VfxAnchor,
-  { shape = null, looping = false, forever = false }: SpawnOptions = {},
+  { shape = null, looping = false, forever = false, game = '' }: SpawnOptions = {},
 ): VfxHandle {
   const def = normalizeVfx(raw);
+  // A picture is named the way a material's is: a file in the record's own
+  // folder, or one rooted at assets/. Only a picture still held inline as a
+  // data URL is already something a Texture can fetch.
+  const urlOf = (image: string) =>
+    !image || image.startsWith('data:') ? image : fileUrl(filePath(def.path, image), game);
+  def.particle.image = urlOf(def.particle.image);
+  def.sheet.image = urlOf(def.sheet.image);
   return def.kind === 'sheet'
     ? spawnSheet(scene, def, at, { shape, looping, forever })
     : spawnParticles(scene, def, at, { shape, looping, forever });
@@ -839,6 +858,9 @@ function spawnParticles(
      * effect goes with it, not that it forgets where it was standing.
      */
     follow(where: Vector3): void {
+      // Told where to be, it stops riding whatever it was hung on: a trail
+      // left where its shot died must not go back into the pool with it.
+      if (host?.parent) host.setParent(null);
       const to = where.add(carry);
       if (host) host.position.copyFrom(to);
       else system.emitter = to;
@@ -926,6 +948,7 @@ function spawnSheet(
       return alive;
     },
     follow(where: Vector3): void {
+      if (host?.parent) host.setParent(null);
       (host ?? mesh).position.copyFrom(where.add(carry));
     },
     stop(): void {
@@ -1035,7 +1058,7 @@ export function buildVfx(
  */
 export const burstOf = (system: ParticleSystem): number | undefined => bursts.get(system);
 
-export function createVfxRuntime(scene: Scene, defs: readonly VfxInput[] = VFX) {
+export function createVfxRuntime(scene: Scene, defs: readonly VfxInput[] = VFX, game = '') {
   const byId = new Map<string, VfxInput>(defs.map((def) => [def.id ?? '', def]));
   const running = new Set<VfxHandle>();
 
@@ -1069,13 +1092,13 @@ export function createVfxRuntime(scene: Scene, defs: readonly VfxInput[] = VFX) 
       shape: VfxShape | null = null,
     ): VfxHandle | null {
       const def = byId.get(id);
-      return def ? track(spawnVfx(scene, def, new Vector3(x, y, z), { shape })) : null;
+      return def ? track(spawnVfx(scene, def, new Vector3(x, y, z), { shape, game })) : null;
     },
 
     /** Start one that stays. `emitter` is a Vector3 or a node to follow. */
     attach(id: string, emitter: VfxAnchor, shape: VfxShape | null = null): VfxHandle | null {
       const def = byId.get(id);
-      return def ? track(spawnVfx(scene, def, emitter, { shape, looping: true })) : null;
+      return def ? track(spawnVfx(scene, def, emitter, { shape, looping: true, game })) : null;
     },
 
     dispose(): void {

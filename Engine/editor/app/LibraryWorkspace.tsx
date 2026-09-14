@@ -4,12 +4,13 @@ import { IconUpload } from '@tabler/icons-react';
 import { ASSET_EXTENSIONS, fileUrl } from '../../src/data/assets.ts';
 import { MATERIAL_SHAPE_KEYS, MATERIAL_SHAPES } from '../../src/data/materials.ts';
 import { makeFolder, moveFolder, removeFile, writeRules } from '../save.ts';
-import { recordFile } from '../serializeData.ts';
+import { idFromLabel, LIBRARY_FILE_ONLY, recordFile } from '../serializeData.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
 import { TopBar } from '../shell/TopBar';
 import { FieldList } from '../fields/FieldList';
+import { Wirings } from '../panels/subeditors/Wirings';
 import type { FieldSpec } from '../fields/types';
 import { LIBRARY_KINDS, libraryFields, pathOf, type LibraryKind } from '../rules/library';
 import { LibraryTree } from '../panels/LibraryTree';
@@ -96,14 +97,21 @@ export function LibraryWorkspace() {
    */
   const [pending, setPending] = useState<{ row: LibraryRow; users: Users } | null>(null);
 
+  /**
+   * The card being named in place, by row path, and whether it has ever been
+   * written. See `onRenamed` — a record nothing can have referenced yet gets
+   * its id renamed too, and one already on disk keeps it.
+   */
+  const [renaming, setRenaming] = useState<{ key: string; fresh: boolean } | null>(null);
+
   // One stage per kind of record, because they stand different things on it: a
   // material wears a shape, a model stands on a pad, an effect runs. Rebuilt
   // when the kind changes, which is also when the old one should be let go.
   const preview = useMemo(() => {
     if (active === 'materials') return createMaterialPreview();
-    if (active === 'vfx') return createVfxPreview();
+    if (active === 'vfx') return createVfxPreview(gameId);
     return createAssetPreview();
-  }, [active]);
+  }, [active, gameId]);
   const { host, ready } = usePreviewStage(preview);
 
   /** A file, by its path under assets/, as a url the dev server will serve. */
@@ -168,6 +176,14 @@ export function LibraryWorkspace() {
   }
 
   const fields = record ? libraryFields(active) : [];
+
+  /** What a picker offers: the project's files, and its materials. */
+  const files = {
+    game: gameId,
+    folder: record ? pathOf(record) : '',
+    paths: (library.scan?.tree ?? []).filter((entry) => !entry.dir).map((entry) => entry.path),
+    materials: (doc?.list('materials') ?? EMPTY) as Record<string, unknown>[],
+  };
 
   /**
    * Bring files into the open record's own folder.
@@ -256,15 +272,17 @@ export function LibraryWorkspace() {
   async function onMove(from: string, toFolder: string) {
     if (!doc) return;
     const to = `${toFolder}/${from.slice(from.lastIndexOf('/') + 1)}`;
-    // A folder is its own path; a record file says its folder moved only if
-    // the file itself is what was dragged, which it is not -- dragging the
-    // record file out of its folder moves the file and the record with it.
-    const said = from.includes('.') ? from.slice(0, from.lastIndexOf('/')) : from;
-    const found = LIBRARY_KINDS.flatMap((kind) => {
-      const index = (doc.list(kind.id) as Record<string, unknown>[]).findIndex(
-        (entry) => String(entry.path ?? '') === said,
+    // A record file is found by the file, and a folder by the folder. Not by
+    // the folder either way: several records share a folder now, so "the
+    // record living at this path" would drag whichever of them came first.
+    const file = from.includes('.');
+    const found = LIBRARY_KINDS.flatMap(({ id: list }) => {
+      const index = (doc.list(list) as Record<string, unknown>[]).findIndex((entry) =>
+        file
+          ? `${String(entry.path ?? '')}/${recordFile(list, entry)}` === from
+          : String(entry.path ?? '') === from,
       );
-      return index >= 0 ? [{ list: kind.id, index }] : [];
+      return index >= 0 ? [{ list, index }] : [];
     })[0];
 
     try {
@@ -273,7 +291,9 @@ export function LibraryWorkspace() {
       return say((error as Error).message, 'error');
     }
     if (found) {
-      const why = doc.setPath(found.list, found.index, from === said ? to : toFolder);
+      // A folder moved is the record's new path; a file moved leaves the
+      // record where the file now is.
+      const why = doc.setPath(found.list, found.index, file ? toFolder : to);
       if (why) say(why, 'error');
     }
     say(`Moved to ${to}`, 'good');
@@ -334,6 +354,47 @@ export function LibraryWorkspace() {
     void library.refresh();
   }
 
+  /**
+   * A card just named. Nothing is renamed on disk until a save, which then
+   * writes the new file and prunes the old — the same path a delete takes.
+   */
+  function onRenamed(row: LibraryRow, name: string | null) {
+    const held = renaming;
+    setRenaming(null);
+    const held_at = row.row === 'record' ? { list: row.list, index: row.index } : null;
+    const at = held_at ?? (row.row === 'folder' ? row.holds : null);
+    const named = (name ?? '').trim();
+    if (!held || !doc || !at || !named) return;
+
+    const list = doc.list(at.list) as Record<string, unknown>[];
+    const held_record = list[at.index];
+    if (!held_record) return;
+
+    // Two records in one folder writing to one filename: the save keeps
+    // whichever goes last and prunes the other, so this is a lost record
+    // rather than a clash you can see. Prefabs share a folder now, which is
+    // what makes it reachable.
+    const folder = pathOf(held_record);
+    const file = recordFile(at.list, { ...held_record, label: named });
+    const clash = list.some(
+      (other, i) => i !== at.index && pathOf(other) === folder && recordFile(at.list, other) === file,
+    );
+    if (clash) {
+      say(`"${named}" is already in ${folder || 'assets'}`, 'error');
+      return;
+    }
+
+    edit.commit(() => {
+      doc.update(at.list, at.index, { label: named });
+      // Nothing can be naming a record that has never been written, so the
+      // first name it gets moves its id as well. Otherwise every prefab you
+      // make is `prefab7` in the map files that place it, for ever.
+      if (held.fresh) doc.rename(at.list, at.index, idFromLabel(named));
+    });
+    const fresh = doc.list(at.list)[at.index] as Record<string, unknown>;
+    void navigate(`/${gameId}/library/${at.list}/${String(fresh?.id ?? '')}`);
+  }
+
   /** Made where you are looking, which is the only folder you have said. */
   async function onNewFolder(into: string) {
     const name = window.prompt(
@@ -392,11 +453,29 @@ export function LibraryWorkspace() {
             onDelete={onAskDelete}
             onNewFolder={(into) => void onNewFolder(into)}
             onNew={(kind) => {
-              const made = doc?.add(kind);
+              // Filed where you are standing, if this kind lives there. A
+              // prefab is one file, so it goes straight into the folder you
+              // are looking at; the rest bring a folder of their own.
+              const made = doc?.add(kind, layout.folder);
               if (!made) return;
               const list = doc?.list(kind) ?? [];
-              void navigate(`/${gameId}/library/${kind}/${String(list[made.index]?.id ?? '')}`);
+              const fresh = list[made.index] ?? {};
+              const into = pathOf(fresh);
+              const file = LIBRARY_FILE_ONLY.has(kind);
+              // Stand where the new card is, which is rarely where you were:
+              // a record filed under Prefabs/ is not visible from Assets/, and
+              // a New that appears to do nothing is worse than one that moves
+              // you. Then open its name, the way a new folder opens its own.
+              layout.setFolder(file ? into : into.slice(0, into.lastIndexOf('/')));
+              setRenaming({
+                key: file ? `${into}/${recordFile(kind, fresh)}` : into,
+                fresh: true,
+              });
+              void navigate(`/${gameId}/library/${kind}/${String(fresh.id ?? '')}`);
             }}
+            onRename={(row) => setRenaming({ key: row.path, fresh: false })}
+            renaming={renaming?.key}
+            onRenamed={onRenamed}
           />
         </DockPanel>
       }
@@ -429,6 +508,7 @@ export function LibraryWorkspace() {
               record={record}
               doc={doc}
               onReplay={() => preview?.draw(record, { kind: active })}
+              files={files}
             />
           ) : record && doc ? (
             <div className={styles.detail}>
@@ -476,6 +556,9 @@ export function LibraryWorkspace() {
                   // over the document's own lists. A `file` field is not one of
                   // them — it names a file in this record's folder, which the
                   // document knows nothing about.
+                  // A material is chosen by looking at it, so it keeps its
+                  // kind and the picker draws the spheres.
+                  if (field.kind === 'material') return field;
                   const options = optionsForField(
                     field as { kind: string; assetKind?: string },
                     doc,
@@ -485,6 +568,7 @@ export function LibraryWorkspace() {
                     : field;
                 })}
                 values={record}
+                files={files}
                 onInput={(key, value) =>
                   edit.preview(() => doc.update(active, index, { [key]: value }, false))
                 }
@@ -492,6 +576,21 @@ export function LibraryWorkspace() {
                   edit.commit(() => doc.update(active, index, { [key]: value }, false))
                 }
               />
+              {/*
+                What a prefab does, and when. A prefab is wired as one thing —
+                a bench is a table, a light and a stool, and what you walk up to
+                is the bench — so the triggers live on the record here and every
+                placement of it inherits them. A placement then overrides their
+                settings; see `override` in src/data/prefabs.ts.
+              */}
+              {active === 'prefabs' && (
+                <Wirings
+                  list="prefabs"
+                  entry={record}
+                  onInput={(patch) => edit.preview(() => doc.update(active, index, patch, false))}
+                  onChange={(patch) => edit.commit(() => doc.update(active, index, patch, false))}
+                />
+              )}
             </div>
           ) : (
             <p className={styles.noPreview}>Pick a record to edit it.</p>

@@ -1,3 +1,4 @@
+import { BRAINS } from '../../src/data/archetypes.ts';
 import { ATTRIBUTE_FIELDS, ATTRIBUTE_KINDS } from '../../src/data/attributes.ts';
 import { EFFECT_FIELDS, DURATION_TYPES } from '../../src/data/effects.ts';
 import { ABILITY_FIELDS } from '../../src/data/abilities.ts';
@@ -99,6 +100,7 @@ type FieldTable = Record<string, { kind: string; label: string } & Record<string
 const ARCHETYPE_FIELDS: FieldTable = {
   label: { kind: 'text', label: 'Name' },
   team: { kind: 'text', label: 'Team' },
+  brain: { kind: 'select', label: 'Brain', options: BRAINS },
   unarmed: { kind: 'ability', label: 'Unarmed attack' },
 };
 
@@ -177,6 +179,7 @@ export type OptionSource = {
   vfxOptions: () => [string, string][];
   propOptions: () => [string, string][];
   prefabOptions: () => [string, string][];
+  archetypeOptions: () => [string, string][];
   materialOptions: () => [string, string][];
   surfaceOptions: () => [string, string][];
   /** Narrowed by asset kind: a colour map offers pictures, not models. */
@@ -193,6 +196,7 @@ const SOURCES: Record<string, keyof OptionSource> = {
   vfx: 'vfxOptions',
   prop: 'propOptions',
   prefab: 'prefabOptions',
+  archetype: 'archetypeOptions',
   /**
    * A field of kind `material` names a *surface* — what a block or a prop is
    * drawn with. Not `materialOptions`, which is a different thing under a

@@ -1,6 +1,6 @@
 import { defaultLight } from '../src/data/lights.ts';
 import { defaultChunk } from '../src/data/maps/chunks.ts';
-import { prefabById, prefabFootprint } from '../src/data/prefabs.ts';
+import { prefabBounds, prefabById } from '../src/data/prefabs.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import { decodeTerrain } from '../src/data/terrain/codec.ts';
 import { resizeGrid, idx, levelAt, kindAt, EMPTY } from '../src/data/terrain/grid.ts';
@@ -31,10 +31,8 @@ export type PlaceOptions = {
   vfxId?: string;
   lightType?: string;
   face?: string;
-  to?: string;
-  spawn?: string;
-  color?: number;
-  label?: string;
+  /** How the thing is turned as it is put down. */
+  rot?: number;
 };
 
 /**
@@ -49,12 +47,7 @@ export type MapDoc = {
   id: string;
   name: string | undefined;
   spawns: Record<string, Placed>;
-  walls: MapObject[];
   doors: MapObject[];
-  portals: MapObject[];
-  monsters: MapObject[];
-  torches: MapObject[];
-  stations: MapObject[];
   chunks: ChunkInput[];
   /** One entry standing for several. See ../src/data/prefabs.ts. */
   prefabs: MapObject[];
@@ -80,9 +73,9 @@ type DocState = Omit<MapDoc, 'terrain'>;
  * freely. Nothing here touches the live map objects the game imported, so
  * abandoning an edit costs nothing and a bad edit cannot corrupt a loaded map.
  *
- * Terrain lives in the ASCII rows; everything else (torches, portals,
- * monsters, named spawns) is an object list keyed by tile, exactly as in a
- * hand-written map file.
+ * Terrain lives in the ASCII rows; everything else (monsters, props, lights,
+ * named spawns) is an object list keyed by tile, exactly as in a hand-written
+ * map file.
  */
 
 /**
@@ -115,26 +108,15 @@ type DocState = Omit<MapDoc, 'terrain'>;
  */
 export const BRUSH_GROUPS = [
   ['structure', 'Structure'],
-  ['actors', 'Actors'],
   ['fixtures', 'Fixtures'],
   ['layout', 'Layout'],
 ];
 
 export const BRUSHES: Brush[] = [
-  { id: 'wall', label: 'Wall', list: 'walls', group: 'structure', icon: 'stack-2' },
   { id: 'door', label: 'Door', list: 'doors', group: 'structure', icon: 'door' },
-  { id: 'portal', label: 'Portal', list: 'portals', group: 'structure', icon: 'door' },
-
-  { id: 'grunt', label: 'Grunt', list: 'monsters', kind: 'grunt', group: 'actors', icon: 'ghost' },
-  { id: 'brute', label: 'Brute', list: 'monsters', kind: 'brute', group: 'actors', icon: 'ghost' },
-  // A vase is a monster that cannot move or see — see game/monsters.js — so it
-  // is placed out of the same list and needs nothing else here.
-  { id: 'vase', label: 'Vase', list: 'monsters', kind: 'vase', group: 'actors', icon: 'box' },
 
   { id: 'light', label: 'Light', list: 'lights', group: 'fixtures', icon: 'sun' },
-  { id: 'torch', label: 'Torch', list: 'torches', group: 'fixtures', icon: 'flame' },
   { id: 'vfx', label: 'Effect', list: 'vfx', group: 'fixtures', icon: 'sparkles' },
-  { id: 'station', label: 'Station', list: 'stations', group: 'fixtures', icon: 'hammer' },
   { id: 'prop', label: 'Object', list: 'props', group: 'fixtures', icon: 'box' },
 
   // Which prefab is chosen in the inspector, the same way an object's and an
@@ -143,7 +125,7 @@ export const BRUSHES: Brush[] = [
   { id: 'prefab', label: 'Prefab', list: 'prefabs', group: 'layout', icon: 'package' },
   { id: 'chunk', label: 'Chunk', list: 'chunks', group: 'layout', icon: 'stack-2' },
   // Where the player comes up. Not one of the named spawns beside it: those are
-  // where a portal puts you, and every map has exactly one of these.
+  // where a teleport puts you, and every map has exactly one of these.
   { id: 'spawn', label: 'Start', group: 'layout', icon: 'target-arrow' },
 ];
 
@@ -177,12 +159,7 @@ export function blankMap(id: string, cols = 24, rows = 24): GameMap {
     height: Array.from({ length: rows }, () => '.'.repeat(cols)),
     terrain: Array.from({ length: rows }, () => '..'.repeat(cols)),
     spawns: {},
-    walls: [],
     doors: [],
-    portals: [],
-    monsters: [],
-    torches: [],
-    stations: [],
     chunks: [],
     lights: [],
     vfx: [],
@@ -211,10 +188,6 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     id: map.id,
     name: map.name,
     spawns: map.spawns ?? {},
-    walls: (map.walls ?? []).map((wall) => ({
-      ...wall,
-      stack: Math.max(1, Math.round(wall.stack ?? 1)),
-    })),
     // Whether what you walk is this grid or something assembled from the
     // chunks drawn on it. Off on an ordinary map, and the chunks stay put
     // either way — the switch is a switch, not a delete.
@@ -232,10 +205,6 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     chunks: [...(map.chunks ?? [])],
     prefabs: [...(map.prefabs ?? [])],
     doors: [...(map.doors ?? [])],
-    portals: [...(map.portals ?? [])],
-    monsters: [...(map.monsters ?? [])],
-    torches: [...(map.torches ?? [])],
-    stations: [...(map.stations ?? [])],
     lights: [...(map.lights ?? [])],
     vfx: [...(map.vfx ?? [])],
     props: [...(map.props ?? [])],
@@ -252,7 +221,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
   /**
    * The document reached by a list name worked out at runtime.
    *
-   * Every panel addresses a list by its name -- 'walls', 'portals' -- which an
+   * Every panel addresses a list by its name -- 'monsters', 'props' -- which an
    * object type cannot be indexed by. One cast here beats a branch per list in
    * each of the eight places below.
    */
@@ -311,6 +280,13 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     gx >= 0 && gy >= 0 && gx < terrain.cols && gy < terrain.rows;
 
   /**
+   * Whether a thing stands on a tile. Positions are free -- see `Placed` --
+   * so "on this tile" is a floor on both sides rather than an equality.
+   */
+  const onTile = (at: { gx: number; gy: number }, gx: number, gy: number) =>
+    Math.floor(at.gx) === Math.floor(gx) && Math.floor(at.gy) === Math.floor(gy);
+
+  /**
    * The prefab placement covering a tile, or -1.
    *
    * By footprint rather than by corner: a prefab is the several tiles it
@@ -328,11 +304,13 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
   function prefabAt(gx: number, gy: number): number {
     return doc.prefabs.findIndex((at) => {
       const prefab = prefabOf(String(at.id ?? ''));
-      if (!prefab) return at.gx === gx && at.gy === gy;
-      const box = prefabFootprint(prefab, at as PlacedPrefab);
+      if (!prefab) return onTile(at, gx, gy);
+      const box = prefabBounds(prefab, at as PlacedPrefab);
       const w = Math.max(1, box.w);
       const h = Math.max(1, box.h);
-      return gx >= at.gx && gx < at.gx + w && gy >= at.gy && gy < at.gy + h;
+      const x = Math.floor(gx) + 0.5;
+      const y = Math.floor(gy) + 0.5;
+      return x >= box.gx && x < box.gx + w && y >= box.gy && y < box.gy + h;
     });
   }
 
@@ -343,18 +321,13 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     // on it. A prefab is the opposite -- it is a thing, and it is *all* of the
     // tiles it covers, which is why it is matched by box below rather than
     // filtered by corner with the rest.
-    const found = ['torches', 'portals', 'monsters', 'lights', 'vfx', 'doors', 'stations', 'props']
+    const found = ['lights', 'vfx', 'doors', 'props']
       .flatMap((list) => (lists[list] ?? []).map((entry) => ({ list, entry })))
-      .filter(({ entry }) => entry.gx === gx && entry.gy === gy);
+      .filter(({ entry }) => onTile(entry, gx, gy));
 
     const index = prefabAt(gx, gy);
     if (index >= 0) found.push({ list: 'prefabs', entry: doc.prefabs[index] });
     return found;
-  }
-
-  /** How many wall blocks stand on a tile. */
-  function wallAt(gx: number, gy: number): MapObject | null {
-    return doc.walls.find((wall) => wall.gx === gx && wall.gy === gy) ?? null;
   }
 
   /**
@@ -391,6 +364,15 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     get start() {
       return doc.spawns.default ?? null;
     },
+    /**
+     * The box a placement covers, and where. Its own tile for one naming a
+     * prefab that is gone, which is all it can be clicked on.
+     */
+    prefabBox(at: PlacedPrefab): { gx: number; gy: number; w: number; h: number } {
+      const prefab = prefabOf(String(at.id ?? ''));
+      return prefab ? prefabBounds(prefab, at) : { gx: at.gx, gy: at.gy, w: 0, h: 0 };
+    },
+
     setStart(gx: number, gy: number): boolean {
       checkpoint();
       doc.spawns.default = { gx, gy };
@@ -463,60 +445,38 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       // Nothing lands inside a prefab, whatever it is. Up here rather than in
       // the busy-tile test further down, because a wall and a door are both
       // answered before that test is reached -- a wall stacks rather than
-      // refusing, and a door replaces the wall it lands on -- so either would
-      // otherwise be built straight through one.
+      // refusing -- so it would otherwise be built straight through one.
       if (brush.list !== 'prefabs' && prefabAt(gx, gy) >= 0) return 'A prefab is in the way';
-
-      const wall = wallAt(gx, gy);
 
       // A prefab takes every tile of its box, so all of them have to be free
       // and on the map -- checked before anything is written, or half a
       // placement lands and the rest is refused.
       if (brush.list === 'prefabs') {
         const prefab = prefabOf(options.prefabId ?? '');
-        const box = prefab
-          ? prefabFootprint(prefab, { gx, gy, rot: 0 })
-          : { w: 1, h: 1 };
-        for (let y = gy; y < gy + Math.max(1, box.h); y += 1) {
-          for (let x = gx; x < gx + Math.max(1, box.w); x += 1) {
+        const box = prefab ? prefabBounds(prefab, { gx, gy, rot: 0 }) : { gx, gy, w: 1, h: 1 };
+        for (let y = Math.floor(box.gy); y < box.gy + Math.max(1, box.h); y += 1) {
+          for (let x = Math.floor(box.gx); x < box.gx + Math.max(1, box.w); x += 1) {
             if (!inBounds(x, y)) return 'That does not fit on the map';
-            if (objectsAt(x, y).length || wallAt(x, y)) return 'Something is in the way';
+            if (objectsAt(x, y).length) return 'Something is in the way';
           }
         }
         checkpoint();
-        doc.prefabs.push({ gx, gy, id: options.prefabId ?? '', rot: 0 });
+        doc.prefabs.push({ gx, gy, id: options.prefabId ?? '', rot: options.rot ?? 0 });
         return null;
       }
 
-      if (brush.list === 'walls') {
-        checkpoint();
-        if (wall) wall.stack = Math.max(1, Math.round(wall.stack ?? 1)) + 1;
-        else doc.walls.push({ gx, gy, stack: 1 });
-        return null;
-      }
-
-      // A door is a hole in a wall, so it takes the wall with it rather than
-      // refusing to go where one is. Every door belongs on a part's border and
-      // a border is walls, so the rule below would otherwise refuse every door
-      // there is anywhere to put one.
       if (brush.list === 'doors') {
-        if (doc.doors.some((door) => door.gx === gx && door.gy === gy)) {
+        if (doc.doors.some((door) => onTile(door, gx, gy))) {
           return 'There is already a door there';
         }
         checkpoint();
-        if (wall) doc.walls = doc.walls.filter((candidate) => candidate !== wall);
         doc.doors.push({ gx, gy });
         return null;
       }
 
-      // A torch mounts on a wall's face, so it needs one to hang from.
-      if (brush.id === 'torch' && !wall) return 'Torches mount on a wall';
-      if (brush.id !== 'torch' && brush.id !== 'light' && brush.id !== 'vfx' && wall) {
-        return 'There is a wall on that tile';
-      }
       // One object may stand on another — that is what a placement's lift is
       // for — so a tile with nothing but objects on it is not full. Anything
-      // else there still is: a portal, a monster or a station is a place rather
+      // else there still is: a monster or a prop is a place rather
       // than a thing, and two of those on one tile is a mistake either way.
       const sitting = objectsAt(gx, gy);
       const stacking = brush.list === 'props' && sitting.every(({ list }) => list === 'props');
@@ -536,7 +496,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
           id: options.propId ?? '',
           gx,
           gy,
-          rot: 0,
+          rot: options.rot ?? 0,
           ...(under.length ? { lift: Math.max(...under) + 1 } : {}),
         });
       } else if (brush.list === 'vfx') {
@@ -546,31 +506,10 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
         doc.vfx.push({ id: options.vfxId ?? '', gx, gy });
       } else if (brush.list === 'lights') {
         doc.lights.push(defaultLight(options.lightType ?? 'point', gx, gy));
-      } else if (brush.list === 'torches') {
-        doc.torches.push({ gx, gy, face: options.face ?? '+x', radius: 5 });
-      } else if (brush.list === 'portals') {
-        doc.portals.push({
-          gx,
-          gy,
-          to: options.to ?? '',
-          spawn: options.spawn ?? 'default',
-          color: options.color ?? 0x9d6bff,
-          label: options.label ?? options.to ?? 'Portal',
-        });
       } else if (brush.list === 'chunks') {
         doc.chunks.push({ ...defaultChunk(gx, gy), name: freshChunkName(doc.chunks) });
-      } else if (brush.list === 'stations') {
-        doc.stations.push({ gx, gy, label: options.label ?? 'Crafting bench' });
-      } else {
-        doc.monsters.push({ gx, gy, kind: brush.kind });
       }
       return null;
-    },
-
-    /** How many wall blocks stand on a tile, 0 for none. */
-    wallStack(gx: number, gy: number): number {
-      const wall = wallAt(gx, gy);
-      return wall ? Math.max(1, Math.round(wall.stack ?? 1)) : 0;
     },
 
     /**
@@ -586,14 +525,12 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
      */
     erase(gx: number, gy: number): boolean {
       const hits = objectsAt(gx, gy);
-      const wall = wallAt(gx, gy);
-      if (!hits.length && !wall) return false;
+      if (!hits.length) return false;
 
       checkpoint();
       for (const { list, entry } of hits) {
         lists[list] = (lists[list] ?? []).filter((candidate) => candidate !== entry);
       }
-      if (wall) doc.walls = doc.walls.filter((candidate) => candidate !== wall);
       return true;
     },
 
@@ -605,7 +542,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
 
     /** `checkpointed` is false when the caller is deleting a batch as one step. */
     removeSpawn(name: string, checkpointed = true): void {
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
       delete doc.spawns[name];
     },
 
@@ -646,15 +583,10 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
         (o.gx ?? Infinity) < cols && (o.gy ?? Infinity) < rows;
       // Props were missed here before, which is how base.js came to carry
       // entries at gy 21-25 on an 18-row map.
-      doc.torches = doc.torches.filter(keep);
       doc.doors = doc.doors.filter(keep);
-      doc.portals = doc.portals.filter(keep);
-      doc.monsters = doc.monsters.filter(keep);
-      doc.stations = doc.stations.filter(keep);
       doc.chunks = doc.chunks.filter(keep);
       doc.lights = doc.lights.filter(keep);
       doc.vfx = doc.vfx.filter(keep);
-      doc.walls = doc.walls.filter(keep);
       doc.props = doc.props.filter(keep);
       doc.prefabs = doc.prefabs.filter(keep);
       for (const [name, spawn] of Object.entries(doc.spawns)) {
@@ -676,14 +608,10 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       for (const list of [
         'lights',
         'vfx',
-        'portals',
-        'monsters',
-        'stations',
         'doors',
-        'torches',
       ]) {
         const index = (lists[list] ?? []).findIndex(
-          (entry) => entry.gx === gx && entry.gy === gy,
+          (entry) => onTile(entry, gx, gy),
         );
         if (index >= 0) return { list, index };
       }
@@ -695,13 +623,13 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
       const prefab = prefabAt(gx, gy);
       if (prefab >= 0) return { list: 'prefabs', index: prefab };
 
-      for (const list of ['walls', 'chunks']) {
+      for (const list of ['chunks']) {
         const index = (lists[list] ?? []).findIndex(
-          (entry) => entry.gx === gx && entry.gy === gy,
+          (entry) => onTile(entry, gx, gy),
         );
         if (index >= 0) return { list, index };
       }
-      const spawn = Object.entries(doc.spawns).find(([, s]) => s.gx === gx && s.gy === gy);
+      const spawn = Object.entries(doc.spawns).find(([, s]) => onTile(s, gx, gy));
       return spawn ? { list: 'spawns', key: spawn[0] } : null;
     },
 
@@ -731,7 +659,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     addObject(list: string, entry: Record<string, unknown>, checkpointed = true): number {
       const held = lists[list];
       if (!held) return -1;
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
       held.push(entry as MapObject);
       return held.length - 1;
     },
@@ -745,7 +673,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
      * with the very things being replaced.
      */
     addPrefab(id: string, gx = 0, gy = 0, checkpointed = true): number {
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
       doc.prefabs.push({ gx, gy, id, rot: 0 });
       return doc.prefabs.length - 1;
     },
@@ -763,7 +691,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     ): Record<string, unknown> | null {
       const entry = lists[list]?.[index];
       if (!entry) return null;
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
 
       // A light's type decides which fields it has, so switching type starts
       // from that type's defaults instead of carrying stale fields across.
@@ -773,7 +701,29 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
         return made;
       }
 
-      Object.assign(entry, patch);
+      // A dotted key is one level into a bag on the entry: `interact.ui` is the
+      // panel the interact wiring opens. One level only — an action declares
+      // flat variables, so there is no second dot to find, and a path parser
+      // for a depth that cannot occur is a parser to maintain for nothing.
+      //
+      // The bag is replaced rather than written into, which is also what keeps
+      // a preview-then-commit drag from reaching through the snapshot behind it.
+      for (const [key, value] of Object.entries(patch)) {
+        const dot = key.indexOf('.');
+        if (dot < 0) {
+          entry[key] = value;
+          continue;
+        }
+        const name = key.slice(0, dot);
+        const field = key.slice(dot + 1);
+        const bag = (entry[name] ?? {}) as Record<string, unknown>;
+        // Choosing a different action starts from nothing, the same way
+        // switching a light's type does: the variables the old one read mean
+        // nothing to the new one, and carrying them across would write them
+        // into the map file forever.
+        entry[name] =
+          field === 'do' && value !== bag.do ? { do: value } : { ...bag, [field]: value };
+      }
       return entry;
     },
 
@@ -801,7 +751,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     removeObject(list: string, index: number, checkpointed = true): boolean {
       const entries = lists[list];
       if (!entries?.[index]) return false;
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
       entries.splice(index, 1);
       return true;
     },
@@ -848,7 +798,7 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     /** Move a named spawn to a tile. */
     moveSpawn(name: string, gx: number, gy: number, checkpointed = true): void {
       if (!doc.spawns[name]) return;
-      if (checkpointed) checkpoint();
+      checkpoint(checkpointed);
       doc.spawns[name] = { gx, gy };
     },
 

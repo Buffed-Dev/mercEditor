@@ -54,6 +54,8 @@ export type CreateActorOptions = {
   attributes?: readonly AttributeInput[];
   /** Either the raw list or a lookup already built from one. */
   archetypes?: readonly ArchetypeInput[] | Map<string, Archetype>;
+  /** Base-value overrides over the archetype's — a prefab's, a placement's. */
+  values?: Record<string, number>;
 };
 
 /**
@@ -76,6 +78,7 @@ export function createActor({
   radius = PLAYER_RADIUS,
   attributes = ATTRIBUTES,
   archetypes = ARCHETYPES,
+  values,
 }: CreateActorOptions): Actor {
   const specs = archetypes instanceof Map ? archetypes : archetypeMap(archetypes);
   const spec = specs.get(archetype) ?? specs.values().next().value;
@@ -86,7 +89,7 @@ export function createActor({
     grants: spec?.grants ?? [],
     // Ordered: position in this list is the input slot it answers to.
     abilities: spec?.abilities ?? [],
-    attrs: createAttributeSet(attributes, spec?.attributes ?? {}),
+    attrs: createAttributeSet(attributes, { ...spec?.attributes, ...values }),
     pos: { gx, gy },
     // Body half-width, in tiles. Melee range and projectile collision both
     // measure to the edge of a target rather than its centre.

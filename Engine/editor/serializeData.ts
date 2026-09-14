@@ -160,6 +160,18 @@ export function kindOfRecord(name: string): string | null {
   return Object.keys(LIBRARY_SUFFIX).find((kind) => LIBRARY_SUFFIX[kind] === suffix) ?? null;
 }
 
+/**
+ * Kinds whose records are a file and nothing else.
+ *
+ * Everything else in the library is a record standing beside its own bytes — a
+ * material and its four maps, an effect and its sheet — so each gets a folder
+ * of its own and the folder *is* the record. A prefab names other records and
+ * carries no files, so a folder for it would be a folder with one file in it,
+ * for ever. Prefabs sit straight in `Prefabs/`, and a folder in there is one
+ * you made to group them.
+ */
+export const LIBRARY_FILE_ONLY = new Set(['prefabs']);
+
 /** The top folder a kind's records are made in. */
 export const LIBRARY_FOLDERS: Record<string, string> = {
   materials: 'Materials',

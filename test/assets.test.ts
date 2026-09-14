@@ -168,17 +168,12 @@ test('an object list group is written on the objects, not kept in a list of its 
   const source = serializeMap({
     ...mapDoc(['....', '....'], { id: 'yard', name: 'Yard' }),
     props: [{ gx: 1, gy: 2, id: 'boulder', group: 'North wall' }],
-    torches: [{ gx: 0, gy: 0, face: '+x', radius: 5, group: 'North wall' }],
     lights: [{ type: 'point', gx: 2, gy: 2, radius: 6, group: 'North wall' }],
-    monsters: [{ gx: 3, gy: 1, kind: 'grunt' }],
   });
   assert.match(source, /id: 'boulder', group: 'North wall'/);
-  assert.match(source, /radius: 5, group: 'North wall'/);
   // A light writes whatever fields it happens to have, so the one string among
   // its numbers has to come out quoted.
   assert.match(source, /radius: 6, group: 'North wall'/);
-  // Ungrouped things say nothing, so a map nobody has organised is untouched.
-  assert.match(source, /\{ gx: 3, gy: 1, kind: 'grunt' \},/);
 });
 
 test('a flat-topped object raises the tile it stands on', () => {

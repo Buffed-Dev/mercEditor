@@ -4,6 +4,20 @@ import { createMaterialPreview } from './materialPreview.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
 import type { UrlOf } from '../../src/render/materials.ts';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { fileUrl } from '../../src/data/assets.ts';
+
+/**
+ * How a file path becomes a url, one function per game.
+ *
+ * Kept rather than built per render because `useMaterialThumb` watches it: a
+ * fresh function every render would be a fresh reason to redraw every sphere.
+ */
+const URL_OF = new Map<string, UrlOf>();
+export const urlOfGame = (game: string): UrlOf => {
+  const held = URL_OF.get(game) ?? ((path: string) => fileUrl(path, game));
+  URL_OF.set(game, held);
+  return held;
+};
 
 /**
  * A material's thumbnail: the material itself, on a sphere.

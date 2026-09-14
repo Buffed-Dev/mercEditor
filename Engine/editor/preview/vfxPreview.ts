@@ -23,7 +23,7 @@ import { unlit } from '../../src/render/materials.ts';
 /** Where the stage stands. Its own patch of world, clear of any map. */
 const STAGE = new Vector3(0, 0, 0);
 
-export function createVfxPreview() {
+export function createVfxPreview(game = '') {
   let scene: Scene | null = null;
   let stage: TransformNode | null = null;
   let playing: VfxHandle | null = null;
@@ -38,7 +38,7 @@ export function createVfxPreview() {
     playing?.dispose();
     playing = null;
     if (!scene || !stage || !record) return;
-    playing = spawnVfx(scene, record, STAGE, { forever: true });
+    playing = spawnVfx(scene, record, STAGE, { forever: true, game });
   }
 
   return {

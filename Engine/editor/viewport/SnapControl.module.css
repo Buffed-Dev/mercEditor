@@ -1,0 +1,55 @@
+/* Snapping: one button, and its figures behind a chevron. */
+
+.group {
+  display: inline-flex;
+  align-items: center;
+}
+
+.more {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: var(--e-control);
+  border: 0;
+  background: transparent;
+  color: var(--e-fg-3);
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--e-fg);
+}
+
+.popup {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+  outline: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--e-fs-5);
+  color: var(--e-fg-2);
+}
+
+.label {
+  width: 40px;
+}
+
+.select {
+  height: var(--e-control);
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--e-r);
+  background: var(--e-input);
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-5);
+}

@@ -73,7 +73,10 @@ export function mapToPrefab(map: GameMap, was: Prefab): Prefab {
   const lists: Record<string, MapObject[]> = {};
   const from = map as unknown as Record<string, MapObject[] | undefined>;
   for (const list of PREFAB_LISTS) lists[list] = [...(from[list] ?? [])];
-  return normalizePrefab({ id: was.id, label: was.label, path: was.path, ...lists });
+  // Spread the record it came from rather than naming three of its fields:
+  // what a prefab carries besides its contents — its triggers — is not this
+  // function's business, and picking fields out is how it got dropped.
+  return normalizePrefab({ ...was, ...lists });
 }
 
 /**

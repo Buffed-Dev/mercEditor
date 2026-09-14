@@ -282,7 +282,7 @@ function fitAgainst(
 /**
  * Assemble a cluster into one ordinary map object.
  *
- * The output is a map like any other — rows, walls, monsters, portals — so
+ * The output is a map like any other — rows, prefabs — so
  * `createLevel` builds it with no idea it was generated, and everything
  * downstream of it (the World, collision, the editor's own preview) is the same
  * code that runs for a hand-written map.
@@ -442,17 +442,15 @@ function compose(
   const out = {
     id,
     // The place, not the piece you happen to arrive in: what the status line
-    // and a portal label say is "Dungeon", never "Dungeon Entrance".
+    // says is "Dungeon", never "Dungeon Entrance".
     name:
       start.clusterName ??
       id.replace(/(^|-)(\w)/g, (_, sep, c) => (sep ? ' ' : '') + c.toUpperCase()),
     rows: [] as string[],
     spawns: {} as Record<string, Placed>,
-    walls: [] as MapObject[],
-    portals: [] as MapObject[],
-    monsters: [] as MapObject[],
-    torches: [] as MapObject[],
-    stations: [] as MapObject[],
+    // Placements, carried through like anything else a part stands on. A room
+    // built out of prefabs used to arrive empty; see the loop below.
+    prefabs: [] as MapObject[],
     lights: [] as MapObject[],
     env: start.env,
     // Worth being able to read back: whether the stair down actually landed
@@ -460,7 +458,7 @@ function compose(
     generated,
   };
 
-  // The five moved lists are reached by name, which needs an index signature.
+  // The moved lists are reached by name, which needs an index signature.
   const outLists = out as unknown as Record<string, MapObject[]>;
 
   for (const { part, rect, isStart } of placed) {
@@ -478,12 +476,15 @@ function compose(
 
     const move = <T extends Placed>({ gx, gy, ...rest }: T): T =>
       ({ ...rest, gx: gx + ox, gy: gy + oy }) as T;
-    for (const name of ['walls', 'portals', 'monsters', 'torches', 'stations'] as const) {
+    // `prefabs` was missing here once, and nothing said so: `rotatePart` turns
+    // a chunk's placements correctly (there is a test), and then assembly threw
+    // them away — a room built out of prefabs came through empty.
+    for (const name of ['prefabs'] as const) {
       outLists[name].push(...(part[name] ?? []).map(move));
     }
     for (const [name, spawn] of Object.entries(part.spawns ?? {})) {
       // First writer wins, and the start part is first: it is the one holding
-      // the spawn another map's portal is aiming at.
+      // the spawn another map's teleport is aiming at.
       out.spawns[name] ??= move(spawn);
     }
     for (const light of part.lights ?? []) {
@@ -496,13 +497,16 @@ function compose(
     }
   }
 
-  // Whatever no part covers is solid rock. This is also what seals a door that
-  // nothing was fitted against: it opens onto the fill and stops there.
-  for (let gy = 0; gy < rows; gy++) {
-    for (let gx = 0; gx < cols; gx++) {
-      if (!covered[gy][gx]) out.walls.push({ gx, gy });
-    }
-  }
+  // What no part covers used to be filled with wall objects, which is how an
+  // unmatched door came to open onto rock and stop. There is no such thing as a
+  // wall any more — one is a prefab like anything else — so a part that wants
+  // its border sealed puts that prefab along it, the same as any other content.
+  //
+  // ponytail: an unmatched door now opens onto open ground rather than rock.
+  // Sealing it again means either the fill placing a prefab this file would
+  // have to be told the name of, or the terrain under an uncovered tile being
+  // cut away — which is the same "there is no ground there" rule that already
+  // stops you walking off the edge.
 
   out.rows = grid.map((row) => row.join(''));
   return out;

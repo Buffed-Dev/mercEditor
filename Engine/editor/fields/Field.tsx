@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { destinationIds } from '../../src/data/maps/index.ts';
 import { ColorField } from './ColorField';
 import { IconPicker } from '../ui/IconPicker';
+import { FilePicker, RecordPicker, type Files } from '../ui/FilePicker';
 import { NumberField } from './NumberField';
 import { splitUnit } from './ranges';
 import { Tooltip } from '../ui/Tooltip';
@@ -15,10 +16,6 @@ import styles from './Field.module.css';
  * over a descriptor and gets back a control, which is what keeps a new editable
  * property to one line in a data file rather than a new branch of interface
  * code.
- *
- * The label carries its own text as a tooltip: the gutter is a fixed width, so
- * a long name ellipsises, and in a narrow inspector "Arrive at spawn named"
- * would otherwise be unreadable with no way to find out what it said.
  */
 export function FieldRow({
   label,
@@ -31,13 +28,11 @@ export function FieldRow({
 }) {
   return (
     <div className={styles.row}>
-      {/* The gutter is a fixed width, so a long name ellipsises — and the whole
-          name has to be one point away, not one point and a wait. */}
-      <Tooltip label={label} side="right">
-        <label className={styles.label} htmlFor={htmlFor}>
-          {label}
-        </label>
-      </Tooltip>
+      {/* The gutter is a fixed width, so a long name ellipsises, and that is
+          all it does — nothing pops up over the panel to tell you the rest. */}
+      <label className={styles.label} htmlFor={htmlFor}>
+        {label}
+      </label>
       <div className={styles.control}>{children}</div>
     </div>
   );
@@ -57,9 +52,19 @@ export type FieldProps = {
   resolveOptions?: (field: FieldSpec) => readonly (readonly [string, string])[];
   /** Colours already used on this map, offered by the colour picker. */
   used?: readonly number[];
+  /** The project's files, for a `file` field to choose from. See ui/FilePicker.tsx. */
+  files?: Files;
 };
 
-export function Field({ field, value, onInput, onChange, resolveOptions, used }: FieldProps) {
+export function Field({
+  field,
+  value,
+  onInput,
+  onChange,
+  resolveOptions,
+  used,
+  files,
+}: FieldProps) {
   // The name only; the unit is drawn inside the number itself, beside the
   // figure it belongs to rather than at the end of a label you read once.
   const { name } = splitUnit(field.label);
@@ -105,17 +110,55 @@ export function Field({ field, value, onInput, onChange, resolveOptions, used }:
         </FieldRow>
       );
 
+    case 'file':
+    case 'image':
+      // Without the project's files to offer, the name is typed as it always was.
+      if (!files) break;
+      return (
+        <FieldRow label={name}>
+          <FilePicker
+            label={name}
+            value={String(value ?? '')}
+            accept={field.kind === 'image' ? 'texture' : field.accept}
+            files={files}
+            onChange={onChange}
+          />
+        </FieldRow>
+      );
+
+    case 'material':
+    case 'prop': {
+      const list = field.kind === 'prop' ? 'props' : 'materials';
+      if (!files?.[list]) break;
+      return (
+        <FieldRow label={name}>
+          <RecordPicker
+            label={name}
+            value={String(value ?? '')}
+            list={list}
+            files={files}
+            onChange={onChange}
+          />
+        </FieldRow>
+      );
+    }
+
     case 'select':
     case 'maps':
     case 'vfx':
     case 'prop':
     case 'prefab': {
-      const options = optionsFor(field, resolveOptions);
+      // Headings hold the options when there are any, so a long list is read
+      // in sections rather than as one wall of names.
+      const options = field.groups
+        ? field.groups.flatMap((group) => group.options)
+        : optionsFor(field, resolveOptions);
       return (
         <FieldRow label={name}>
           <Choice
             label={name}
             options={options}
+            groups={field.groups}
             value={String(value ?? '')}
             onChange={onChange}
           />
@@ -167,11 +210,13 @@ const SEGMENTED_MAX = 3;
 function Choice({
   label,
   options,
+  groups,
   value,
   onChange,
 }: {
   label: string;
   options: readonly (readonly [string, string])[];
+  groups?: readonly { label: string; options: readonly (readonly [string, string])[] }[];
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -207,15 +252,28 @@ function Choice({
         read as naming whatever happens to be at the top of the list — and one
         touch of the control would make that true.
       */}
-      {!value && <option value="">— none —</option>}
+      {/* A grouped picker always offers it, not only while nothing is set:
+          those are the long lists, and a wiring you cannot take off again is
+          worse than one you have to scroll to find. */}
+      {(!value || groups) && <option value="">— none —</option>}
       {/* A value the list no longer offers still has to be shown, or the
           control would silently claim the record says something else. */}
       {value && !options.some(([id]) => id === value) && <option value={value}>{value}</option>}
-      {options.map(([id, text]) => (
-        <option key={id} value={id}>
-          {text}
-        </option>
-      ))}
+      {groups
+        ? groups.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map(([id, text]) => (
+                <option key={id} value={id}>
+                  {text}
+                </option>
+              ))}
+            </optgroup>
+          ))
+        : options.map(([id, text]) => (
+            <option key={id} value={id}>
+              {text}
+            </option>
+          ))}
     </select>
   );
 }

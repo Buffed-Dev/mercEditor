@@ -53,31 +53,40 @@ const DEG = Math.PI / 180;
 
 /** Point and spot shadows are cube/perspective renders, so keep them cheap. */
 const LOCAL_SHADOW_MAP = 512;
-const SUN_SHADOW_MAP = 4096*2;
 
 /**
- * How much finer the sun's shadow map is than the one the numbers below were
- * tuned against.
+ * How fine the sun's shadow map is.
  *
- * Two of them are measured in that map's texels rather than in world units, and
- * the map was made four times finer without them — which is how they came to
- * disagree with it. Scaled rather than rewritten, so the next change to the map
- * size carries them along instead of leaving them behind.
+ * This was 8192 for a while, which is 67 million depth texels re-rendered every
+ * frame and a quarter of a gigabyte of video memory to hold them. Measured
+ * against 2048 on the same scene it cost twice the frame and looked the same:
+ * the map is fitted to the level, so 2048 is already about eighty texels per
+ * tile, and the shadows are contact-hardening — their edges are soft on
+ * purpose, which is exactly the detail more texels would have bought.
+ *
+ * Safe to change. Both numbers below that depend on it say how.
  */
+const SUN_SHADOW_MAP = 2048;
+
+/** The map size the texel-measured number below was tuned against. */
 const TUNED_SUN_MAP = 2048;
-const SUN_TEXEL_SCALE = TUNED_SUN_MAP / SUN_SHADOW_MAP;
 
 /**
  * Authored softness (roughly 0–10) to the light's apparent size in shadow-map
  * UV space, which is what sets how fast the penumbra opens.
  *
- * Scaled into the map being drawn to, because the blocker search takes a fixed
- * number of samples across whatever radius this asks for. A radius covering
- * four times as many texels is searched four times as thinly, and past a point
- * the search steps straight over the thing casting the shadow: the sun's
- * shadows did not soften, they stopped existing.
+ * In UV rather than in texels, and so deliberately *not* scaled by the map
+ * size: this is the width of the penumbra as a fraction of what the shadow map
+ * covers, which is a physical size on the ground. Scaled with the map it would
+ * be a fixed number of texels instead — the same shadow drawn four times softer
+ * on a map four times coarser, which is a look that only exists at whichever
+ * resolution it happened to be tuned at.
+ *
+ * The sun has its own because its map is fitted to the whole level while a
+ * torch's covers a few tiles, so the same fraction is a very different distance.
  */
 const SOFTNESS_TO_UV = 0.006;
+const SUN_SOFTNESS_TO_UV = 0.0015;
 
 /**
  * How far a receiver is pushed along its own normal before its depth is
@@ -98,7 +107,7 @@ const SOFTNESS_TO_UV = 0.006;
  * four texels deep and pushed every shadow clear of the thing casting it — a
  * block with a gap of daylight under it, floating over its own shadow.
  */
-const SUN_NORMAL_BIAS = 0.02 * SUN_TEXEL_SCALE;
+const SUN_NORMAL_BIAS = (0.02 * TUNED_SUN_MAP) / SUN_SHADOW_MAP;
 const LOCAL_NORMAL_BIAS = 0.05;
 
 /** A small constant offset on top, for surfaces facing the light head-on. */
@@ -196,9 +205,11 @@ function apply(
     generator.useContactHardeningShadow = true;
     // The floor is on the authored softness; the scale turns it into the texels
     // of the map this generator actually draws to.
-    generator.contactHardeningLightSizeUVRatio =
-      Math.max(0.001, (def.shadowSoftness ?? 3) * SOFTNESS_TO_UV) *
-      (def.type === 'directional' ? SUN_TEXEL_SCALE : 1);
+    generator.contactHardeningLightSizeUVRatio = Math.max(
+      0.001,
+      (def.shadowSoftness ?? 3) *
+        (def.type === 'directional' ? SUN_SOFTNESS_TO_UV : SOFTNESS_TO_UV),
+    );
     generator.normalBias = def.type === 'directional' ? SUN_NORMAL_BIAS : LOCAL_NORMAL_BIAS;
     generator.bias = DEPTH_BIAS;
     // Babylon's darkness is how much light a shadow keeps; the authored number

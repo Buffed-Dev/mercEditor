@@ -3,6 +3,8 @@ import { OBJECT_LISTS, fieldsFor } from '../schema.ts';
 import { ENV_GROUPS } from '../envGroups.ts';
 import { Field } from '../fields/Field';
 import { FieldList } from '../fields/FieldList';
+import { Wirings } from './subeditors/Wirings';
+import { EVENTS, eventApplies } from '../../src/game/events/index.ts';
 import { palette } from '../fields/color';
 import type { FieldSpec, FieldValue } from '../fields/types';
 import { MapChunks } from './MapChunks';
@@ -29,6 +31,7 @@ export function Inspector({
   doc,
   editor,
   rules,
+  game,
   mapId,
   onPlaytest,
   showMap = true,
@@ -37,6 +40,8 @@ export function Inspector({
   doc: MapDocument | null;
   editor: MapEditor | null;
   rules: DataDocument | null;
+  /** Which game folder pictures are fetched from, for the pickers' thumbnails. */
+  game: string;
   mapId: string;
   onPlaytest: () => void;
   /**
@@ -74,6 +79,15 @@ export function Inspector({
    * The pickers whose choices are the game's own lists rather than a fixed set.
    * The panel knows the rules document; the field components do not.
    */
+  /** What the object picker shows: the library's objects, with their pictures. */
+  const files = {
+    game,
+    folder: '',
+    paths: [],
+    props: (rules?.list('props') ?? []) as Record<string, unknown>[],
+    materials: (rules?.list('materials') ?? []) as Record<string, unknown>[],
+  };
+
   const resolveOptions = (field: FieldSpec): readonly (readonly [string, string])[] => {
     // Spelled out rather than "vfx or else objects". A prefab field asked the
     // same question and was quietly handed the object list, so its picker
@@ -87,7 +101,11 @@ export function Inspector({
   };
 
   if (selection && spec && entry) {
-    const fields = fieldsFor(selection.list, entry) as FieldSpec[];
+    const fields = fieldsFor(selection.list, entry, rules ?? undefined) as FieldSpec[];
+    // A spawn is a name and a tile; there is nothing on a map for it to set off.
+    const hasWirings = !selection.key && Object.keys(EVENTS).some(
+      (event) => eventApplies(event, selection.list),
+    );
     const values = entry as Record<string, unknown>;
 
     return (
@@ -109,7 +127,7 @@ export function Inspector({
           </button>
         )}
 
-        {fields.length === 0 ? (
+        {fields.length === 0 && !hasWirings ? (
           <p className={styles.note}>Nothing to configure.</p>
         ) : (
           <FieldList
@@ -117,19 +135,43 @@ export function Inspector({
             values={values}
             used={used}
             resolveOptions={resolveOptions}
+            files={files}
             onInput={(key, value) =>
               edit.preview(
                 () => write(doc, selection, key, value, false),
-                // A light is the one thing that can be shown without rebuilding
-                // the map, so it is the one thing that moves under the drag.
+                // Shown live, without rebuilding the map: a light goes onto the
+                // burning one, and anything else is stood again where the
+                // document now says. See `previewTransform`.
                 selection.list === 'lights' && selection.index !== undefined
                   ? () => editor?.previewLight?.(selection.index as number, { [key]: value })
-                  : undefined,
+                  : () => editor?.previewTransform(),
               )
             }
-            onChange={(key, value) => edit.commit(() => write(doc, selection, key, value, false))}
+            onChange={(key, value) =>
+              edit.commit(
+                () => write(doc, selection, key, value, false),
+                // Settling a light is the same edit the drag was already
+                // showing live -- it goes onto the burning light rather than
+                // rebuilding the map around it, so letting go costs what
+                // dragging did.
+                ...(selection.list === 'lights' ? (['lights'] as const) : ([] as const)),
+              )
+            }
           />
         )}
+
+        {/*
+          What it *does*, after what it is. A trigger holds a list of actions
+          rather than one setting, so it is drawn here rather than as a field —
+          the same split RecordDetail makes for an effect's modifiers.
+        */}
+        <Wirings
+          list={selection.list}
+          entry={values}
+          resolveOptions={resolveOptions}
+          onInput={(patch) => edit.preview(() => writeMany(doc, selection, patch))}
+          onChange={(patch) => edit.commit(() => writeMany(doc, selection, patch))}
+        />
       </div>
     );
   }
@@ -268,6 +310,21 @@ function write(
     return;
   }
   doc.updateObject(selection.list, selection.index as number, { [key]: value }, checkpointed);
+}
+
+/**
+ * Several fields at once, for an edit that is not one setting.
+ *
+ * A trigger's actions are a list, and changing one row rewrites the whole list
+ * — so it arrives here as a patch rather than a key and a value. Spawns are not
+ * offered any triggers, which is why this needs no keyed branch.
+ */
+function writeMany(
+  doc: MapDocument,
+  selection: NonNullable<ReturnType<typeof useSelection.getState>['selection']>,
+  patch: Record<string, unknown>,
+) {
+  doc.updateObject(selection.list, selection.index as number, patch, false);
 }
 
 

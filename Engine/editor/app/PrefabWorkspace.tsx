@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { redraw } from '../history.ts';
 import { useNavigate, useParams } from 'react-router';
 import { writeRules } from '../save.ts';
 import { Shell } from '../shell/Shell';
@@ -18,6 +19,7 @@ import { useSelection } from '../state/selection';
 import { useShortcuts } from '../state/useShortcuts';
 import { AssetShelves } from '../panels/AssetShelves';
 import { Inspector } from '../panels/Inspector';
+import { SnapControl } from '../viewport/SnapControl';
 import { ObjectTree } from '../panels/ObjectTree';
 import { mapToPrefab, prefabToMap } from '../prefabDoc.ts';
 import { normalizePrefab, type Prefab } from '../../src/data/prefabs.ts';
@@ -115,8 +117,8 @@ export function PrefabWorkspace() {
 
   useShortcuts({
     onSave: () => void onSave(),
-    onUndo: () => doc?.undo() !== false && editor?.invalidate(),
-    onRedo: () => doc?.redo() !== false && editor?.invalidate(),
+    onUndo: () => { if (doc && editor) redraw(doc.undo(), editor); },
+    onRedo: () => { if (doc && editor) redraw(doc.redo(), editor); },
     onFrame: () => editor?.frameAll(),
     onToggleGrid: () => setGridVisible((on) => !on),
     onHelp: () => {},
@@ -168,10 +170,10 @@ export function PrefabWorkspace() {
           canUndo={Boolean(doc?.canUndo)}
           canRedo={Boolean(doc?.canRedo)}
           onUndo={() => {
-            if (doc?.undo() !== false) editor?.invalidate();
+            if (doc && editor) redraw(doc.undo(), editor);
           }}
           onRedo={() => {
-            if (doc?.redo() !== false) editor?.invalidate();
+            if (doc && editor) redraw(doc.redo(), editor);
           }}
           dirty={dirty}
           onSave={() => void onSave()}
@@ -193,12 +195,10 @@ export function PrefabWorkspace() {
           )}
           {leftTab === 'assets' && (
             <AssetShelves
-              // No terrains: there is no ground here to paint, only the floor
-              // laid down to judge heights against, and it is not saved.
-              terrains={[]}
-              onEditTerrain={(id) => void navigate(`/${gameId}/library/terrains/${id}`)}
-              // A prefab cannot contain the ground it stands on, nor the start
-              // tile of a map, nor a chunk of one -- nor itself.
+              // No prefab palette: a prefab cannot contain itself, and this
+              // screen is where the objects one is made of are placed.
+              // No ground either -- the floor here is only something to judge
+              // heights against, and it is not saved.
               without={['chunk', 'spawn', 'prefab']}
             />
           )}
@@ -207,14 +207,17 @@ export function PrefabWorkspace() {
       viewport={
         <Viewport
           hostRef={host}
+          scene={stage?.renderer.scene ?? null}
           // No terrain tools: the floor is scenery for the editing and is
           // thrown away on the way out, so painting it would be work that
           // silently went nowhere.
-          overlay={<ToolRail only={['select', 'move', 'place', 'erase']} />}
+          overlay={<ToolRail only={['select', 'move', 'rotate', 'scale', 'place', 'erase']} />}
           gridVisible={gridVisible}
           onToggleGrid={() => setGridVisible((on) => !on)}
           onFrameAll={() => editor?.frameAll()}
-        />
+        >
+          <SnapControl />
+        </Viewport>
       }
       inspector={
         <DockPanel
@@ -227,6 +230,7 @@ export function PrefabWorkspace() {
             doc={doc}
             editor={editor}
             rules={rules}
+            game={gameId}
             mapId={String(doc?.map.id ?? '')}
             onPlaytest={() => void navigate(`/${gameId}/library/prefabs/${prefabId}`)}
             showMap={false}

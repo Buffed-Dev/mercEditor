@@ -4,8 +4,18 @@ type Editable = {
   checkpoint: (checkpointed?: boolean) => void;
 };
 
+import type { MapEditor } from '../editor.ts';
+
+/**
+ * The parts of the view an edit can say it touched.
+ *
+ * Read off the editor rather than written out again, so a domain added there
+ * cannot quietly fail to be sayable from here.
+ */
+type Domain = Parameters<MapEditor['invalidate']>[number];
+
 type Invalidatable = {
-  invalidate: () => void;
+  invalidate: (...what: Domain[]) => void;
 } | null;
 
 /**
@@ -43,13 +53,20 @@ export function useEdit(doc: Editable | null, editor: Invalidatable) {
       redraw?.();
     },
 
-    /** Settled. Ends the gesture, if one was running. */
-    commit(write: () => void) {
+    /**
+     * Settled. Ends the gesture, if one was running.
+     *
+     * `what` says which part of the view the write actually changed. Named
+     * nothing still means the whole map, which is right for most fields --
+     * only a control that knows its edit is confined to one domain should say
+     * so, and be wrong about it at its peril.
+     */
+    commit(write: () => void, ...what: Domain[]) {
       if (!doc) return;
       if (!inGesture.current) doc.checkpoint();
       inGesture.current = false;
       write();
-      editor?.invalidate();
+      editor?.invalidate(...what);
     },
   };
 }

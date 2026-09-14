@@ -4,6 +4,10 @@ import { EFFECTS } from '../data/effects.ts';
 import { ABILITIES, abilityMap } from '../data/abilities.ts';
 import { ARCHETYPES, archetypeMap } from '../data/archetypes.ts';
 import { World } from '../game/world.ts';
+import { ACTIONS, runActions } from '../game/actions/index.ts';
+import { EVENTS, WIRABLE_LISTS, wiringsFor } from '../game/events/index.ts';
+import { PREFABS, isActorPrefab, override, prefabBounds, prefabById } from '../data/prefabs.ts';
+import type { PlacedPrefab, Prefab } from '../data/prefabs.ts';
 import { createActor, grantStartingEffects, tickActor } from '../game/actor.ts';
 import {
   advanceChain,
@@ -58,18 +62,17 @@ import {
   upgradeBase,
 } from '../game/crafting.ts';
 import { createProjectiles } from '../game/projectiles.ts';
-import { spawnMonsters, updateMonsters } from '../game/monsters.ts';
+import { Monster, updateMonsters } from '../game/monsters.ts';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { buildMapView } from './mapView.ts';
 import { createDebugViews } from './debug.ts';
-import { createMonsterViews } from './monsters.ts';
+import { createActorViews } from './monsters.ts';
 import { createProjectileViews } from './projectiles.ts';
 import { createGroundItemViews } from './groundItems.ts';
 import { createTrailViews } from './trail.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { VFX } from '../data/vfx.ts';
-import { createPlayer } from './player.ts';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { Ability, AbilityInput } from '../data/abilities.ts';
 import type { ArchetypeInput } from '../data/archetypes.ts';
@@ -78,7 +81,8 @@ import type { BaseLevelInput } from '../data/baseLevels.ts';
 import type { CategoryInput } from '../data/categories.ts';
 import type { Currency, ItemInput } from '../data/items.ts';
 import type { EffectInput } from '../data/effects.ts';
-import type { GameMap, Placed } from '../data/mapFormat.ts';
+import type { GameMap, MapObject, Placed } from '../data/mapFormat.ts';
+import type { ActionIntent } from '../game/actions/index.ts';
 import type { LootTableInput } from '../data/lootTables.ts';
 import type { RecipeInput } from '../data/recipes.ts';
 import type { VfxInput } from '../data/vfx.ts';
@@ -128,7 +132,6 @@ type Shown = NonNullable<Cast['telegraph']>;
 export type InteractTarget = { id: string; label: string; distance: number };
 
 /** A crafting bench within reach. */
-type NearStation = { id: string; def: { gx: number; gy: number; label?: unknown }; distance: number };
 
 /**
  * One loaded map: its World, its slice of the scene, the player and whatever
@@ -181,21 +184,58 @@ export function createLevel(
   const map = typeof source === 'string' ? getMap(source) : source;
   const world = new World(map, spawnName);
   const view = buildMapView(scene, world, { vfx: vfxDefs });
-  const { root, decals, shadows, torches, portals, env } = view;
+  const { root, decals, shadows, env } = view;
 
   const effects = createEffectRuntime(effectDefs);
   const abilities = abilityMap(abilityDefs);
   const projectiles = createProjectiles();
 
-  const playerView = createPlayer(scene, root, shadows);
-  const player = createActor({
-    archetype: 'player',
-    gx: world.spawn.gx,
-    gy: world.spawn.gy,
-    attributes,
-    archetypes,
-  });
-  grantStartingEffects(player, effects);
+  // One index for both the player's label and every actor's loot table.
+  const archetypeById = archetypeMap(archetypes);
+  const actorViews = createActorViews(scene, root, shadows);
+
+  /**
+   * Everything standing on this map that was built from an archetype.
+   *
+   * An actor is a prefab naming an archetype, spawned whole — see
+   * `isActorPrefab` — and what drives it is the archetype's brain: `ai` gets
+   * a Monster, `player` is the one below, `none` just stands there and can be
+   * hit. `placement` is the index into `map.prefabs` it came from, which is
+   * where its wirings are written.
+   */
+  type Spawned = { actor: Actor; placement: number | null; ai: Monster | null };
+  const spawned: Spawned[] = [];
+
+  function spawnActor(
+    prefab: Prefab | null,
+    archetype: string,
+    at: Placed,
+    placement: number | null,
+    set?: Record<string, unknown>,
+  ): Actor {
+    const spec = archetypeById.get(archetype);
+    const actor = createActor({
+      archetype,
+      gx: at.gx,
+      gy: at.gy,
+      // Melee reach and projectile collision both measure to a body's edge,
+      // so the actor needs to know how wide it is.
+      radius: prefab && prefab.w > 0 ? Math.min(prefab.w, prefab.h) / 2 : undefined,
+      attributes,
+      archetypes: archetypeById,
+      values: { ...prefab?.attributes, ...(set?.attributes as Record<string, number> | undefined) },
+    });
+    grantStartingEffects(actor, effects);
+    const brain = spec?.brain ?? 'none';
+    actorViews.add(actor, prefab, brain === 'ai');
+    if (brain !== 'player') spawned.push({ actor, placement, ai: brain === 'ai' ? new Monster(actor) : null });
+    return actor;
+  }
+
+  // The player is the prefab whose archetype says so, stood at the spawn
+  // point; without one the archetype alone will do, in the stand-in body.
+  const playerPrefab = PREFABS.find((one) => archetypeById.get(String(one.archetype))?.brain === 'player');
+  const player = spawnActor(playerPrefab ?? null, playerPrefab?.archetype ?? 'player', world.spawn, null);
 
   // The bag comes from the character and goes on with them; the floor stays
   // here. That split is the whole of it — what you are carrying is yours and
@@ -213,8 +253,6 @@ export function createLevel(
     if (worn) wear(player.attrs, worn);
   }
 
-  // One index for both the player's label and every monster's loot table.
-  const archetypeById = archetypeMap(archetypes);
   const playerLabel = archetypeById.get(player.archetype)?.label ?? player.archetype;
 
   // And the bar is armed from what that body can now do. A character arriving
@@ -228,8 +266,20 @@ export function createLevel(
   // same identity the camera and HUD already read every frame.
   const pos = player.pos;
 
-  const monsters = spawnMonsters(map, { attributes, archetypes });
-  const monsterViews = createMonsterViews(scene, root, shadows, monsters);
+  // Everything else that stands up: each actor placement, whole. The player's
+  // own prefab placed on a map is skipped — there is one player, and it is
+  // where the spawn point says.
+  (map.prefabs ?? []).forEach((at, index) => {
+    const record = at.id ? prefabById(String(at.id)) : null;
+    if (!record || !isActorPrefab(record)) return;
+    const archetype = String(record.archetype);
+    if (archetypeById.get(archetype)?.brain === 'player') return;
+    const box = prefabBounds(record, at as PlacedPrefab);
+    const middle = { gx: box.gx + Math.max(1, box.w) / 2, gy: box.gy + Math.max(1, box.h) / 2 };
+    spawnActor(record, archetype, middle, index, at.set as Record<string, unknown> | undefined);
+  });
+  /** The ones with a brain of their own. Spliced as they die; see `reap`. */
+  const monsters: Monster[] = spawned.flatMap((one) => (one.ai ? [one.ai] : []));
   // Ability flashes, and the trails the shots leave. The map's own placed
   // effects are the map view's; these are the ones something *does*, so they
   // are thrown one at a time and clean themselves up when they burn out.
@@ -243,12 +293,192 @@ export function createLevel(
   const debug = createDebugViews(decals);
   const trails = createTrailViews(scene, root);
 
-  playerView.sync(pos.gx, pos.gy, world.standAt(pos.gx, pos.gy));
-  monsterViews.sync(world);
+  actorViews.sync(world);
 
-  // The portal the player arrived beside must not fire until they have stepped
-  // off it, or a two-way pair would bounce them back and forth forever.
-  let portalArmed = world.portalAt(pos.gx, pos.gy) === null;
+  /**
+   * One wired thing on this map, resolved down to what runs.
+   *
+   * `object` is what the wirings are read off. For most lists that is the map
+   * entry itself; for a prefab it is the prefab's own record with the
+   * placement's settings laid over it, because a prefab's wirings belong to the
+   * arrangement and a placement only says what this one of them does.
+   *
+   * `tiles` is what walking onto it means — one tile for a thing that stands on
+   * one, and the whole footprint for a prefab. `centre` is what standing near
+   * it is measured from, so a wide bench is not further away at one end.
+   */
+  type Wired = {
+    list: string;
+    index: number;
+    object: MapObject;
+    label: string;
+    tiles: readonly string[];
+    centre: { x: number; z: number };
+    /** What the thing itself says the reach is, or null to let the action say. */
+    radius: number | null;
+    /** Half its footprint, added to an action's reach when it names no radius. */
+    span: number;
+  };
+
+  /** A map entry as the thing whose wirings run, or null if it names nothing. */
+  function resolveWired(list: string, entry: MapObject, index: number): Wired | null {
+    const gx = Number(entry.gx);
+    const gy = Number(entry.gy);
+    if (!Number.isFinite(gx) || !Number.isFinite(gy)) return null;
+
+    const tile = (w: number, h: number, fromX = gx, fromY = gy) => {
+      const keys: string[] = [];
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) keys.push(`${Math.floor(fromX) + x},${Math.floor(fromY) + y}`);
+      }
+      return keys;
+    };
+
+    if (list !== 'prefabs') {
+      return {
+        list,
+        index,
+        object: entry,
+        label: typeof entry.label === 'string' ? entry.label : '',
+        tiles: tile(1, 1),
+        centre: { x: gx + 0.5, z: gy + 0.5 },
+        radius: null,
+        span: 0,
+      };
+    }
+
+    const record = entry.id ? prefabById(String(entry.id)) : null;
+    // A placement naming a prefab that is gone is wired to nothing, the same
+    // way it draws nothing. Silent and symmetrical; see expandPrefabs.
+    if (!record) return null;
+    const box = prefabBounds(record, entry as unknown as PlacedPrefab);
+    const { w, h } = box;
+    const object = override(record as unknown as MapObject, entry.set as Record<string, unknown>);
+    const asked = Number(object.radius);
+    return {
+      list,
+      index,
+      object,
+      label: record.label,
+      tiles: tile(Math.max(1, Math.ceil(w)), Math.max(1, Math.ceil(h)), box.gx, box.gy),
+      centre: { x: box.gx + Math.max(1, w) / 2, z: box.gy + Math.max(1, h) / 2 },
+      // How close you must be to use it, if the prefab says. Zero is "it does
+      // not say" rather than "you must be standing inside it", which no slider
+      // starting at zero could otherwise express.
+      radius: Number.isFinite(asked) && asked > 0 ? asked : null,
+      // How far its own edge is from its middle. Added to an action's reach
+      // when the prefab names no radius of its own, so a long bench is not
+      // unreachable at one end — and zero for a single tile, which is what
+      // every reach was measured against before prefabs could be wired.
+      span: Math.max(Math.max(1, w), Math.max(1, h)) / 2 - 0.5,
+    };
+  }
+
+  /** Every wired thing on this map, by event. */
+  const wired = new Map<string, Wired[]>();
+  for (const event of Object.keys(EVENTS)) {
+    const found: Wired[] = [];
+    // Every list that can hold one, prefabs included, and no check of whether
+    // the editor would still *offer* this trigger here: what fires is what is
+    // written. Re-categorising a prefab must not quietly stop a trigger that is
+    // already on it — that would be a map breaking from a change to a picker.
+    for (const list of [...WIRABLE_LISTS, 'prefabs']) {
+      const entries = (map as Record<string, unknown>)[list];
+      if (!Array.isArray(entries)) continue;
+      entries.forEach((entry: MapObject, index: number) => {
+        const one = resolveWired(list, entry, index);
+        if (one && wiringsFor(list, event, one.object).length) found.push(one);
+      });
+    }
+    wired.set(event, found);
+  }
+
+  /**
+   * The tiles that fire something when walked onto, by "gx,gy".
+   *
+   * Built once here rather than scanned each frame — which is what the portal
+   * lookup this replaces did — so a map with three hundred wired objects costs
+   * a frame no more than a map with one.
+   */
+  const collisionTiles = new Map<string, Wired[]>();
+  for (const one of wired.get('collision') ?? []) {
+    for (const key of one.tiles) {
+      const at = collisionTiles.get(key);
+      if (at) at.push(one);
+      else collisionTiles.set(key, [one]);
+    }
+  }
+
+  /**
+   * The tile whose collision wirings have already fired. Re-arms by walking off.
+   *
+   * Starts as the tile the player arrived on, so a portal you were put down
+   * beside cannot fire before you have stepped off it — otherwise a two-way
+   * pair bounces you back and forth forever. That was a boolean when portals
+   * were the only thing that could fire; a tile key is the same rule with the
+   * "there was nothing there" case removed.
+   */
+  let firedTile = `${Math.floor(pos.gx)},${Math.floor(pos.gy)}`;
+
+  /**
+   * The engine surface an action may touch.
+   *
+   * Named slices rather than the level itself, on purpose: every action ever
+   * written can reach whatever is in here, so whatever is in here is what can
+   * never be changed again. Grow it a field at a time, as a verb needs one.
+   */
+  const actionContext = () => ({
+    player,
+    world,
+    effects,
+    level: { pickUp: (id: string) => collect(id, { ground, character }) },
+  });
+
+  /** What actions raised mid-frame, drained by `pendingActions`. */
+  const queued: ActionIntent[] = [];
+
+  /** What each actor's health was last frame, so a drop can be noticed. */
+  const lastHealth = new WeakMap<object, number>();
+
+  /**
+   * Tell anything wired to `hit` that it has been hit.
+   *
+   * Watched rather than hooked into, because there is no one damage path to
+   * hook: a cone, a projectile and a burning effect all arrive by different
+   * routes, and none of them should have to learn that this exists. They all
+   * move the same number, so watching that number catches every one of them —
+   * including the ones nobody has written yet.
+   *
+   * ponytail: a frame is the resolution, so two arrows landing together fire
+   * once. Count the difference into the wiring if that ever matters.
+   */
+  function fireHits(): void {
+    for (const one of spawned) {
+      const health = one.actor.attrs.current('health');
+      const was = lastHealth.get(one.actor);
+      lastHealth.set(one.actor, health);
+      if (was === undefined || health >= was) continue;
+      fireOn(one, 'hit');
+    }
+  }
+
+  /**
+   * Run what an actor's placement has wired to an event. The wiring is on the
+   * placement — the prefab's own record with this one's settings laid over it
+   * — because that is the thing an editor typed at; the body was built from it.
+   */
+  function fireOn(one: Spawned, event: string): void {
+    if (one.placement === null) return;
+    const placement = (map.prefabs ?? [])[one.placement] as MapObject | undefined;
+    const whole = placement ? resolveWired('prefabs', placement, one.placement) : null;
+    if (!whole) return;
+    queued.push(
+      ...runActions(wiringsFor('prefabs', event, whole.object), {
+        ...actionContext(),
+        object: whole.object,
+      }),
+    );
+  }
 
   /** Seconds since this level was built, for anything that idles. */
   let elapsed = 0;
@@ -278,26 +508,56 @@ export function createLevel(
   const held = () => character.hand;
   const hold = (item: ItemInstance | null | undefined) => character.setHand(item);
 
+  /** Clear of the object itself, so the plate is readable and clickable. */
+  const WIRED_PLATE_H = 1.3;
+
+  /** How a wired object is named to the plates and back again. */
+  const wiredId = (one: Wired) => `on:${one.list}:${one.index}`;
+
   /**
-   * The bench within reach, or null.
+   * What a wired object is called on its plate.
+   *
+   * Its own label if it has one — a map file may put anything in the field —
+   * and otherwise what the action it runs is called, so a thing wired to open a
+   * panel reads as "Open a panel" rather than as nothing at all.
+   */
+  function wiredLabel(one: Wired): string {
+    if (one.label) return one.label;
+    const first = wiringsFor(one.list, 'interact', one.object)[0];
+    const spec = typeof first?.do === 'string' ? ACTIONS[first.do] : null;
+    return spec?.label ?? 'Thing';
+  }
+
+  /**
+   * Every wired object within reach of being used, nearest first.
    *
    * Reach at all, rather than clicking one across the room, because the plate
    * *is* the button: an unfiltered one is a bench you could work at through a
-   * wall. The nearest wins, so two side by side still open one thing.
+   * wall. How far is the action's business (`ActionSpec.reach`) — a bench is a
+   * big thing you stand at, a lever is something you put your hand on.
    */
-  const STATION_REACH = 2.5;
-
-  /** Clear of the bench itself, so the plate is readable and clickable. */
-  const STATION_PLATE_H = 1.3;
-
-  function stationNear(): NearStation | null {
-    let best: NearStation | null = null;
-    (map.stations ?? []).forEach((def, index) => {
-      const distance = Math.hypot(def.gx + 0.5 - pos.gx, def.gy + 0.5 - pos.gy);
-      if (distance > STATION_REACH) return;
-      if (!best || distance < best.distance) best = { id: `station${index}`, def, distance };
-    });
-    return best;
+  function useNear(): { one: Wired; distance: number }[] {
+    const found: { one: Wired; distance: number }[] = [];
+    for (const one of wired.get('interact') ?? []) {
+      const distance = Math.hypot(one.centre.x - pos.gx, one.centre.z - pos.gy);
+      // What the thing itself says, when it says anything. A reach is a fact
+      // about the thing you are walking up to at least as much as about what
+      // pressing the key does, and only the thing knows how big it is.
+      //
+      // Otherwise the furthest any of its actions asks for — a wiring that
+      // opens a bench and says a line is reachable from wherever the bench is —
+      // plus half the thing's own footprint, so a wide one is not out of reach
+      // at its edges while its middle is fine.
+      const reach =
+        one.radius ??
+        wiringsFor(one.list, 'interact', one.object).reduce(
+          (far, wiring) =>
+            Math.max(far, (typeof wiring.do === 'string' ? ACTIONS[wiring.do]?.reach : 0) ?? 0),
+          INTERACT_REACH,
+        ) + one.span;
+      if (distance <= reach) found.push({ one, distance });
+    }
+    return found.sort((a, b) => a.distance - b.distance);
   }
 
   /**
@@ -330,34 +590,50 @@ export function createLevel(
       if (distance <= INTERACT_REACH) offer(drop.id, drop.item?.label ?? 'Item', distance);
     }
 
-    const station = stationNear();
-    if (station) offer(station.id, stationLabel(station), station.distance);
+    for (const { one, distance } of useNear()) offer(wiredId(one), wiredLabel(one), distance);
 
     return best;
   }
 
-  /** Everything that can be hit, player included. */
-  /** What a bench is called. A map file may put anything in the field. */
-  const stationLabel = (station: NearStation) =>
-    (typeof station.def.label === 'string' && station.def.label) || 'Crafting bench';
+  /**
+   * Run what the interact key or a plate click landed on.
+   *
+   * A wired object is named by which list it is on and where in it, which is
+   * only sound because expansion *appends* prefab children and never inserts
+   * them — the same contract the editor's pick tags rest on. See
+   * data/prefabs.ts; there is a test holding it.
+   */
+  function use(id: string): ActionIntent[] {
+    const one = (wired.get('interact') ?? []).find((found) => wiredId(found) === id);
+    if (!one) return [];
+    return runActions(wiringsFor(one.list, 'interact', one.object), {
+      ...actionContext(),
+      object: one.object,
+    });
+  }
 
-  const actors = () => [player, ...monsters.map((monster) => monster.actor)];
+  /** Everything that can be hit, player included. */
+
+  const actors = () => [player, ...spawned.map((one) => one.actor)];
 
   /** Clear out anything the last tick killed, meshes included. */
   function reap() {
-    for (let i = monsters.length - 1; i >= 0; i--) {
-      if (monsters[i].alive) continue;
+    for (let i = spawned.length - 1; i >= 0; i--) {
+      const one = spawned[i];
+      if (one.actor.alive) continue;
       // What falls out is a loot table the archetype names, so two monsters can
-      // share one purse and the breakables that are coming can name the same
-      // one without becoming monsters to do it.
+      // share one purse and a vase can name the same one without becoming a
+      // monster to do it. What *this* one does besides is its `dead` wiring.
       //
       // It lands on the floor rather than in the purse: killing something
       // across the room should leave you something to walk over to, and the arc
       // from the corpse is the beat that says the kill paid out.
-      dropLoot(archetypeById.get(monsters[i].actor.archetype)?.loot, monsters[i].actor.pos);
-      effects.removeByTarget(monsters[i].actor);
-      monsterViews.remove(monsters[i]);
-      monsters.splice(i, 1);
+      dropLoot(archetypeById.get(one.actor.archetype)?.loot, one.actor.pos);
+      fireOn(one, 'dead');
+      effects.removeByTarget(one.actor);
+      actorViews.remove(one.actor);
+      spawned.splice(i, 1);
+      if (one.ai) monsters.splice(monsters.indexOf(one.ai), 1);
     }
   }
 
@@ -965,25 +1241,27 @@ export function createLevel(
      * The same list on purpose. A plate is its own click target, and the hover
      * set that stops a click on one also swinging a sword is kept by whatever
      * draws them — so a bench that arrives through this list needs none of that
-     * built again. Drop ids and station ids cannot collide.
+     * built again. Drop ids and wired-object ids cannot collide.
      */
     groundAnchors(): readonly Plate[] {
-      const anchors = groundViews.anchors();
-      const near = stationNear();
-      if (!near) return anchors;
-      const x = near.def.gx + 0.5;
-      const z = near.def.gy + 0.5;
       return [
-        ...anchors,
-        {
-          id: near.id,
-          label: stationLabel(near),
-          x,
-          y: world.heightAt(x, z) * LEVEL_H + STATION_PLATE_H,
-          z,
-        },
+        ...groundViews.anchors(),
+        ...useNear().map(({ one }) => {
+          const x = Number(one.object.gx) + 0.5;
+          const z = Number(one.object.gy) + 0.5;
+          return {
+            id: wiredId(one),
+            label: wiredLabel(one),
+            x,
+            y: world.heightAt(x, z) * LEVEL_H + WIRED_PLATE_H,
+            z,
+          };
+        }),
       ];
     },
+
+    /** Run what a plate click or the interact key landed on. */
+    use,
 
     /**
      * What the player can do and what is bound where, for the abilities screen.
@@ -1006,8 +1284,15 @@ export function createLevel(
     /** What the player is carrying, named — for the status line. */
     purse: () => purseView(currencies, character),
 
-    /** Whether there is a bench in reach — what closes the panel when you walk off. */
-    nearStation: () => stationNear() !== null,
+    /**
+     * Is this wired object still close enough to use?
+     *
+     * What closes a panel when you walk away from whatever opened it. Asked by
+     * id rather than by kind, so the rule is "you left the thing you were at"
+     * for every wired object there will ever be, rather than a special case per
+     * panel that opens.
+     */
+    inReach: (id: string) => useNear().some(({ one }) => wiredId(one) === id),
 
     /** Everything the bench panel draws. Read on demand: the purse moves. */
     crafting: () =>
@@ -1088,8 +1373,7 @@ export function createLevel(
       if (player.dash) return;
       // Not straight to the heading: a wind-up in progress caps how fast the
       // body comes round, and is steered by the same turn.
-      const turned = turnActor(player, heading, dt);
-      playerView.face(Math.sin(turned), Math.cos(turned), dt);
+      turnActor(player, heading, dt);
     },
 
     /** Fire one of the player's ability slots. `aim` comes from the cursor. */
@@ -1099,10 +1383,6 @@ export function createLevel(
       // The player is the one who may interrupt: pressing a different slot
       // abandons whatever is winding up.
       const result = activate(player, id, aim, { interrupt: true });
-      // Snap the mesh to the direction that was actually used, so the visor
-      // agrees with the cone that was just tested — which for a facing-aimed
-      // ability is where the body already pointed, not where the cursor is.
-      if (result.ok) playerView.snapTo(player.facing);
       return result;
     },
 
@@ -1114,8 +1394,7 @@ export function createLevel(
      */
     update(dt: number, simulate: boolean): void {
       if (simulate) {
-        tickActor(player, dt);
-        for (const monster of monsters) tickActor(monster.actor, dt);
+        for (const actor of actors()) tickActor(actor, dt);
 
         // Before the AI runs, so an ability that finishes this frame lands
         // before anything decides to start another one.
@@ -1138,6 +1417,8 @@ export function createLevel(
         // Ticked after the hits land, so a killing blow and its regen tick
         // cannot both apply in the same frame.
         effects.update(dt);
+        // Before reaping, so a killing blow still tells the thing it killed.
+        fireHits();
         reap();
 
         // After reaping, so coin dropped by something that died this frame is
@@ -1160,8 +1441,7 @@ export function createLevel(
       // With the frame's dt, so the body climbs a step rather than hopping it.
       // The one at build time deliberately has none: it should start where it
       // stands, not fly in.
-      playerView.sync(pos.gx, pos.gy, heightNow(), dt);
-      monsterViews.sync(world);
+      actorViews.sync(world, dt);
       projectileViews.sync(projectiles.list, world);
 
       // The rest of this runs whether or not the game is simulating: whatever
@@ -1175,32 +1455,39 @@ export function createLevel(
       trails.update(dt);
 
       // Torch flicker, on the flame mesh only — the torches emit no light now.
-      for (const torch of torches) {
-        torch.phase += dt * 9;
-        const flicker = 0.86 + Math.sin(torch.phase) * 0.07 + Math.sin(torch.phase * 2.7) * 0.05;
-        torch.flame.scaling.setAll(0.9 + flicker * 0.2);
-      }
 
-      for (const portal of portals) {
-        portal.phase += dt;
-        // The torus is built lying flat, so it spins about the world's up axis.
-        portal.ring.rotation.y += dt * 1.4;
-        portal.ring.position.y = 0.55 + Math.sin(portal.phase * 2) * 0.06;
-        portal.discMaterial.alpha = 0.45 + Math.sin(portal.phase * 3) * 0.12;
-      }
     },
 
     /**
-     * The portal the player is standing on and that is allowed to fire, or
-     * null. Re-arms once they walk off whatever they arrived next to.
+     * What walking onto the current tile set off, run, as intents to apply.
+     *
+     * Fires on arriving at a tile and not again until the player leaves it, so
+     * standing on a portal does not re-trigger it sixty times a second.
+     *
+     * ponytail: this samples the tile the player is on once a frame, not the
+     * path they took to it — a fast enough dash steps clean over a one-tile
+     * hazard. Sweep the segment if that ever becomes a complaint.
      */
-    pendingPortal() {
-      const here = world.portalAt(pos.gx, pos.gy);
-      if (!here) {
-        portalArmed = true;
-        return null;
-      }
-      return portalArmed ? here : null;
+    pendingActions(): ActionIntent[] {
+      // Whatever the frame raised — being hit, so far — drained here so that
+      // every action, however it was set off, is carried out in the one place
+      // that is allowed to carry one out. See `apply` in main.ts.
+      const raised = queued.splice(0, queued.length);
+
+      const key = `${Math.floor(pos.gx)},${Math.floor(pos.gy)}`;
+      if (key === firedTile) return raised;
+      firedTile = key;
+      const here = collisionTiles.get(key);
+      if (!here) return raised;
+      const context = actionContext();
+      return raised.concat(
+        here.flatMap((one) =>
+          runActions(wiringsFor(one.list, 'collision', one.object), {
+            ...context,
+            object: one.object,
+          }),
+        ),
+      );
     },
 
     destroy(): void {
@@ -1208,8 +1495,7 @@ export function createLevel(
       trails.dispose();
       debug.dispose();
       projectileViews.dispose();
-      monsterViews.dispose();
-      playerView.dispose();
+      actorViews.dispose();
       vfx.dispose();
       view.dispose();
     },

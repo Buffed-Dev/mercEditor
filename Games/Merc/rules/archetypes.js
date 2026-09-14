@@ -12,6 +12,7 @@ export const ARCHETYPES = [
     abilities: ['basicAttack', 'handgun', 'bolt'],
     unarmed: 'punch',
     attributes: { health: 100, healthRegen: 2, attackPower: 14, armor: 0, moveSpeed: 5, attackSpeed: 1.2 },
+    brain: 'player',
   },
   {
     id: 'grunt',
@@ -21,6 +22,7 @@ export const ARCHETYPES = [
     abilities: ['gruntSwipe'],
     attributes: { health: 30, attackPower: 6, armor: 0, moveSpeed: 1.7, attackSpeed: 0.8, sight: 7 },
     loot: 'smallPurse',
+    brain: 'ai',
   },
   {
     id: 'vase',
@@ -30,6 +32,7 @@ export const ARCHETYPES = [
     abilities: [],
     attributes: { health: 12, armor: 0, moveSpeed: 0, sight: 0 },
     loot: 'vaseSpoils',
+    brain: 'none',
   },
   {
     id: 'brute',
@@ -39,5 +42,6 @@ export const ARCHETYPES = [
     abilities: ['bruteSlam'],
     attributes: { health: 90, attackPower: 14, armor: 10, moveSpeed: 1.1, attackSpeed: 0.5, sight: 5.5 },
     loot: 'heavyPurse',
+    brain: 'ai',
   },
 ];

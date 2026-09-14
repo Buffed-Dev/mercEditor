@@ -26,7 +26,7 @@
 //
 // **Walls are objects, not terrain.** They stand on whatever the ground under
 // them happens to be and stack on each other, so they are a list of tiles like
-// torches and portals rather than a character in the grid. Everything that is
+// torches and props rather than a character in the grid. Everything that is
 // not terrain is declared the same way, keyed by integer tile coordinates; the
 // tile's centre is (gx + 0.5, gy + 0.5).
 
@@ -98,6 +98,14 @@ export type MapEnv = typeof DEFAULT_ENV;
 export type MapEnvInput = Partial<Omit<MapEnv, 'clouds'>> & { clouds?: boolean | number };
 
 /** Anything a map puts at a tile. */
+/**
+ * Where a thing stands, in tiles.
+ *
+ * Only terrain is tiles. For everything standing on it these are continuous:
+ * 2.37 is a place, and whatever needs the tile under it floors them. A whole
+ * number is the tile's corner, so a thing at (2, 3) stands at (2.5, 3.5) --
+ * which is what every file written before positions were free meant by it.
+ */
 export type Placed = { gx: number; gy: number };
 
 /**
@@ -121,10 +129,24 @@ export type MapObject = Placed & {
   id?: string;
   kind?: string;
   stack?: number;
+  /** The rest of the transform. See `Transform` in transform.ts. */
   lift?: number;
+  rot?: number;
+  rotX?: number;
+  rotZ?: number;
+  scaleX?: number;
+  scaleY?: number;
+  scaleZ?: number;
   face?: string;
   type?: string;
   azimuth?: number;
+  /**
+   * Inside an actor prefab. `slot` names a part — `head`, `hand` — for
+   * whatever hangs off it; `parent` is the slot this part hangs off, so a
+   * helmet turns with the head. Neither means anything on a flat map.
+   */
+  parent?: string;
+  slot?: string;
   [key: string]: unknown;
 };
 
@@ -137,7 +159,7 @@ import type { RimRing } from './terrain/profile.ts';
 export type Wall = Placed & { stack?: number };
 
 /** An effect a map plays at a fixed place, for as long as the map is open. */
-export type MapVfx = Placed & { id: string };
+export type MapVfx = Placed & { id: string; lift?: number };
 
 /** What assembling a run recorded about itself. See ./maps/generate.ts. */
 export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
@@ -152,11 +174,6 @@ export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
  * a room with a campfire in it is a room with a campfire in it.
  */
 export const MAP_LISTS = [
-  'walls',
-  'portals',
-  'monsters',
-  'torches',
-  'stations',
   'lights',
   'doors',
   'prefabs',
@@ -243,11 +260,6 @@ export function normalizeEnv(env: MapEnvInput = {}): MapEnv {
 }
 
 
-/**
- * Kept only so a map written before walls became objects can still be read and
- * converted. Nothing in the grid means "wall" any more.
- */
-export const WALL_CHAR = '#';
 
 /**
  * The highest a tile can stand. A level is one character, so this is what one
@@ -301,7 +313,7 @@ export function parseMap(rows: readonly string[]): ParsedMap {
 /**
  * Look up one of a map's named arrival points. `default` is the '@' tile from
  * the ASCII; anything else comes from the map's `spawns` table, which is what
- * portals target so you arrive beside the door you came out of rather than at
+ * a teleport targets so you arrive beside the door you came out of rather than at
  * the map's start.
  */
 export function spawnPoint(
@@ -316,16 +328,3 @@ export function spawnPoint(
   return { ...parsed.spawn };
 }
 
-/**
- * How many wall blocks stand on each tile, keyed "gx,gy".
- *
- * A wall entry without a stack is one block, which is what every wall converted
- * from the old '#' grid is.
- */
-export function wallStacks(walls: readonly Wall[] = []): Map<string, number> {
-  const stacks = new Map<string, number>();
-  for (const wall of walls) {
-    stacks.set(`${wall.gx},${wall.gy}`, Math.max(1, Math.round(wall.stack ?? 1)));
-  }
-  return stacks;
-}

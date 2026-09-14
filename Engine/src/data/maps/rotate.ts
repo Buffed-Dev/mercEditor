@@ -1,4 +1,5 @@
 import type { Placed } from '../mapFormat.ts';
+import { compose, wrapDeg } from '../transform.ts';
 
 /**
  * Turning a piece of a map a quarter of the way round.
@@ -27,8 +28,7 @@ export const TURN_FACE: Record<string, string> = {
   '-y': '+x',
 };
 
-/** An angle in degrees, brought back into 0–359. */
-const wrap = (deg: number): number => (((deg % 360) + 360) % 360);
+const wrap = wrapDeg;
 
 /**
  * One placed thing, turned once clockwise inside a box `height` tall.
@@ -50,9 +50,22 @@ export function turnEntry<T extends Placed>(entry: T, height: number): T {
   const azimuth = turned.azimuth;
   if (typeof azimuth === 'number') turned.azimuth = wrap(azimuth - 90);
 
-  // An object's own turn, for the same reason and by the same amount.
+  // An object's own turn, for the same reason and by the same amount. One
+  // tilted about another axis has to be turned properly rather than have
+  // ninety taken off one angle: see `compose`.
   const rot = turned.rot;
-  if (typeof rot === 'number') turned.rot = wrap(rot - 90);
+  if (turned.rotX || turned.rotZ) {
+    const { rotX, rot: turnedRot, rotZ } = compose({ rot: -90 }, {
+      gx: 0,
+      gy: 0,
+      rotX: Number(turned.rotX ?? 0),
+      rot: Number(rot ?? 0),
+      rotZ: Number(turned.rotZ ?? 0),
+    });
+    Object.assign(turned, { rotX, rot: turnedRot, rotZ });
+  } else if (typeof rot === 'number') {
+    turned.rot = wrap(rot - 90);
+  }
 
   return turned as unknown as T;
 }

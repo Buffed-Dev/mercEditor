@@ -18,13 +18,14 @@ import {
   IconEyeOff,
   IconDoor,
   IconFlame,
-  IconGhost,
-  IconHammer,
   IconSparkles,
   IconStack2,
   IconSun,
+  IconPlus,
   IconTargetArrow,
 } from '@tabler/icons-react';
+import { Popover } from '@base-ui/react/popover';
+import { defaultLight } from '../../src/data/lights.ts';
 import { objectRows } from '../schema.ts';
 import { DropdownMenu, MenuItem, MenuSeparator } from '../ui/Menu';
 import { say } from '../state/status';
@@ -52,10 +53,7 @@ const GLYPHS: Record<string, typeof IconBox> = {
   torches: IconFlame,
   vfx: IconSparkles,
   props: IconBox,
-  portals: IconDoor,
   doors: IconDoor,
-  monsters: IconGhost,
-  stations: IconHammer,
   walls: IconStack2,
   spawns: IconTargetArrow,
   chunks: IconStack2,
@@ -88,6 +86,12 @@ type MapDoc = {
   removeObject: (list: string, index: number, checkpointed?: boolean) => void;
   reorderObject: (list: string, from: number, to: number) => boolean;
   checkpoint: (checkpointed?: boolean) => void;
+
+  /** How big the map is, so a new object can be put in the middle of it. */
+  cols: number;
+  rows: number;
+  setStart: (gx: number, gy: number) => boolean;
+  addObject: (list: string, entry: Record<string, unknown>, checkpointed?: boolean) => number;
 };
 
 /**
@@ -98,7 +102,7 @@ type MapDoc = {
  * that would not take all of them with it. Better to offer no eye than one that
  * hides more than it says.
  */
-const HIDEABLE = new Set(['lights', 'torches', 'portals', 'stations', 'props', 'chunks', 'doors', 'vfx', 'monsters', 'spawns']);
+const HIDEABLE = new Set(['lights', 'props', 'chunks', 'doors', 'vfx', 'spawns']);
 
 /** Ungrouped objects live at the root, under no heading. */
 const ROOT = '';
@@ -107,6 +111,44 @@ const filtered = (rows: Row[], filter: string) => {
   const needle = filter.trim().toLowerCase();
   return needle ? rows.filter((row) => row.label.toLowerCase().includes(needle)) : rows;
 };
+
+/**
+ * What the Objects panel can put on a map directly.
+ *
+ * Everything else a map holds arrives as a prefab, chosen from the Assets tab.
+ * These three do not, because they are not arrangements of anything: a start
+ * tile is a place, a door is a hole, and a light is a setting you tune on the
+ * one you just made. A prefab could carry a copy of one, but not the settings
+ * that make it worth placing — so they are added here and edited in the
+ * inspector, which is the whole reason this list is short and stays short.
+ */
+const ADDABLE = [
+  { id: 'spawn', label: 'Spawn point', icon: IconTargetArrow },
+  { id: 'door', label: 'Door', icon: IconDoor },
+  { id: 'light', label: 'Light', icon: IconSun },
+] as const;
+
+/**
+ * Put one on the map, in the middle of it, and select it.
+ *
+ * The middle rather than under the pointer: this is a button in a panel, and
+ * the pointer is over the button. Selecting what was just added is what makes
+ * the next thing you do — move it, or set it up in the inspector — the obvious
+ * one.
+ */
+function addObject(doc: MapDoc, id: string): Selection {
+  const gx = Math.floor(doc.cols / 2);
+  const gy = Math.floor(doc.rows / 2);
+
+  if (id === 'spawn') {
+    doc.setStart(gx, gy);
+    return { list: 'spawns', key: 'default' };
+  }
+  if (id === 'door') {
+    return { list: 'doors', index: doc.addObject('doors', { gx, gy }) };
+  }
+  return { list: 'lights', index: doc.addObject('lights', defaultLight('point', gx, gy)) };
+}
 
 export function ObjectTree({
   doc,
@@ -291,6 +333,44 @@ export function ObjectTree({
           ))}
         </div>
       </DndContext>
+
+      {/* Bottom right, out of the way of the list until it is wanted. The
+          Assets tab is the palette for everything a map is built out of; this
+          is for the three things that are not built out of anything. */}
+      {doc && (
+        <div className={styles.add}>
+          <Popover.Root>
+            <Popover.Trigger className={styles.addButton} aria-label="Add to the map">
+              <IconPlus size={16} />
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Positioner side="top" align="end" sideOffset={6}>
+                <Popover.Popup className={styles.addPopup}>
+                  {ADDABLE.map((one) => {
+                    const Glyph = one.icon;
+                    return (
+                      <button
+                        key={one.id}
+                        type="button"
+                        className={styles.addItem}
+                        onClick={() => {
+                          const made = addObject(doc, one.id);
+                          select(made);
+                          onChanged();
+                          say(`Added a ${one.label.toLowerCase()} in the middle of the map`, 'good');
+                        }}
+                      >
+                        <Glyph size={16} />
+                        <span>{one.label}</span>
+                      </button>
+                    );
+                  })}
+                </Popover.Popup>
+              </Popover.Positioner>
+            </Popover.Portal>
+          </Popover.Root>
+        </div>
+      )}
     </div>
   );
 }

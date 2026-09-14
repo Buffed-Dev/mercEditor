@@ -19,6 +19,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Esc', 'Clear the selection'],
   ['F', 'Frame the whole map'],
   ['G', 'Show or hide the tile grid'],
+  ['[ ]', 'Turn the thing about to be placed'],
   ['?', 'This list'],
   ['1 – 9, 0', 'Pick the brush in that slot'],
 ];

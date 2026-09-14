@@ -1,11 +1,5 @@
-import { createActor, type Actor, type CreateActorOptions } from './actor.ts';
-import type { MapObject, Placed } from '../data/mapFormat.ts';
-
-/** How one kind of monster is built and drawn. */
-export type MonsterKind = { radius: number; color: number; scale: number; prop?: boolean };
-
-/** What building a monster needs beyond its place on the map. */
-export type MonsterDeps = Pick<CreateActorOptions, 'attributes' | 'archetypes'>;
+import type { Actor } from './actor.ts';
+import type { Placed } from '../data/mapFormat.ts';
 
 /** Fires one of an actor's abilities, and says whether it went off. */
 export type Activate = (actor: Actor, abilityId: string, aim: number) => { ok: boolean };
@@ -29,30 +23,12 @@ export type Mover = { move: (pos: Placed, dgx: number, dgy: number) => unknown }
  * player walks home. Straight-line chasing means they get stuck on corners,
  * which is fine at this scale and is the kind of thing a nav grid fixes later.
  *
- * Speed and sight are attributes now, read fresh every frame, so a slow effect
- * or a blinding one works on monsters with no code here knowing about it. What
- * is left in KINDS is the part that is not a stat: how big the body is and what
- * colour it renders.
- *
- * A vase is one of these. Not because a pot is a monster, but because every
- * question the code below asks about one has the same answer either way: it
- * stands somewhere, it can be hit, it has health, and something falls out of it
- * when that runs out. A vase with no sight never chases and one with no move
- * speed never wanders, so the behaviour above switches itself off without a
- * branch — `prop` says only that it should not be *drawn* with a face, which is
- * the view's business and not this file's.
+ * Speed and sight are attributes, read fresh every frame, so a slow effect or
+ * a blinding one works on monsters with no code here knowing about it. Nothing
+ * here knows what a monster looks like either: the body is a prefab, spawned
+ * and drawn by render/level.ts, and this is handed the actor inside it. Which
+ * actors get one of these is the archetype's `brain`.
  */
-
-const KINDS = {
-  grunt: { radius: 0.28, color: 0xb4553f, scale: 0.85 },
-  brute: { radius: 0.38, color: 0x7a3f6d, scale: 1.25 },
-  vase: { radius: 0.26, color: 0xa9754a, scale: 0.5, prop: true },
-} as const satisfies Record<string, MonsterKind>;
-
-const isKind = (kind: string): kind is keyof typeof KINDS => kind in KINDS;
-
-/** The kind a definition names, or the ordinary one. */
-export const kindOf = (kind: string): MonsterKind => (isKind(kind) ? KINDS[kind] : KINDS.grunt);
 
 const WANDER_RADIUS = 3.5; // how far from home a wandering monster will drift
 const REPATH_MIN = 1.2; // seconds between picking new wander headings
@@ -65,9 +41,7 @@ function randomHeading(): { x: number; y: number } {
   return { x: Math.cos(a), y: Math.sin(a) };
 }
 
-class Monster {
-  kind: string;
-  spec: MonsterKind;
+export class Monster {
   actor: Actor;
   /** Where it was spawned, and what it drifts back toward. */
   home: Placed;
@@ -75,23 +49,9 @@ class Monster {
   heading: { x: number; y: number };
   repathIn: number;
 
-  constructor(
-    { gx, gy, kind = 'grunt' }: { gx: number; gy: number; kind?: string },
-    { attributes, archetypes }: MonsterDeps = {},
-  ) {
-    this.kind = kind;
-    this.spec = kindOf(kind);
-    this.actor = createActor({
-      archetype: kind,
-      gx: gx + 0.5,
-      gy: gy + 0.5,
-      // Melee reach and projectile collision both measure to a body's edge,
-      // so the actor needs to know how wide it is.
-      radius: kindOf(kind).radius,
-      attributes,
-      archetypes,
-    });
-    this.home = { gx: gx + 0.5, gy: gy + 0.5 };
+  constructor(actor: Actor) {
+    this.actor = actor;
+    this.home = { ...actor.pos };
     this.chasing = false;
     this.heading = randomHeading();
     this.repathIn = Math.random() * REPATH_MAX;
@@ -189,17 +149,6 @@ class Monster {
   }
 }
 
-/**
- * Build the monsters a map declares. Returns an empty list for maps with none,
- * so callers never need to special-case a peaceful map.
- */
-export function spawnMonsters(
-  map: { monsters?: readonly MapObject[] },
-  deps: MonsterDeps = {},
-): Monster[] {
-  return (map.monsters ?? []).map((def) => new Monster(def, deps));
-}
-
 export function updateMonsters(
   monsters: readonly Monster[],
   world: Mover,
@@ -209,9 +158,3 @@ export function updateMonsters(
 ): void {
   for (const monster of monsters) monster.update(world, target, dt, activate);
 }
-
-export { KINDS as MONSTER_KINDS };
-
-// The class stays private as a value -- monsters are made by `spawnMonsters` --
-// but callers need to be able to name what they were handed.
-export type { Monster };
