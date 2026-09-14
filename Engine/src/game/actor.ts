@@ -48,14 +48,14 @@ export type Actor = {
 /** What building an actor needs to know. */
 export type CreateActorOptions = {
   archetype: string;
-  gx?: number;
-  gy?: number;
-  radius?: number;
-  attributes?: readonly AttributeInput[];
+  gx?: number | undefined;
+  gy?: number | undefined;
+  radius?: number | undefined;
+  attributes?: readonly AttributeInput[] | undefined;
   /** Either the raw list or a lookup already built from one. */
-  archetypes?: readonly ArchetypeInput[] | Map<string, Archetype>;
+  archetypes?: readonly ArchetypeInput[] | Map<string, Archetype> | undefined;
   /** Base-value overrides over the archetype's — a prefab's, a placement's. */
-  values?: Record<string, number>;
+  values?: Record<string, number> | undefined;
 };
 
 /**

@@ -69,9 +69,12 @@ type Fit = { part: ChunkPart; rect: Rect; joinedAt: Doorway; depth?: number };
  * and "the shortcut you meant" look identical from here.
  */
 
+/** How wide a part is. Zero for a part with no rows, which draws nothing. */
+const colsOf = (part: Pick<ChunkPart, 'rows'>): number => part.rows[0]?.length ?? 0;
+
 /** The outward side of a door, from where it sits on its part's border. */
 export function doorSide(part: ChunkPart, door: Placed): Side | null {
-  const cols = part.rows[0].length;
+  const cols = colsOf(part);
   const rows = part.rows.length;
   if (door.gx === 0) return '-x';
   if (door.gx === cols - 1) return '+x';
@@ -117,12 +120,16 @@ export function doorsOf(part: ChunkPart): Doorway[] {
 
   const doorways: Tile[][] = [];
   for (const list of edges.values()) {
-    const along = alongOf(list[0].side);
+    // Only a key that something was pushed under is in the map, so every list
+    // here has a first tile to take the edge's axis from.
+    const first = list[0];
+    if (!first) continue;
+    const along = alongOf(first.side);
     list.sort((a, b) => a[along] - b[along]);
 
-    let run = [list[0]];
+    let run: Tile[] = [first];
     for (const tile of list.slice(1)) {
-      if (tile[along] === run[run.length - 1][along] + 1) run.push(tile);
+      if (tile[along] === run[run.length - 1]![along] + 1) run.push(tile);
       else {
         doorways.push(run);
         run = [tile];
@@ -131,13 +138,17 @@ export function doorsOf(part: ChunkPart): Doorway[] {
     doorways.push(run);
   }
 
-  return doorways.map((run) => ({
-    side: run[0].side,
-    dir: DIRS[run[0].side],
+  return doorways.flatMap((run) => {
+    const head = run[0];
+    if (!head) return [];
+    return [{
+    side: head.side,
+    dir: DIRS[head.side],
     gx: Math.min(...run.map((tile) => tile.gx)),
     gy: Math.min(...run.map((tile) => tile.gy)),
     width: run.length,
-  }));
+    }];
+  });
 }
 
 // --------------------------------------------------------------- rotation
@@ -163,11 +174,11 @@ export function rotatePart(part: ChunkPart, k = 0): ChunkPart {
   if (turns === 0) return part;
   if (turns > 1) return rotatePart(rotatePart(part, 1), turns - 1);
 
-  const cols = part.rows[0].length;
+  const cols = colsOf(part);
   const rows = part.rows.length;
 
   const grid = Array.from({ length: cols }, (_, gy) =>
-    Array.from({ length: rows }, (_, gx) => part.rows[rows - 1 - gx][gy]).join(''),
+    Array.from({ length: rows }, (_, gx) => part.rows[rows - 1 - gx]?.[gy] ?? '.').join(''),
   );
 
   const lists: Record<string, MapObject[]> = {};
@@ -227,7 +238,7 @@ const shuffled = <T>(items: readonly T[], random: () => number): T[] => {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    [out[i], out[j]] = [out[j]!, out[i]!];
   }
   return out;
 };
@@ -267,7 +278,7 @@ function fitAgainst(
         const rect = {
           x: target.gx - mine.gx,
           y: target.gy - mine.gy,
-          w: turned.rows[0].length,
+          w: colsOf(turned),
           h: turned.rows.length,
         };
         if (placed.some((other) => overlaps(rect, other.rect))) continue;
@@ -327,7 +338,9 @@ export function assemble(
   if (!all.length) throw new Error(`Cluster "${id}" has no parts`);
 
   const random = rngFrom(seed);
-  const start = all.find((part) => part.role === 'start') ?? all[0];
+  // `all` is not empty, so there is a part to start from whether or not one
+  // of them says it is the entrance.
+  const start = all.find((part) => part.role === 'start') ?? all[0]!;
   const ends = all.filter((part) => part.role === 'end');
   const filler = all.filter((part) => part !== start && part.role !== 'end');
   const wanted = Math.max(1, count ?? DEFAULT_CHUNK_COUNT);
@@ -335,7 +348,7 @@ export function assemble(
   const placed: Placement[] = [
     {
       part: start,
-      rect: { x: 0, y: 0, w: start.rows[0].length, h: start.rows.length },
+      rect: { x: 0, y: 0, w: colsOf(start), h: start.rows.length },
       isStart: true,
     },
   ];
@@ -469,8 +482,8 @@ function compose(
       [...row].forEach((char, gx) => {
         // Only the start part's '@' survives: it is where you arrive, and a
         // second one somewhere in the run would silently win the parse.
-        grid[oy + gy][ox + gx] = !isStart && char === SPAWN_CHAR ? '.' : char;
-        covered[oy + gy][ox + gx] = true;
+        grid[oy + gy]![ox + gx] = !isStart && char === SPAWN_CHAR ? '.' : char;
+        covered[oy + gy]![ox + gx] = true;
       });
     });
 
@@ -480,7 +493,7 @@ function compose(
     // a chunk's placements correctly (there is a test), and then assembly threw
     // them away — a room built out of prefabs came through empty.
     for (const name of ['prefabs'] as const) {
-      outLists[name].push(...(part[name] ?? []).map(move));
+      (outLists[name] ??= []).push(...(part[name] ?? []).map(move));
     }
     for (const [name, spawn] of Object.entries(part.spawns ?? {})) {
       // First writer wins, and the start part is first: it is the one holding

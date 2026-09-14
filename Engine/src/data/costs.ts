@@ -117,7 +117,10 @@ export function describeCosts(
 export function costLabeller({
   currencies = [],
   items = [],
-}: { currencies?: readonly Labelled[]; items?: readonly Labelled[] } = {}): CostLabeller {
+}: {
+  currencies?: readonly Labelled[] | undefined;
+  items?: readonly Labelled[] | undefined;
+} = {}): CostLabeller {
   const names: Record<CostKind, Map<string, string>> = {
     currency: new Map(currencies.map((def) => [def.id ?? '', def.label || def.id || ''])),
     item: new Map(items.map((def) => [def.id ?? '', def.label || def.id || ''])),

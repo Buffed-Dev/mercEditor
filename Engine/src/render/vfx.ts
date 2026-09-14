@@ -514,8 +514,8 @@ function bladeBirth(
 
     // The emitter's own place, which is the middle to swing around. A local
     // position is already relative to it.
-    const ox = isLocal ? 0 : worldMatrix.m[12];
-    const oz = isLocal ? 0 : worldMatrix.m[14];
+    const ox = isLocal ? 0 : worldMatrix.m[12]!;
+    const oz = isLocal ? 0 : worldMatrix.m[14]!;
 
     const off = Math.hypot(out.x - ox, out.z - oz) - spread * 0.5;
     (particle as BladeParticle)._mercBlade = off;

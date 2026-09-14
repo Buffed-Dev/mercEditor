@@ -212,7 +212,7 @@ export function createActorViews(
       const index = views.findIndex((view) => view.actor === actor);
       if (index < 0) return false;
       const [view] = views.splice(index, 1);
-      dropView(view);
+      if (view) dropView(view);
       return true;
     },
 

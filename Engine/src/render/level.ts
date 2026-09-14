@@ -620,7 +620,7 @@ export function createLevel(
   function reap() {
     for (let i = spawned.length - 1; i >= 0; i--) {
       const one = spawned[i];
-      if (one.actor.alive) continue;
+      if (!one || one.actor.alive) continue;
       // What falls out is a loot table the archetype names, so two monsters can
       // share one purse and a vase can name the same one without becoming a
       // monster to do it. What *this* one does besides is its `dead` wiring.
@@ -769,7 +769,7 @@ export function createLevel(
     if (!chainReady(actor, combo)) return { ok: false, reason: 'cooldown', hits: [] };
 
     const index = chainIndex(actor, combo);
-    const step = abilities.get(combo.steps[index]);
+    const step = abilities.get(combo.steps[index] ?? '');
     // A step naming a combo would recurse; the editor will not offer one, but
     // a hand-written file can say anything.
     if (!step || step.target === 'combo') return { ok: false, reason: 'unknown', hits: [] };
@@ -877,7 +877,7 @@ export function createLevel(
    */
   function carryVfx(): void {
     for (let i = carried.length - 1; i >= 0; i--) {
-      const one = carried[i];
+      const one = carried[i]!;
       if (!one.handle.alive) carried.splice(i, 1);
       else one.handle.follow(one.at());
     }
@@ -935,11 +935,14 @@ export function createLevel(
   function comboStep(ability: Ability) {
     if (ability.target !== 'combo' || !ability.steps.length) return null;
     const index = chainIndex(player, ability);
-    const step = abilities.get(ability.steps[index]);
+    // A chain index past the end would be a bug in `chainIndex`, but the step
+    // it names is still only a name: an unknown one labels itself.
+    const id = ability.steps[index] ?? '';
+    const step = abilities.get(id);
     return {
       index: index + 1,
       count: ability.steps.length,
-      label: step?.label ?? ability.steps[index],
+      label: step?.label ?? id,
     };
   }
 

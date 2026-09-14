@@ -47,13 +47,13 @@ export const inBounds = (grid: TerrainGrid, gx: number, gy: number): boolean =>
 
 /** Which terrain, as a table index. `EMPTY` off the edge of the map. */
 export const kindAt = (grid: TerrainGrid, gx: number, gy: number): number =>
-  inBounds(grid, gx, gy) ? grid.kind[idx(grid, gx, gy)] : EMPTY;
+  inBounds(grid, gx, gy) ? grid.kind[idx(grid, gx, gy)]! : EMPTY;
 
 /** How tall the column is, or null where there is no column at all. */
 export function levelAt(grid: TerrainGrid, gx: number, gy: number): number | null {
   if (!inBounds(grid, gx, gy)) return null;
   const i = idx(grid, gx, gy);
-  return grid.kind[i] === EMPTY ? null : grid.level[i];
+  return grid.kind[i] === EMPTY ? null : grid.level[i]!;
 }
 
 /**

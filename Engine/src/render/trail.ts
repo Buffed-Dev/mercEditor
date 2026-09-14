@@ -150,7 +150,9 @@ export function createTrailViews(scene: Scene, root: TransformNode) {
 
     const i = count++;
     const p = i * 3;
-    const particle = sps.particles[i];
+    // Every slot up to MAX exists from the moment the system is built, and
+    // `count` never passes it — so the particle at a live index is there.
+    const particle = sps.particles[i]!;
 
     particle.position.set(
       gx + spread(),
@@ -175,20 +177,20 @@ export function createTrailViews(scene: Scene, root: TransformNode) {
   /** Move the last live particle into slot `i`, so the live ones stay packed. */
   function recycle(i: number): void {
     const last = --count;
-    sps.particles[last].isVisible = false;
+    sps.particles[last]!.isVisible = false;
 
     if (i === last) return;
 
-    sps.particles[i].position.copyFrom(sps.particles[last].position);
-    const into = sps.particles[i].color;
-    const from = sps.particles[last].color;
+    sps.particles[i]!.position.copyFrom(sps.particles[last]!.position);
+    const into = sps.particles[i]!.color;
+    const from = sps.particles[last]!.color;
     if (into && from) into.copyFrom(from);
 
     const a = i * 3;
     const b = last * 3;
-    for (let k = 0; k < 3; k++) velocity[a + k] = velocity[b + k];
-    age[i] = age[last];
-    life[i] = life[last];
+    for (let k = 0; k < 3; k++) velocity[a + k] = velocity[b + k]!;
+    age[i] = age[last]!;
+    life[i] = life[last]!;
   }
 
   /**
@@ -269,24 +271,24 @@ export function createTrailViews(scene: Scene, root: TransformNode) {
       const keep = DRAG ** dt; // frame-rate independent decay
 
       for (let i = count - 1; i >= 0; i--) {
-        age[i] += dt;
-        if (age[i] >= life[i]) {
+        age[i]! += dt;
+        if (age[i]! >= life[i]!) {
           recycle(i);
           continue;
         }
 
         const p = i * 3;
-        const particle = sps.particles[i];
-        particle.position.x += velocity[p] * dt;
-        particle.position.y += velocity[p + 1] * dt;
-        particle.position.z += velocity[p + 2] * dt;
+        const particle = sps.particles[i]!;
+        particle.position.x += velocity[p]! * dt;
+        particle.position.y += velocity[p + 1]! * dt;
+        particle.position.z += velocity[p + 2]! * dt;
 
-        velocity[p] *= keep;
-        velocity[p + 1] *= keep;
-        velocity[p + 2] *= keep;
+        velocity[p]! *= keep;
+        velocity[p + 1]! *= keep;
+        velocity[p + 2]! *= keep;
 
         // Additive blending: an alpha of zero adds nothing, so this is the fade.
-        if (particle.color) particle.color.a = 1 - age[i] / life[i];
+        if (particle.color) particle.color.a = 1 - age[i]! / life[i]!;
       }
 
       sps.setParticles();

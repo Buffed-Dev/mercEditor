@@ -51,6 +51,9 @@ const CORNER_OF: Record<number, Record<number, number>> = {
   [WEST]: { [NORTH]: 1, [SOUTH]: 2 },
 };
 
+/** A texture coordinate. */
+export type UV = readonly [number, number];
+
 export type MeshGroup = { material: string; start: number; count: number };
 
 export type TerrainMeshData = {
@@ -134,7 +137,7 @@ export class MeshBuilder {
   quad(
     material: string,
     corners: readonly [Vec3, Vec3, Vec3, Vec3],
-    uv: readonly [number, number][],
+    uv: readonly [UV, UV, UV, UV],
   ): void {
     for (const [i, j, k] of [[0, 1, 2], [0, 2, 3]] as const) {
       this.triangle(material, corners[i], corners[j], corners[k], uv[i], uv[j], uv[k]);
@@ -211,10 +214,10 @@ type Tick = { at: number; side: number; ring: number };
 function axisTicks(base: number, rim: readonly RimRing[], lowSide: number, highSide: number): Tick[] {
   const ticks: Tick[] = [];
   for (let r = rim.length - 1; r >= 0; r -= 1) {
-    ticks.push({ at: base + rim[r].inset, side: lowSide, ring: r });
+    ticks.push({ at: base + rim[r]!.inset, side: lowSide, ring: r });
   }
   for (let r = 0; r < rim.length; r += 1) {
-    ticks.push({ at: base + 1 - rim[r].inset, side: highSide, ring: r });
+    ticks.push({ at: base + 1 - rim[r]!.inset, side: highSide, ring: r });
   }
   return ticks;
 }
@@ -231,11 +234,13 @@ function axisTicks(base: number, rim: readonly RimRing[], lowSide: number, highS
  */
 function dropAt(mask: CellMask, rim: readonly RimRing[], x: Tick, y: Tick): number {
   let drop = 0;
-  if (mask.sides & (1 << x.side)) drop = Math.max(drop, rim[x.ring].drop);
-  if (mask.sides & (1 << y.side)) drop = Math.max(drop, rim[y.ring].drop);
-  const corner = CORNER_OF[x.side][y.side];
+  // Every ring index here came from the same rim these ticks were cut from,
+  // and every tick names one of the four sides CORNER_OF is keyed by.
+  if (mask.sides & (1 << x.side)) drop = Math.max(drop, rim[x.ring]!.drop);
+  if (mask.sides & (1 << y.side)) drop = Math.max(drop, rim[y.ring]!.drop);
+  const corner = CORNER_OF[x.side]![y.side]!;
   if (mask.corners & (1 << corner)) {
-    drop = Math.max(drop, rim[Math.min(x.ring, y.ring)].drop);
+    drop = Math.max(drop, rim[Math.min(x.ring, y.ring)]!.drop);
   }
   return drop;
 }
@@ -330,11 +335,12 @@ function emitCell(
     // Walked so that the quad's own winding faces outward; see the emitter.
     const along = side === EAST || side === WEST ? zs : xs;
     const forward = side === EAST || side === NORTH;
-    const edge = side === EAST ? xs[xs.length - 1] : side === WEST ? xs[0] : side === SOUTH ? zs[zs.length - 1] : zs[0];
+    // `axisTicks` always returns two ticks a ring, so both ends are there.
+    const edge = side === EAST ? xs[xs.length - 1]! : side === WEST ? xs[0]! : side === SOUTH ? zs[zs.length - 1]! : zs[0]!;
 
     for (let i = 0; i < along.length - 1; i += 1) {
-      const a = forward ? along[i] : along[along.length - 1 - i];
-      const b = forward ? along[i + 1] : along[along.length - 2 - i];
+      const a = forward ? along[i]! : along[along.length - 1 - i]!;
+      const b = forward ? along[i + 1]! : along[along.length - 2 - i]!;
       const pa = side === EAST || side === WEST ? point(edge, a) : point(a, edge);
       const pb = side === EAST || side === WEST ? point(edge, b) : point(b, edge);
 
@@ -385,15 +391,11 @@ function emitTopShell(
   gy: number,
 ): void {
   if (!rim) {
-    const xs: Tick[] = [
-      { at: gx, side: WEST, ring: 0 },
-      { at: gx + 1, side: EAST, ring: 0 },
-    ];
-    const zs: Tick[] = [
-      { at: gy, side: NORTH, ring: 0 },
-      { at: gy + 1, side: SOUTH, ring: 0 },
-    ];
-    emitTopQuad(build, material, point, uv, xs[0], xs[1], zs[0], zs[1]);
+    const west: Tick = { at: gx, side: WEST, ring: 0 };
+    const east: Tick = { at: gx + 1, side: EAST, ring: 0 };
+    const north: Tick = { at: gy, side: NORTH, ring: 0 };
+    const south: Tick = { at: gy + 1, side: SOUTH, ring: 0 };
+    emitTopQuad(build, material, point, uv, west, east, north, south);
     return;
   }
 
@@ -401,7 +403,7 @@ function emitTopShell(
   const zs = axisTicks(gy, rim, NORTH, SOUTH);
   for (let i = 0; i < xs.length - 1; i += 1) {
     for (let j = 0; j < zs.length - 1; j += 1) {
-      emitTopQuad(build, material, point, uv, xs[i], xs[i + 1], zs[j], zs[j + 1]);
+      emitTopQuad(build, material, point, uv, xs[i]!, xs[i + 1]!, zs[j]!, zs[j + 1]!);
     }
   }
 }
@@ -422,8 +424,8 @@ function emitTopQuad(
   const p1 = point(x0, z1);
   const p2 = point(x1, z1);
   const p3 = point(x1, z0);
-  const corners: [Vec3, Vec3, Vec3, Vec3] = [p0, p1, p2, p3];
-  const uvs: [number, number][] = [uv(p0), uv(p1), uv(p2), uv(p3)];
+  const corners: readonly [Vec3, Vec3, Vec3, Vec3] = [p0, p1, p2, p3];
+  const uvs: readonly [UV, UV, UV, UV] = [uv(p0), uv(p1), uv(p2), uv(p3)];
   build.quad(material, corners, uvs);
 }
 

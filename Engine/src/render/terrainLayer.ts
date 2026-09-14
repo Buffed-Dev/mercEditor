@@ -63,9 +63,9 @@ import { TERRAINS, terrainsById, slotMaterial, type Terrain } from '../data/terr
  */
 
 type Content = {
-  terrains?: readonly Terrain[];
-  materials?: readonly { id?: string }[];
-  game?: string;
+  terrains?: readonly Terrain[] | undefined;
+  materials?: readonly { id?: string }[] | undefined;
+  game?: string | undefined;
 };
 
 type World = {
@@ -120,8 +120,10 @@ export function createTerrainLayer(
   // Kind 1 is the map's first terrain, so this is offset by one throughout.
   // A map naming a terrain the rules no longer define keeps its cells and
   // draws them in the fallback colour rather than losing them.
-  const terrainOf = (kind: number): Terrain | null =>
-    byId.get(now.world.terrainIds[kind - 1]) ?? null;
+  const terrainOf = (kind: number): Terrain | null => {
+    const id = now.world.terrainIds[kind - 1];
+    return (id ? byId.get(id) : null) ?? null;
+  };
 
   const materialOf = (id: string) =>
     (now.content.materials ? now.content.materials.find((m) => m.id === id) : materialById(id)) ??

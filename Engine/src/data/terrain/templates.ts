@@ -59,7 +59,7 @@
 import { createGrid, idx } from './grid.ts';
 import { buildTerrainGeometry, MeshBuilder, type TerrainMeshData, type Vec3 } from './geometry.ts';
 import { normalizeRim, rimDrop, DEFAULT_RIM, type RimRing } from './profile.ts';
-import { SIDES, CORNERS } from './mask.ts';
+import { sideAt, cornerAt, type Offset, type PerSide } from './mask.ts';
 
 export type Shape = 'middle' | 'side' | 'corner' | 'corridor' | 'cap' | 'single';
 
@@ -114,7 +114,7 @@ function buildShapeTable(): Turned[] {
  * Reads the side bits only. The corners say where the block dimples, which is a
  * question about the surface rather than about which mesh it is.
  */
-export const shapeOf = (topology: number): Turned => SHAPE_OF[topology & 0b1111];
+export const shapeOf = (topology: number): Turned => SHAPE_OF[topology & 0b1111]!;
 
 export type BlockTemplates = {
   /** The lid and its wall, for a full eight-bit topology. */
@@ -192,11 +192,13 @@ function bakeTop(topology: number, rim: RimRing[], levelH: number): TerrainMeshD
   // `cellMask` reads back out of this grid is the topology that was asked for.
   for (let k = 0; k < 4; k += 1) {
     if (topology & (1 << k)) continue;
-    fill(1 + SIDES[k][0], 1 + SIDES[k][1]);
+    const [dx, dy] = sideAt(k);
+    fill(1 + dx, 1 + dy);
   }
   for (let k = 0; k < 4; k += 1) {
     if (topology & (1 << (k + 4))) continue;
-    fill(1 + CORNERS[k][0], 1 + CORNERS[k][1]);
+    const [dx, dy] = cornerAt(k);
+    fill(1 + dx, 1 + dy);
   }
 
   const { solid, cellStart } = buildTerrainGeometry(grid, {
@@ -208,8 +210,9 @@ function bakeTop(topology: number, rim: RimRing[], levelH: number): TerrainMeshD
     uvScaleOf: () => 1,
   });
 
+  // The middle cell of a 3x3 grid, which `buildTerrainGeometry` always emits.
   const slot = (1 * 3 + 1) * 2;
-  return sliceCell(solid, cellStart[slot], cellStart[slot + 1], -1.5);
+  return sliceCell(solid, cellStart[slot]!, cellStart[slot + 1]!, -1.5);
 }
 
 /**
@@ -227,15 +230,15 @@ function sliceCell(
 ): TerrainMeshData {
   const positions = new Float32Array(count * 3);
   for (let v = 0; v < count; v += 1) {
-    positions[v * 3] = data.positions[(first + v) * 3] + shift;
-    positions[v * 3 + 1] = data.positions[(first + v) * 3 + 1];
-    positions[v * 3 + 2] = data.positions[(first + v) * 3 + 2] + shift;
+    positions[v * 3] = data.positions[(first + v) * 3]! + shift;
+    positions[v * 3 + 1] = data.positions[(first + v) * 3 + 1]!;
+    positions[v * 3 + 2] = data.positions[(first + v) * 3 + 2]! + shift;
   }
 
   const indices: number[] = [];
   for (const group of data.groups) {
     for (let i = group.start; i < group.start + group.count; i += 1) {
-      const at = data.indices[i];
+      const at = data.indices[i]!;
       if (at >= first && at < first + count) indices.push(at - first);
     }
   }
@@ -254,12 +257,15 @@ function sliceCell(
 // --- the sub tier ----------------------------------------------------------
 
 /** Local coordinates of corner k, clockwise from north-east. */
-const CORNER_XZ: readonly (readonly [number, number])[] = [
+const CORNER_XZ: PerSide<Offset> = [
   [0.5, -0.5], // 0 NE
   [-0.5, -0.5], // 1 NW
   [-0.5, 0.5], // 2 SW
   [0.5, 0.5], // 3 SE
 ];
+
+/** Corner k's local coordinates, for any k: out of range wraps. */
+const cornerXzAt = (k: number): Offset => CORNER_XZ[((k % 4) + 4) % 4]!;
 
 /**
  * A stack block: a square plane on every exposed side, and nothing else.
@@ -291,14 +297,14 @@ function bakeSub(mask: number, rim: RimRing[], levelH: number): TerrainMeshData 
     if (!(mask & (1 << k))) continue;
     // Side k runs from corner k to corner k-1, which is the winding that faces
     // its own normal outward.
-    const a = CORNER_XZ[k];
-    const b = CORNER_XZ[(k + 3) % 4];
+    const a = cornerXzAt(k);
+    const b = cornerXzAt(k + 3);
     // Across the wall in the plane it lies in, then down it. Using the local
     // coordinate rather than distance-from-the-end means two blocks side by
     // side carry the texture across the join.
-    const across = (p: readonly [number, number]) =>
+    const across = (p: Offset) =>
       Math.abs(a[0] - b[0]) > Math.abs(a[1] - b[1]) ? p[0] + 0.5 : p[1] + 0.5;
-    const at = (p: readonly [number, number], y: number): Vec3 => ({ x: p[0], y, z: p[1] });
+    const at = (p: Offset, y: number): Vec3 => ({ x: p[0], y, z: p[1] });
 
     build.quad(
       'block',

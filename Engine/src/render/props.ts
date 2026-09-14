@@ -502,7 +502,7 @@ export function createPropRuntime(
       const here: Slot[] = stood.map((at, i) => ({
         mesh,
         at: i,
-        index: indices[i],
+        index: indices[i]!,
         inside,
         real: inside.multiply(at),
       }));
