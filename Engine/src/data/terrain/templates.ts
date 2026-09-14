@@ -123,6 +123,23 @@ export type BlockTemplates = {
   sub(sides: number): TerrainMeshData;
 };
 
+/**
+ * How many edge profiles' templates to keep.
+ *
+ * The cache used to be unbounded, which is fine for a key that takes a handful
+ * of values and wrong for this one: the rim comes off two sliders, so dragging
+ * one walks the key through every step it has, and each set of templates it
+ * leaves behind is a couple of hundred KiB of typed arrays nothing will ask
+ * for again. Three seconds of dragging measured 3.4 MiB retained.
+ *
+ * Eight, because the only ones worth keeping are the profile in use and the
+ * few an undo or a redo goes back to. A drag is *misses* whatever this number
+ * is — it is a new profile every frame — so making it bigger buys nothing and
+ * holds more.
+ */
+const KEEP_PROFILES = 8;
+
+/** Insertion-ordered, so the oldest key is the first one out. */
 const cache = new Map<string, BlockTemplates>();
 
 /**
@@ -139,7 +156,12 @@ export function buildTemplates(
   const rings = normalizeRim(rim);
   const key = `${levelH}|${rings.map((r) => `${r.inset},${r.drop}`).join(';')}`;
   const hit = cache.get(key);
-  if (hit) return hit;
+  if (hit) {
+    // Re-inserted, so the one in use is the newest and never the one evicted.
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
 
   const tops = new Map<number, TerrainMeshData>();
   const subs = new Map<number, TerrainMeshData>();
@@ -158,8 +180,17 @@ export function buildTemplates(
     },
   };
   cache.set(key, built);
+  // One at a time: the cache is only ever one over, because this is the only
+  // thing that adds to it.
+  if (cache.size > KEEP_PROFILES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
   return built;
 }
+
+/** How many profiles are held. For the test that this stays bounded. */
+export const templatesHeld = (): number => cache.size;
 
 // --- the top tier ----------------------------------------------------------
 
@@ -205,6 +236,9 @@ function bakeTop(topology: number, rim: RimRing[], levelH: number): TerrainMeshD
     rim,
     levelH,
     baseY: -wallBottom(rim, levelH),
+    // The middle cell is the template; the ring around it exists to give it
+    // the neighbourhood that was asked for, and is never drawn.
+    only: { gx: 1, gy: 1 },
     // UV = metres. Instances share geometry, so a per-terrain scale cannot live
     // here; a material's own uScale/vScale is where that decision goes now.
     uvScaleOf: () => 1,

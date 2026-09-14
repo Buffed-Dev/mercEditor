@@ -72,12 +72,25 @@ export type TerrainGeometry = {
 };
 
 export type GeometryOptions = {
-  rim?: readonly RimRing[];
-  levelH?: number;
+  rim?: readonly RimRing[] | undefined;
+  levelH?: number | undefined;
   /** How far below level 0 an unsupported cliff hangs. */
-  baseY?: number;
+  baseY?: number | undefined;
   /** World units of terrain per texture repeat, per terrain kind. */
-  uvScaleOf?: (kind: number) => number;
+  uvScaleOf?: ((kind: number) => number) | undefined;
+  /**
+   * Emit this cell and no other.
+   *
+   * Its neighbours are still read — they are what decide its shape — but
+   * nothing is built for them. For the template bake, which wants one cell out
+   * of a 3x3 and throws the other eight away, that is eight ninths of the work
+   * not done: a cell's lid is a lattice of a couple of hundred quads, and the
+   * eight around it were built in full and then sliced off.
+   *
+   * The cell that is emitted is identical either way; `cellStart` still has a
+   * range for every cell, and the ones not emitted are empty.
+   */
+  only?: { gx: number; gy: number } | undefined;
 };
 
 /**
@@ -253,10 +266,17 @@ function dropAt(mask: CellMask, rim: readonly RimRing[], x: Tick, y: Tick): numb
  * actually cost — shader compilation, texture upload — are cached elsewhere and
  * untouched by this.
  *
- * ponytail: whole-map rebuild. `cellStart` records each cell's vertex range, so
- * per-region rebuild is a slice rewrite when a 64x64 build measures over 8ms.
- * If that is ever done, note that painting one cell dirties its 3x3
- * neighbourhood, not its 4-neighbourhood — corners read the diagonals.
+ * Nothing builds a whole map through here any more — `render/terrainLayer.ts`
+ * draws the ground as instances of baked templates, and the only live caller
+ * is that bake, which asks for one cell at a time through `only`. A 64x64
+ * build measures about a second (scripts/benchTerrain.ts), which is why: it is
+ * a couple of hundred quads a cell, and instancing pays that once per shape
+ * rather than once per tile.
+ *
+ * ponytail: if a whole-map build is ever wanted again, `cellStart` records
+ * each cell's vertex range, so a per-region rebuild is a slice rewrite. Note
+ * that painting one cell dirties its 3x3 neighbourhood, not its
+ * 4-neighbourhood — corners read the diagonals.
  */
 export function buildTerrainGeometry(
   grid: TerrainGrid,
@@ -266,6 +286,7 @@ export function buildTerrainGeometry(
   const levelH = options.levelH ?? 0.5;
   const baseY = options.baseY ?? -levelH;
   const uvScaleOf = options.uvScaleOf ?? (() => 1);
+  const only = options.only;
 
   const build = new MeshBuilder();
   const cellStart = new Int32Array(grid.cols * grid.rows * 2);
@@ -275,7 +296,7 @@ export function buildTerrainGeometry(
       const slot = (gy * grid.cols + gx) * 2;
       cellStart[slot] = build.vertexCount;
 
-      const kind = kindAt(grid, gx, gy);
+      const kind = only && (only.gx !== gx || only.gy !== gy) ? EMPTY : kindAt(grid, gx, gy);
       if (kind !== EMPTY) {
         const mask = cellMask(grid, gx, gy);
         if (mask) {

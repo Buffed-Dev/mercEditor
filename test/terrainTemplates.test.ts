@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildTemplates,
+  templatesHeld,
   shapeOf,
   turnMask,
   CANONICAL,
@@ -323,4 +324,26 @@ test('tiles meeting at a point all put the ground at the same height', () => {
       );
     }
   }
+});
+
+test('the template cache is bounded, and keeps the profile in use', () => {
+  // The rim comes off two sliders, so dragging one walks this key through every
+  // step it has. Unbounded, that was a couple of hundred KiB of typed arrays
+  // left behind per frame of the drag — 3.4 MiB for three seconds of it.
+  const rimAt = (width: number) => rimOf(width, 0.12);
+
+  for (let i = 0; i < 50; i += 1) buildTemplates(rimAt(0.2 + i * 0.001), LEVEL_H);
+  assert.ok(templatesHeld() <= 8, `holding ${templatesHeld()} profiles after 50 of them`);
+
+  // And the one being dragged is the one kept: asking again gives back the same
+  // templates rather than baking them a second time.
+  const rim = rimAt(0.31);
+  const first = buildTemplates(rim, LEVEL_H);
+  for (let i = 0; i < 7; i += 1) buildTemplates(rimAt(0.4 + i * 0.001), LEVEL_H);
+  assert.equal(buildTemplates(rim, LEVEL_H), first, 'the profile still in use was evicted');
+
+  // A ninth profile past it does evict, so the bound is real.
+  buildTemplates(rimAt(0.45), LEVEL_H);
+  buildTemplates(rimAt(0.44), LEVEL_H);
+  assert.ok(templatesHeld() <= 8);
 });
