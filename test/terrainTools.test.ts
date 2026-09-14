@@ -22,7 +22,7 @@ test('undo and redo are exact, four deep', () => {
   const original = [...grid.kind];
 
   const stroke = beginStroke(grid, 'paint');
-  for (const [gx, gy] of [[0, 0], [1, 0], [1, 1]]) stroke.set(gx, gy, 2, 2);
+  for (const [gx, gy] of [[0, 0], [1, 0], [1, 1]] as const) stroke.set(gx, gy, 2, 2);
   const entry = stroke.commit();
   assert.ok(entry);
   const painted = [...grid.kind];
@@ -159,8 +159,8 @@ test('a dragged line never skips a cell', () => {
     // step lands on a neighbour, never a jump.
     for (let i = 1; i < path.length; i += 1) {
       const step = Math.max(
-        Math.abs(path[i].gx - path[i - 1].gx),
-        Math.abs(path[i].gy - path[i - 1].gy),
+        Math.abs(path[i]!.gx - path[i - 1]!.gx),
+        Math.abs(path[i]!.gy - path[i - 1]!.gy),
       );
       assert.equal(step, 1, `jump at step ${i}`);
     }

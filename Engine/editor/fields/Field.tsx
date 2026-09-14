@@ -143,10 +143,11 @@ export function Field({
       );
     }
 
+    // `prop` is not here: it is handled above, with `material`, and a second
+    // label for it in this group has never been reached.
     case 'select':
     case 'maps':
     case 'vfx':
-    case 'prop':
     case 'prefab': {
       // Headings hold the options when there are any, so a long list is read
       // in sections rather than as one wall of names.

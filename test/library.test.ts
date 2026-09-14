@@ -33,7 +33,7 @@ test('a record moves to another folder, and its files go with it', () => {
   assert.equal(pathOf(d, 'materials', 'wood'), 'Materials/Old/Wood');
   // The filename is untouched: it is relative to the folder, which is the whole
   // reason a move rewrites nothing inside the record.
-  assert.equal(d.list('materials')[0].texture, 'diffuse.png');
+  assert.equal(d.list('materials')[0]!.texture, 'diffuse.png');
 });
 
 test('moving a folder is not something undo takes back', () => {
@@ -45,7 +45,7 @@ test('moving a folder is not something undo takes back', () => {
   assert.equal(d.setPath('materials', 0, 'Materials/Old/Wood'), null);
 
   assert.ok(d.undo(), 'there was an edit to undo');
-  assert.equal(d.list('materials')[0].roughness, 0.8, 'the edit was undone');
+  assert.equal(d.list('materials')[0]!.roughness, 0.8, 'the edit was undone');
   assert.equal(
     pathOf(d, 'materials', 'wood'),
     'Materials/Old/Wood',
@@ -66,9 +66,9 @@ test('a move chases the references that name a file from the assets root', () =>
   });
 
   assert.equal(d.setPath('materials', 0, 'Materials/Common'), null);
-  assert.equal(d.list('props')[0].texture, '/Materials/Common/noise.png');
+  assert.equal(d.list('props')[0]!.texture, '/Materials/Common/noise.png');
   // Its own relative name is left alone.
-  assert.equal(d.list('materials')[0].texture, 'noise.png');
+  assert.equal(d.list('materials')[0]!.texture, 'noise.png');
 });
 
 test('a folder two records could share is refused', () => {
@@ -115,6 +115,7 @@ test('a new record is given a folder, so a save cannot skip it', () => {
   const made = d.add('materials');
   assert.ok(made);
   const record = d.list('materials')[made.index];
+  assert.ok(record, 'the record is in the list it was added to');
   assert.match(String(record.path), /^Materials\//);
 
   // And it is written where that says, with `path` stripped: the folder says
@@ -305,14 +306,14 @@ test('deleting a record empties what named it, rather than dangling', () => {
 
   assert.ok(d.drop('materials', 0));
   assert.equal(d.list('materials').find((one) => one.id === 'wood'), undefined);
-  assert.equal(d.list('props')[0].material, '', 'the object names nothing now');
-  assert.equal(d.list('terrains')[0].top, '', 'and so does the terrain');
-  assert.equal(d.list('terrains')[0].sub, '', 'both slots, not just the first');
+  assert.equal(d.list('props')[0]!.material, '', 'the object names nothing now');
+  assert.equal(d.list('terrains')[0]!.top, '', 'and so does the terrain');
+  assert.equal(d.list('terrains')[0]!.sub, '', 'both slots, not just the first');
 
   // An ability names the flash it throws, which no field table covers.
   const e = doc();
   assert.ok(e.drop('vfx', 0));
-  assert.equal(e.list('abilities')[0].vfx, '');
+  assert.equal(e.list('abilities')[0]!.vfx, '');
 });
 
 test('deleting is not something undo brings back', () => {
@@ -324,13 +325,13 @@ test('deleting is not something undo brings back', () => {
   assert.ok(d.drop('materials', 0));
 
   assert.ok(d.undo(), 'there was an edit to undo');
-  assert.equal(d.list('props')[0].scale, 1, 'the edit was undone');
+  assert.equal(d.list('props')[0]!.scale, 1, 'the edit was undone');
   assert.equal(
     d.list('materials').find((one) => one.id === 'wood'),
     undefined,
     'the deleted record stayed deleted',
   );
-  assert.equal(d.list('props')[0].material, '', 'and its reference stayed empty');
+  assert.equal(d.list('props')[0]!.material, '', 'and its reference stayed empty');
 });
 
 /**
@@ -346,13 +347,13 @@ test('prefabs live loose in a folder, several to a folder', () => {
   const second = d.add('prefabs', 'Prefabs/Forest');
   // And a folder that has nothing to do with this kind is not obeyed.
   const third = d.add('prefabs', 'Materials/Wood');
-  assert.equal(d.list('prefabs')[first!.index].path, 'Prefabs');
-  assert.equal(d.list('prefabs')[second!.index].path, 'Prefabs/Forest');
-  assert.equal(d.list('prefabs')[third!.index].path, 'Prefabs');
+  assert.equal(d.list('prefabs')[first!.index]!.path, 'Prefabs');
+  assert.equal(d.list('prefabs')[second!.index]!.path, 'Prefabs/Forest');
+  assert.equal(d.list('prefabs')[third!.index]!.path, 'Prefabs');
 
   // A material still brings a folder of its own, named after itself.
   const made = d.add('materials', 'Materials');
-  assert.equal(d.list('materials')[made!.index].path, 'Materials/Material');
+  assert.equal(d.list('materials')[made!.index]!.path, 'Materials/Material');
 
   d.update('prefabs', first!.index, { label: 'Tree' });
   d.update('prefabs', second!.index, { label: 'Stone' });

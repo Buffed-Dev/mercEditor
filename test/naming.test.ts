@@ -28,10 +28,10 @@ test('two records cannot answer to one id', () => {
   });
 
   assert.equal(doc.rename('props', 0, 'rock'), null);
-  assert.equal(doc.list('props')[0].id, 'rock');
+  assert.equal(doc.list('props')[0]!.id, 'rock');
   // The file it names is untouched by its own rename: the two are unrelated
   // now, which is the point of naming files rather than records.
-  assert.equal(doc.list('props')[0].mesh, 'rock.glb');
+  assert.equal(doc.list('props')[0]!.mesh, 'rock.glb');
 
   doc.add('props');
   const second = doc.list('props').length - 1;
@@ -49,9 +49,9 @@ test('renaming a material carries the terrains wearing it', () => {
     terrains: [{ id: 'grass', char: 'gr', top: 'material1', sub: 'material1', top90: 'material1' }],
   });
   assert.equal(doc.rename('materials', 0, 'turf'), null);
-  assert.equal(doc.list('terrains')[0].top, 'turf');
-  assert.equal(doc.list('terrains')[0].sub, 'turf');
-  assert.equal(doc.list('terrains')[0].top90, 'turf');
+  assert.equal(doc.list('terrains')[0]!.top, 'turf');
+  assert.equal(doc.list('terrains')[0]!.sub, 'turf');
+  assert.equal(doc.list('terrains')[0]!.top90, 'turf');
 });
 
 test('renaming a terrain keeps its grid key', () => {
@@ -59,11 +59,11 @@ test('renaming a terrain keeps its grid key', () => {
     terrains: [{ id: 'terrain3', label: 'terrain3', char: 'gr' }],
   });
   assert.equal(doc.rename('terrains', 0, 'grass'), null);
-  assert.equal(doc.list('terrains')[0].id, 'grass');
+  assert.equal(doc.list('terrains')[0]!.id, 'grass');
   // The key is what a map's rows are written in, so it survives the rename.
   // The id does appear in a saved map's legend, which is why validation
   // reports a map naming a terrain the rules no longer define.
-  assert.equal(doc.list('terrains')[0].char, 'gr');
+  assert.equal(doc.list('terrains')[0]!.char, 'gr');
 });
 
 test('a painted map round-trips through the file it writes', () => {
@@ -94,7 +94,7 @@ test('a painted map round-trips through the file it writes', () => {
   const rowsOf = (key: string): string[] => {
     const block = source.match(new RegExp(`${key}: \\[([^\\]]*)\\]`));
     assert.ok(block, `the serialized map has no ${key} block`);
-    return (block[1].match(/'([^']*)'/g) ?? []).map((r) => r.slice(1, -1));
+    return (block[1]!.match(/'([^']*)'/g) ?? []).map((r) => r.slice(1, -1));
   };
 
   const read = decodeTerrain({

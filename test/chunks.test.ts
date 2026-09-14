@@ -49,6 +49,7 @@ test('a map is generated only when it says so and has chunks', () => {
 
 test('cutting a chunk gives back what was drawn inside it, at its own origin', () => {
   const [left, right] = chunksOf(map);
+  assert.ok(left && right, 'both chunks were cut');
 
   assert.equal(left.id, 'left');
   assert.equal(left.role, 'start');
@@ -77,13 +78,15 @@ test('the arrival tile belongs to the entrance', () => {
     rows: ['@111.1@11.', '1..1.1..1.', '1..1.1..1.', '11.1.1111.', '..........'],
   };
   const [left, right] = chunksOf(spawned);
-  assert.ok(left.rows[0].includes('@'), 'the entrance lost its spawn');
-  assert.ok(!right.rows[0].includes('@'), 'a second spawn travelled and would win the parse');
+  assert.ok(left && right, 'both chunks were cut');
+  assert.ok(left.rows[0]!.includes('@'), 'the entrance lost its spawn');
+  assert.ok(!right.rows[0]!.includes('@'), 'a second spawn travelled and would win the parse');
 });
 
 test('a chunk hanging off the edge of the grid is floor, not a crash', () => {
   const over = { ...map, chunks: [{ gx: 8, gy: 3, w: 4, h: 4, name: 'edge' }] };
   const [chunk] = chunksOf(over);
+  assert.ok(chunk, 'the chunk was cut');
   assert.equal(chunk.rows.length, 4);
   assert.ok(
     chunk.rows.every((row) => row.length === 4),

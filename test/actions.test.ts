@@ -225,13 +225,14 @@ test('a wiring survives being written to a map file and read back', async () => 
     `data:text/javascript,${encodeURIComponent(source)}`
   )) as Record<string, GameMap>;
   const read = Object.values(module)[0];
+  assert.ok(read, 'the serialized map is a module with a map in it');
 
-  assert.deepEqual(read.props?.[0].collision, { do: 'teleport', to: 'cave', spawn: 'mouth' });
-  assert.deepEqual(read.props?.[1].interact, { do: 'openUI', ui: 'crafting' });
-  assert.deepEqual(read.prefabs?.[0].hit, { do: 'say', message: 'Hello.' });
+  assert.deepEqual(read.props?.[0]!.collision, { do: 'teleport', to: 'cave', spawn: 'mouth' });
+  assert.deepEqual(read.props?.[1]!.interact, { do: 'openUI', ui: 'crafting' });
+  assert.deepEqual(read.prefabs?.[0]!.hit, { do: 'say', message: 'Hello.' });
   // And what was already written is still written the way it was.
-  assert.equal(read.prefabs?.[0].id, 'vase');
-  assert.equal(read.props?.[0].id, 'rock');
+  assert.equal(read.prefabs?.[0]!.id, 'vase');
+  assert.equal(read.props?.[0]!.id, 'rock');
 });
 
 test('choosing a different action does not drag the old one"s variables along', () => {
@@ -246,7 +247,7 @@ test('choosing a different action does not drag the old one"s variables along', 
   doc.updateObject('props', 0, { 'interact.do': 'say' });
   // `to` meant something to a teleport and nothing to a say. Left behind, it
   // would be written into the map file for as long as the object existed.
-  assert.deepEqual(doc.map.props?.[0].interact, { do: 'say' });
+  assert.deepEqual(doc.map.props?.[0]!.interact, { do: 'say' });
 
   doc.updateObject('props', 0, { 'interact.message': 'Hello.' });
   assert.deepEqual(doc.map.props?.[0].interact, { do: 'say', message: 'Hello.' });
@@ -309,7 +310,7 @@ test('an override reaches a setting inside a wiring, not only a loose field', ()
     () => bench,
   );
 
-  assert.deepEqual(map.props?.[0].interact, { do: 'openUI', ui: 'character' });
+  assert.deepEqual(map.props?.[0]!.interact, { do: 'openUI', ui: 'character' });
 });
 
 test('an override names a setting the prefab has not got, and nothing happens', () => {
@@ -343,6 +344,7 @@ test('a placement carrying settings round-trips through a save', async () => {
     `data:text/javascript,${encodeURIComponent(source)}`
   )) as Record<string, GameMap>;
   const read = Object.values(module)[0];
+  assert.ok(read, 'the serialized map is a module with a map in it');
 
   assert.deepEqual(read.prefabs, [{ gx: 1, gy: 1, id: 'door', set: { to: 'cave' } }]);
 });
@@ -476,8 +478,9 @@ test('a list of actions survives being written to a map file and read back', asy
     `data:text/javascript,${encodeURIComponent(source)}`
   )) as Record<string, GameMap>;
   const read = Object.values(module)[0];
+  assert.ok(read, 'the serialized map is a module with a map in it');
 
-  assert.deepEqual(read.props?.[0].interact, [
+  assert.deepEqual(read.props?.[0]!.interact, [
     { do: 'say', message: 'It gives.' },
     { do: 'teleport', to: 'cave', spawn: 'mouth' },
   ]);

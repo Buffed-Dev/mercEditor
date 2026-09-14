@@ -50,7 +50,7 @@ test('a shape the tables no longer have falls back rather than breaking', () => 
     particle: { modifiers: [{ kind: 'nonsense' }, { kind: 'randomize' }] },
   });
   assert.equal(kept.particle.modifiers.length, 1);
-  assert.equal(kept.particle.modifiers[0].kind, 'randomize');
+  assert.equal(kept.particle.modifiers[0]!.kind, 'randomize');
 });
 
 test('a modifier carries its own fields, and a typed one its type’s', () => {
@@ -144,8 +144,8 @@ test('an old movement list is carried across as movement modifiers', () => {
   const now = normalizeVfx({ id: 'swirl', movements: [{ type: 'spiral', turn: 200 }] });
   const moves = now.particle.modifiers.filter((mod) => mod.kind === 'movement');
   assert.equal(moves.length, 1);
-  assert.equal(moves[0].type, 'spiral');
-  assert.equal(moves[0].turn, 200);
+  assert.equal(moves[0]!.type, 'spiral');
+  assert.equal(moves[0]!.turn, 200);
 });
 
 test('an effect knows which kind it is, and keeps the other kind"s settings', () => {

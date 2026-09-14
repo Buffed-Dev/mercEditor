@@ -192,7 +192,7 @@ test('the coin goes at the start and the item arrives at the end', () => {
   assert.equal(item.defId, 'shortSword');
   assert.equal(character.job, null, 'the bench is still busy after finishing');
 
-  const ranges = new Map(itemRange(ITEMS[0]).map((stat) => [stat.attribute, stat]));
+  const ranges = new Map(itemRange(ITEMS[0]!).map((stat) => [stat.attribute, stat]));
   for (const stat of item.stats) {
     const range = ranges.get(stat.attribute);
     assert.ok(range, `${stat.attribute} is not a stat this item rolls`);
@@ -288,7 +288,7 @@ test('the view says why each recipe cannot be pressed, and what it costs', () =>
       ['Free', false, true, true],
     ],
   );
-  assert.equal(view.recipes[0].lines[0], '+4–6 Attack power');
+  assert.equal(view.recipes[0]!.lines[0], '+4–6 Attack power');
   assert.equal(view.upgradeCost, '100 Gold');
   assert.equal(view.canUpgrade, false);
   assert.equal(view.job, null);
@@ -355,9 +355,9 @@ test('the view prices a material by name', async () => {
     attributes: [],
   };
   const view = craftingView(forged);
-  assert.equal(view.recipes[0].cost, '10 Gold + 3 Iron ore');
-  assert.equal(view.recipes[0].affordable, false, 'affordable with no ore in the bag');
+  assert.equal(view.recipes[0]!.cost, '10 Gold + 3 Iron ore');
+  assert.equal(view.recipes[0]!.affordable, false, 'affordable with no ore in the bag');
 
   character.inventory.add((await import('../Engine/src/game/items.ts')).rollItem(MATERIAL_ITEMS[0], Math.random, 3));
-  assert.equal(craftingView(forged).recipes[0].affordable, true);
+  assert.equal(craftingView(forged).recipes[0]!.affordable, true);
 });
