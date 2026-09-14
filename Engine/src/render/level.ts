@@ -87,7 +87,7 @@ import type { LootTableInput } from '../data/lootTables.ts';
 import type { RecipeInput } from '../data/recipes.ts';
 import type { VfxInput } from '../data/vfx.ts';
 import type { Actor } from '../game/actor.ts';
-import type { Cast } from '../game/abilities.ts';
+import type { Cast } from '../game/actor.ts';
 import type { Character } from '../game/character.ts';
 import type { Place } from '../game/crafting.ts';
 import type { ItemInstance } from '../game/items.ts';

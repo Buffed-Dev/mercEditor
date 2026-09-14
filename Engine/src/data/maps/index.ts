@@ -3,6 +3,8 @@
 import { maps as GAME_MAPS, startMap } from '#game';
 import { expandPrefabs, isActorPrefab, prefabById } from '../prefabs.ts';
 import type { GameMap } from '../mapFormat.ts';
+import { isGenerated } from './chunks.ts';
+import { currentRun } from './generate.ts';
 
 // `#game` is content, outside the type checker. Naming the two shapes once
 // here keeps the `any` its exports would otherwise carry out of this module.
@@ -101,7 +103,7 @@ export function getMap(id: string): GameMap {
   // A generated map resolves to the run you are on: assembled the first time
   // you go in and kept after that, so stepping out to base and back is the same
   // dungeon. `endRun` is what makes the next one different.
-  const found = isGenerated(map) ? currentRun(id) : map;
+  const found = isGenerated(map) ? currentRun(map) : map;
 
   const already = expanded.get(found);
   if (already) return already;
@@ -110,9 +112,3 @@ export function getMap(id: string): GameMap {
   expanded.set(found, out);
   return out;
 }
-
-// At the bottom, and imported rather than re-exported for a reason: generate.js
-// reads MAPS from here, so this pair is a cycle. It resolves because neither
-// side touches the other until something is actually called.
-import { isGenerated } from './chunks.ts';
-import { currentRun } from './generate.ts';

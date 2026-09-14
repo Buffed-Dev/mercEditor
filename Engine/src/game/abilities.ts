@@ -1,35 +1,6 @@
 import { GLOBAL_COOLDOWN, type Ability } from '../data/abilities.ts';
-import type { AttrModifier, AttributeSet } from './attributes.ts';
-
-/** A wind-up in progress, and the slow it is holding on the caster. */
-export type Cast = {
-  ability: Ability;
-  aim: number;
-  remaining: number;
-  total: number;
-  handle: AttrModifier | null;
-  /**
-   * The shape drawn on the ground while this winds up, if one was.
-   *
-   * Described by what is done to it rather than imported from `render/debug`:
-   * a cast is hung with one by the level, and `game/` does not reach into the
-   * renderer. Nothing in this file touches it.
-   */
-  telegraph?: { place: (gx: number, gy: number, aim: number) => void; fire: () => void; cancel: () => void } | null;
-  /** The combo this is a step of, when it is one. */
-  combo?: Ability | null;
-};
-
-/**
- * A cast's slow, on its way out.
- *
- * Kept after the cast ends so the caster eases back up to speed instead of
- * snapping; see `updateCastSlow`.
- */
-export type SlowRelease = { handle: AttrModifier; value: number; remaining: number };
-
-/** Where an actor is in a combo, and how long it has to carry on. */
-export type Chain = { id: string; index: number; remaining: number; gap: number };
+import type { AttributeSet } from './attributes.ts';
+import type { Cast, Chain, SlowRelease } from './actor.ts';
 
 /** Whether an ability may fire, and if not, what stopped it. */
 export type Activation = { ok: boolean; reason: string };

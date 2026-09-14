@@ -14,7 +14,7 @@
  * reaches zero. Flat subtraction does both of those things wrong.
  */
 
-import type { ExecutionContext, ExecutionResult, ExecutionSpec } from './index.ts';
+import type { ExecutionContext, ExecutionResult, ExecutionSpec } from './types.ts';
 
 export const damage: ExecutionSpec = {
   label: 'Damage',

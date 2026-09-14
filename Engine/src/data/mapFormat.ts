@@ -150,10 +150,37 @@ export type MapObject = Placed & {
   [key: string]: unknown;
 };
 
-import type { ChunkInput } from './maps/chunks.ts';
 import type { LightInput } from './lights.ts';
 import type { TerrainGrid } from './terrain/grid.ts';
 import type { RimRing } from './terrain/profile.ts';
+
+// --- chunks ----------------------------------------------------------------
+//
+// What a chunk *is* is part of what a map file says — a rectangle of it, named
+// and given a role. Cutting one out and assembling runs from them is
+// ./maps/chunks.ts and ./maps/generate.ts, which read this.
+
+export const CHUNK_ROLES = [
+  ['', 'Filler'],
+  ['start', 'Entrance'],
+  ['end', 'Way down'],
+] as const;
+
+/** What a chunk is for: the way in, the way down, or neither. */
+export type ChunkRole = (typeof CHUNK_ROLES)[number][0];
+
+/** A rectangle of a hand-drawn map, cut out to be reused as a room. */
+export type Chunk = {
+  gx: number;
+  gy: number;
+  w: number;
+  h: number;
+  name: string;
+  role: ChunkRole;
+};
+
+/** A chunk as a map file writes it. */
+export type ChunkInput = Partial<Omit<Chunk, 'role'>> & { role?: string };
 
 /** A wall, which stacks. */
 export type Wall = Placed & { stack?: number };

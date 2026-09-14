@@ -21,36 +21,22 @@
 import {
   MAP_LISTS,
   SPAWN_CHAR,
+  type Chunk,
+  type ChunkInput,
+  type ChunkRole,
   type GameMap,
   type MapEnvInput,
   type MapObject,
   type Placed,
 } from '../mapFormat.ts';
 
+// A chunk's own shape is part of what a map file says, so it is declared with
+// the rest of that vocabulary; cutting one out is this module's job.
+export { CHUNK_ROLES } from '../mapFormat.ts';
+export type { Chunk, ChunkInput, ChunkRole } from '../mapFormat.ts';
+
 /** The object lists a chunk carries out of the map with it. */
 const LISTS = MAP_LISTS;
-
-export const CHUNK_ROLES = [
-  ['', 'Filler'],
-  ['start', 'Entrance'],
-  ['end', 'Way down'],
-] as const;
-
-/** What a chunk is for: the way in, the way down, or neither. */
-export type ChunkRole = (typeof CHUNK_ROLES)[number][0];
-
-/** A rectangle of a hand-drawn map, cut out to be reused as a room. */
-export type Chunk = {
-  gx: number;
-  gy: number;
-  w: number;
-  h: number;
-  name: string;
-  role: ChunkRole;
-};
-
-/** A chunk as a map file writes it. */
-export type ChunkInput = Partial<Omit<Chunk, 'role'>> & { role?: string };
 
 /** One chunk cut out and moved to its own origin, ready to be placed. */
 export type ChunkPart = {

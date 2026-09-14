@@ -1,4 +1,3 @@
-import { MAPS } from './index.ts';
 import { DEFAULT_CHUNK_COUNT, chunkCount, chunksOf } from './chunks.ts';
 import {
   MAP_LISTS,
@@ -205,12 +204,17 @@ export function rotatePart(part: ChunkPart, k = 0): ChunkPart {
 /** Map id -> the run its chunks were last assembled into. */
 const runs = new Map<string, GameMap>();
 
-/** The dungeon you are in, built on the way in and kept until the run ends. */
-export function currentRun(id: string, options?: AssembleOptions): GameMap {
-  let map = runs.get(id);
+/**
+ * The dungeon you are in, built on the way in and kept until the run ends.
+ *
+ * Takes the map rather than its id, so generation never reaches back into the
+ * registry that called it. The caller is holding it already.
+ */
+export function currentRun(source: GameMap, options?: AssembleOptions): GameMap {
+  let map = runs.get(source.id);
   if (!map) {
-    map = generateMap(MAPS[id], options);
-    runs.set(id, map);
+    map = generateMap(source, options);
+    runs.set(source.id, map);
   }
   return map;
 }

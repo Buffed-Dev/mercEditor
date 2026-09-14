@@ -1,29 +1,8 @@
 import { damage } from './damage.ts';
-import type { Execution, MagnitudeInput } from '../../data/effects.ts';
-import type { Actor } from '../actor.ts';
+import type { Execution } from '../../data/effects.ts';
+import type { ExecutionContext, ExecutionResult } from './types.ts';
 
-/** What an execution reports back. */
-export type ExecutionResult = { dealt: number; killed: boolean };
-
-/**
- * What an execution is handed.
- *
- * `resolve` comes in rather than being imported so an execution reads a
- * magnitude exactly the way the effect runtime does, without depending on it.
- */
-export type ExecutionContext = {
-  target: Actor;
-  source: Actor;
-  params: Execution;
-  resolve: (
-    magnitude: MagnitudeInput | undefined,
-    target: Actor,
-    source: Actor,
-  ) => number;
-};
-
-/** One named calculation. */
-export type ExecutionSpec = { label: string; run: (context: ExecutionContext) => ExecutionResult };
+export type { ExecutionContext, ExecutionResult, ExecutionSpec } from './types.ts';
 
 /**
  * Code-backed calculations an effect can name, keyed by id. This is the escape

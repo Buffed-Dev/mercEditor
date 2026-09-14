@@ -14,11 +14,8 @@
 
 /** Longest slice, in tiles. Comfortably under a wall's width. */
 import type { Ability } from '../data/abilities.ts';
-import type { Actor } from './actor.ts';
+import type { Actor, Dash } from './actor.ts';
 import type { World } from './world.ts';
-
-/** A movement ability in flight: which way, how much further, how fast. */
-export type Dash = { dirX: number; dirY: number; remaining: number; speed: number };
 
 const MAX_SLICE = 0.2;
 
