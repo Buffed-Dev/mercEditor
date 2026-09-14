@@ -120,11 +120,40 @@ const sheetOf = (def: MaterialInput) => {
 };
 
 /**
+ * What a picture is cached under.
+ *
+ * The tiling used to be in this key, so that two materials cutting one file
+ * two ways got two texture objects and could not overwrite each other's
+ * tiling. That is the right invariant and the wrong key for it: tiling comes
+ * off a slider, so dragging "Tile across" — 0.1 to 32 in steps of 0.1 — asked
+ * for a texture under a key nobody had used before on every frame of the drag,
+ * and every one of them stayed on the scene for as long as the scene lived.
+ *
+ * The material itself is what the invariant is actually about, so that is the
+ * key: one texture object per material per file, tiling written onto it
+ * afterwards like every other editable property. A record with no id falls
+ * back to the old key, which keeps today's behaviour for the one case that
+ * cannot be told apart by identity.
+ *
+ * Exported for the test; nothing else calls it.
+ */
+export function pictureKey(
+  url: string,
+  def: { id?: string | undefined },
+  tiling: readonly [number, number, number, number],
+  sheet: { animated: boolean; columns: number; rows: number; count: number; fps: number },
+): string {
+  if (sheet.animated) {
+    return `texture:${url}:sheet:${sheet.columns}x${sheet.rows}:${sheet.count}@${sheet.fps}`;
+  }
+  return def.id ? `texture:${url}:by:${def.id}` : `texture:${url}:${tiling.join(',')}`;
+}
+
+/**
  * The picture a material lays over a surface.
  *
- * Kept per scene like the material, and keyed by the tiling as well as the
- * file: the same file tiled twice over is a different texture object, and two
- * materials sharing one would each keep overwriting the other's tiling.
+ * Kept per scene like the material. One texture object per material per file:
+ * see `pictureKey` for why that rather than per tiling.
  */
 function pictureFor(
   def: MaterialInput,
@@ -142,52 +171,59 @@ function pictureFor(
   const v = def.vScale ?? 1;
   const du = def.uOffset ?? 0;
   const dv = def.vOffset ?? 0;
-  // The sheet is in the key as well as the tiling, and for the same reason:
-  // the same file cut two ways is two textures, and one shared between them
-  // would have each overwriting the other's window every frame.
-  const key = sheet.animated
-    ? `texture:${url}:sheet:${sheet.columns}x${sheet.rows}:${sheet.count}@${sheet.fps}`
-    : `texture:${url}:${u},${v},${du},${dv}`;
+  const key = pictureKey(url, def, [u, v, du, dv], sheet);
 
-  return keep(scene, key, () => {
+  const texture = keep(scene, key, () => {
     // invertY off, because this is worn over a model's own UVs and those came
     // out of a glTF, which puts v=0 at the top of the picture.
-    const texture = loadTexture(url, scene, { by: def.id });
-
-    if (!sheet.animated) {
-      texture.uScale = u;
-      texture.vScale = v;
-      texture.uOffset = du;
-      texture.vOffset = dv;
-      return texture;
-    }
-
-    // A sheet's window *is* the tiling, so the material's own tiling has
-    // nothing left to say -- one cell wide and one cell tall, slid a cell at a
-    // time rather than a texture uploaded per frame.
-    //
-    // invertY is off above, so v counts down the picture the way the cells were
-    // laid out and the row is not counted back from the bottom. That is the
-    // opposite of the sprite planes in render/props.ts, which are drawn on
-    // Babylon's own quads.
-    texture.uScale = 1 / sheet.columns;
-    texture.vScale = 1 / sheet.rows;
-    const show = (frame: number): void => {
-      texture.uOffset = (frame % sheet.columns) / sheet.columns;
-      texture.vOffset = Math.floor(frame / sheet.columns) / sheet.rows;
-    };
-    show(0);
-
-    let at = 0;
-    // One observer per animated texture rather than one per material: `keep`
-    // makes this once per scene per cutting, so the count is the number of
-    // distinct animated pictures, and it goes when the scene does.
-    scene.onBeforeRenderObservable.add(() => {
-      at += (scene.getEngine().getDeltaTime() / 1000) * sheet.fps;
-      show(Math.floor(at) % sheet.count);
-    });
-    return texture;
+    const made = loadTexture(url, scene, { by: def.id });
+    if (!sheet.animated) return made;
+    return animate(made, sheet, scene);
   });
+
+  // Written on every call rather than once when it was made, which is what
+  // lets one texture serve a tiling that is being dragged. Not for a sheet:
+  // there the window *is* the tiling, and the animation below owns it.
+  if (!sheet.animated) {
+    texture.uScale = u;
+    texture.vScale = v;
+    texture.uOffset = du;
+    texture.vOffset = dv;
+  }
+  return texture;
+}
+
+/** Slide a sheet's window, a cell at a time. */
+function animate(
+  texture: Texture,
+  sheet: { columns: number; rows: number; count: number; fps: number },
+  scene: Scene,
+): Texture {
+  // A sheet's window *is* the tiling, so the material's own tiling has nothing
+  // left to say -- one cell wide and one cell tall, slid a cell at a time
+  // rather than a texture uploaded per frame.
+  //
+  // invertY is off where this was made, so v counts down the picture the way
+  // the cells were laid out and the row is not counted back from the bottom.
+  // That is the opposite of the sprite planes in render/props.ts, which are
+  // drawn on Babylon's own quads.
+  texture.uScale = 1 / sheet.columns;
+  texture.vScale = 1 / sheet.rows;
+  const show = (frame: number): void => {
+    texture.uOffset = (frame % sheet.columns) / sheet.columns;
+    texture.vOffset = Math.floor(frame / sheet.columns) / sheet.rows;
+  };
+  show(0);
+
+  let at = 0;
+  // One observer per animated texture rather than one per material: `keep`
+  // makes this once per scene per cutting, so the count is the number of
+  // distinct animated pictures, and it goes when the scene does.
+  scene.onBeforeRenderObservable.add(() => {
+    at += (scene.getEngine().getDeltaTime() / 1000) * sheet.fps;
+    show(Math.floor(at) % sheet.count);
+  });
+  return texture;
 }
 
 /**
