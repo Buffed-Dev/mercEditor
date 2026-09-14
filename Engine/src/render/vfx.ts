@@ -32,6 +32,7 @@ import type { Matrix } from '@babylonjs/core/Maths/math.vector.js';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh.js';
 import type { Particle } from '@babylonjs/core/Particles/particle.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { loadTexture } from './textures.ts';
 
 /** Where an effect is played: a fixed point, or something that carries it. */
 export type VfxAnchor = Vector3 | TransformNode;
@@ -206,7 +207,10 @@ function sprite(scene: Scene, particle: VfxParticle): Texture {
   if (particle.shape === 'sprite' && particle.image) {
     // The fourth argument is `invertY`, and it is true — Babylon's own default
     // — so a picture arrives the way up it was drawn.
-    texture = new Texture(particle.image, scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+    texture = loadTexture(particle.image, scene, {
+      invertY: true,
+      samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
+    });
   } else {
     // 128 rather than 64: the glow shape is mostly a long smooth falloff, and
     // at half this the halo bands visibly once a particle is drawn large.
@@ -424,7 +428,11 @@ function buildSheet(scene: Scene, def: Vfx, anchor: VfxAnchor) {
   // on Texture. One fewer property read per frame, too.
   let sheetTexture: Texture | null = null;
   if (sheet.image) {
-    const texture = new Texture(sheet.image, scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+    const texture = loadTexture(sheet.image, scene, {
+      invertY: true,
+      samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
+      by: def.id,
+    });
     sheetTexture = texture;
     texture.hasAlpha = true;
     // Clamped, so a cell never bleeds the one beside it at its edge.

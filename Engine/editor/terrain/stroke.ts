@@ -49,6 +49,10 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
 
     /** Write one cell by index, for tools that work in flat indices. */
     setAt(i: number, level: number, kind: number): void {
+      // An index off the end writes nowhere — a typed array drops it silently —
+      // but it would still be remembered, and undo would then restore a cell
+      // that was never touched from a pair of undefineds.
+      if (!Number.isInteger(i) || i < 0 || i >= grid.level.length) return;
       remember(i, i % grid.cols, Math.floor(i / grid.cols));
       grid.level[i] = level;
       grid.kind[i] = kind;

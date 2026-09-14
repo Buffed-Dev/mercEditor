@@ -28,6 +28,7 @@ import type { Node } from '@babylonjs/core/node.js';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { Surface } from './materials.ts';
 import type { Heights, Shadows } from './lights.ts';
+import { loadTexture } from './textures.ts';
 
 /** A sprite sheet being played on a plane. */
 type Playing = {
@@ -270,7 +271,9 @@ export function createPropRuntime(
       // the model samples the mirror image of the island it was unwrapped onto,
       // which on a texture with any blank space in it is blank — a grey box
       // wearing a wood texture and no error anywhere to say why.
-      const texture = keep(scene, `texture:${url}`, () => new Texture(url, scene, false, false));
+      const texture = keep(scene, `texture:${url}`, () =>
+        loadTexture(url, scene, { by: def.id }),
+      );
       // Laid on as it was painted. Tiling, offset and alpha used to come off a
       // record about the file; they live on a *material* now, which is what
       // this branch is the shorthand alternative to — an object that needs any
@@ -339,7 +342,11 @@ export function createPropRuntime(
     material.disableDepthWrite = true;
     material.useAlphaFromDiffuseTexture = true;
 
-    const texture = new Texture(url, scene, false, true, Texture.TRILINEAR_SAMPLINGMODE);
+    const texture = loadTexture(url, scene, {
+      invertY: true,
+      samplingMode: Texture.TRILINEAR_SAMPLINGMODE,
+      by: def.id,
+    });
     texture.hasAlpha = true;
     // Clamped, so a cell never bleeds the one beside it at its edge.
     texture.wrapU = Texture.CLAMP_ADDRESSMODE;

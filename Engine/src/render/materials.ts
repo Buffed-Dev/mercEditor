@@ -6,6 +6,7 @@ import { filePath } from '../data/assets.ts';
 import { keep } from './sceneCache.ts';
 import type { Scene } from '@babylonjs/core/scene.js';
 import type { MaterialInput } from '../data/materials.ts';
+import { loadTexture } from './textures.ts';
 
 /**
  * A material this module knows how to write onto.
@@ -151,7 +152,7 @@ function pictureFor(
   return keep(scene, key, () => {
     // invertY off, because this is worn over a model's own UVs and those came
     // out of a glTF, which puts v=0 at the top of the picture.
-    const texture = new Texture(url, scene, false, false);
+    const texture = loadTexture(url, scene, { by: def.id });
 
     if (!sheet.animated) {
       texture.uScale = u;

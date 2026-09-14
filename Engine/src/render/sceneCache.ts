@@ -25,6 +25,10 @@
 
 import type { Node } from '@babylonjs/core/node.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { AssetError, detail, message } from '../util/errors.ts';
+import { logger } from '../util/log.ts';
+
+const log = logger('models');
 
 /**
  * One cached thing, and how far along it is.
@@ -106,8 +110,11 @@ export function keepModel<T extends Node>(
       record.done = true;
       return node ?? null;
     })
-    .catch((error) => {
-      console.warn(`[models] could not load ${key}: ${error?.message ?? error}`);
+    .catch((error: unknown) => {
+      // Never rethrown: a model that will not load is a thing drawn without it
+      // — `use` is called with null and every caller has a fallback — and a
+      // rejected promise here would take the rebuild down with it.
+      log.warn(`could not load ${key}`, detail(new AssetError(message(error), { cause: error })));
       record.done = true;
       return null;
     });

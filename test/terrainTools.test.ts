@@ -243,3 +243,29 @@ test('an empty grid puts nothing in any layer', async () => {
   const grid = createGrid(4, 4);
   for (const layer of DEBUG_LAYERS) assert.deepEqual(layer.cells(grid), []);
 });
+
+test('a write off the end of the grid is refused, so undo stays exact', () => {
+  // A typed array drops an out-of-range write silently, so this looked
+  // harmless: the grid really was unchanged. What it was not harmless for was
+  // the undo step, which recorded the cell as touched and remembered a pair of
+  // undefineds as what had been there — and restoring that is not what was
+  // there before.
+  const grid = gridOf(['11', '11']);
+  const before = [...grid.level];
+
+  const stroke = beginStroke(grid, 'height');
+  stroke.setAt(grid.level.length, 5, 1);
+  stroke.setAt(-1, 5, 1);
+  stroke.setAt(1.5, 5, 1);
+  assert.equal(stroke.touched, 0, 'nothing on the grid was reached');
+  assert.equal(stroke.commit(), null, 'so there is no step to undo');
+
+  // And a write that is in range still lands, next to the ones that did not.
+  const real = beginStroke(grid, 'height');
+  real.setAt(idx(grid, 1, 1), 5, 1);
+  const entry = real.commit();
+  assert.ok(entry, 'the write inside the grid is a step');
+  assert.equal(grid.level[idx(grid, 1, 1)], 5);
+  entry.undo();
+  assert.deepEqual([...grid.level], before, 'and undoing it restores exactly what was there');
+});

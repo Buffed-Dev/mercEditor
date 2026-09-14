@@ -4,6 +4,10 @@ import { StackPanel } from '@babylonjs/gui/2D/controls/stackPanel.js';
 import { TextBlock } from '@babylonjs/gui/2D/controls/textBlock.js';
 import type { AdvancedDynamicTexture } from '@babylonjs/gui/2D/advancedDynamicTexture.js';
 import type { SlotBinding } from '../data/abilities.ts';
+import { message } from '../util/errors.ts';
+import { logger } from '../util/log.ts';
+
+const log = logger('frame');
 
 /** A bar: the well it sits in, and the part that is filled. */
 type Bar = { track: Rectangle; fill: Rectangle };
@@ -328,15 +332,13 @@ export function createHud(ui: AdvancedDynamicTexture, root: Document = document)
       return (error: unknown): void => {
         // A thrown value is only an Error by convention, so its message is
         // asked for rather than assumed.
-        const message = String(
-          (error instanceof Error ? error.message : undefined) ?? error,
-        );
-        const count = (seen.get(message) ?? 0) + 1;
-        seen.set(message, count);
+        const said = message(error);
+        const count = (seen.get(said) ?? 0) + 1;
+        seen.set(said, count);
 
-        if (count === 1) console.error('[frame]', error);
+        if (count === 1) log.error('a frame threw', error);
 
-        fault.textContent = `frame error — see console: ${message}${count > 1 ? ` (x${count})` : ''}`;
+        fault.textContent = `frame error — see console: ${said}${count > 1 ? ` (x${count})` : ''}`;
         fault.classList.remove('hidden');
       };
     })(),
