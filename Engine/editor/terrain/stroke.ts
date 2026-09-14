@@ -26,7 +26,7 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
 
   const remember = (i: number, gx: number, gy: number) => {
     if (before.has(i)) return;
-    before.set(i, [grid.level[i], grid.kind[i]]);
+    before.set(i, [grid.level[i]!, grid.kind[i]!]);
     if (gx < x0) x0 = gx;
     if (gx > x1) x1 = gx;
     if (gy < y0) y0 = gy;
@@ -74,7 +74,7 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
       // is exactly self-inverse however many times it is run.
       const swap = () => {
         for (const [i, was] of before) {
-          before.set(i, [grid.level[i], grid.kind[i]]);
+          before.set(i, [grid.level[i]!, grid.kind[i]!]);
           grid.level[i] = was[0];
           grid.kind[i] = was[1];
         }

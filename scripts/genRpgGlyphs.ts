@@ -13,9 +13,10 @@ const re = /\.ra-([a-z0-9-]+):before\{content:"(.)"\}/g;
 const out: [string, string][] = [];
 let m: RegExpExecArray | null;
 while ((m = re.exec(css))) {
-  const codePoint = m[2].codePointAt(0);
-  if (codePoint === undefined) continue;
-  out.push([m[1], codePoint.toString(16)]);
+  const [, name, glyph] = m;
+  const codePoint = glyph?.codePointAt(0);
+  if (!name || codePoint === undefined) continue;
+  out.push([name, codePoint.toString(16)]);
 }
 out.sort((a, b) => a[0].localeCompare(b[0]));
 

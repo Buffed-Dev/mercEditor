@@ -183,6 +183,10 @@ export function Inspector({
   }
 
   const rim = normalizeRim(doc.map.terrainRim);
+  // `normalizeRim` never returns fewer than two rings, so the edge has both a
+  // width (the outermost inset) and a depth (the innermost drop).
+  const edgeWidth = rim[0]!.inset;
+  const edgeDepth = rim[rim.length - 1]!.drop;
 
   return (
     <div className={styles.inspector}>
@@ -210,30 +214,30 @@ export function Inspector({
         */}
         <Field
           field={{ key: 'width', kind: 'range', label: 'Edge width', min: 0.02, max: 0.45, step: 0.01 }}
-          value={rim[0].inset}
+          value={edgeWidth}
           onInput={(value) =>
             edit.preview(
-              () => doc.setMeta('terrainRim', rimOf(Number(value), rim[rim.length - 1].drop), false),
+              () => doc.setMeta('terrainRim', rimOf(Number(value), edgeDepth), false),
               () => editor?.reprofile?.(doc.map.terrainRim),
             )
           }
           onChange={(value) =>
             edit.commit(() =>
-              doc.setMeta('terrainRim', rimOf(Number(value), rim[rim.length - 1].drop), false),
+              doc.setMeta('terrainRim', rimOf(Number(value), edgeDepth), false),
             )
           }
         />
         <Field
           field={{ key: 'depth', kind: 'range', label: 'Edge depth', min: 0, max: 0.4, step: 0.01 }}
-          value={rim[rim.length - 1].drop}
+          value={edgeDepth}
           onInput={(value) =>
             edit.preview(
-              () => doc.setMeta('terrainRim', rimOf(rim[0].inset, Number(value)), false),
+              () => doc.setMeta('terrainRim', rimOf(edgeWidth, Number(value)), false),
               () => editor?.reprofile?.(doc.map.terrainRim),
             )
           }
           onChange={(value) =>
-            edit.commit(() => doc.setMeta('terrainRim', rimOf(rim[0].inset, Number(value)), false))
+            edit.commit(() => doc.setMeta('terrainRim', rimOf(edgeWidth, Number(value)), false))
           }
         />
       </Section>
@@ -305,7 +309,10 @@ function write(
   if (selection.key !== undefined) {
     const spawns = (doc.map as unknown as Record<string, Record<string, Record<string, unknown>>>)
       .spawns;
-    spawns[selection.key][key] = value;
+    // The selection names a spawn that is on the map; one deleted under the
+    // panel writes nothing rather than throwing on the way past.
+    const spawn = spawns?.[selection.key];
+    if (spawn) spawn[key] = value;
     doc.checkpoint(checkpointed);
     return;
   }

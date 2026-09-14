@@ -250,7 +250,9 @@ export function ObjectTree({
       // A spawn is addressed by name rather than by index, so it is written
       // through the map directly — there is no list position to patch.
       doc!.checkpoint();
-      (doc!.map.spawns as Record<string, Record<string, unknown>>)[row.key!].group = group;
+      const spawns = doc!.map.spawns as Record<string, Record<string, unknown>>;
+      const spawn = row.key === undefined ? undefined : spawns[row.key];
+      if (spawn) spawn.group = group;
     } else {
       doc!.updateObject(row.list, row.index, { group });
     }
@@ -430,7 +432,7 @@ function ObjectRow({
   picked: boolean;
   hidden: boolean;
   /** Absent for the lists that cannot be hidden — see HIDEABLE. */
-  onToggleHidden?: () => void;
+  onToggleHidden?: (() => void) | undefined;
   onPick: (row: Row, event: React.MouseEvent) => void;
   onGroup: () => void;
   onDelete: () => void;

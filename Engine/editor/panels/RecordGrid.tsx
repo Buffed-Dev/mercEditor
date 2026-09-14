@@ -27,7 +27,7 @@ export function RecordGrid({
 }: {
   list: ListId;
   records: Record_[];
-  selected?: string;
+  selected?: string | undefined;
   onSelect: (id: string) => void;
   onAdd: () => void;
   onDelete: (index: number) => void;

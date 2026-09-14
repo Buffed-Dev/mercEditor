@@ -58,7 +58,8 @@ export type ToolDef = {
  */
 export const SLOT_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
-export const TOOLS: readonly ToolDef[] = [
+/** Non-empty on purpose: an unknown tool id falls back to the first. */
+export const TOOLS: readonly [ToolDef, ...ToolDef[]] = [
   // W, E and R for the three transforms, the way every 3D tool binds them.
   // Erase and Cut ground moved to X and C to make room.
   { id: 'select', label: 'Select', hint: 'Pick and edit what is on the map', group: 'navigate', shortcut: 'v' },

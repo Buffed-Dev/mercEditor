@@ -59,8 +59,8 @@ function rimLine(rim: readonly RimRing[] | null | undefined): string | null {
     rings.length === DEFAULT_RIM.length &&
     rings.every(
       (ring, i) =>
-        round(ring.inset) === round(DEFAULT_RIM[i].inset) &&
-        round(ring.drop) === round(DEFAULT_RIM[i].drop),
+        round(ring.inset) === round(DEFAULT_RIM[i]?.inset ?? 0) &&
+        round(ring.drop) === round(DEFAULT_RIM[i]?.drop ?? 0),
     );
   if (same) return null;
   const body = rings.map((ring) => `{ inset: ${round(ring.inset)}, drop: ${round(ring.drop)} }`);

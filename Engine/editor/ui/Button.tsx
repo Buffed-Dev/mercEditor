@@ -43,7 +43,7 @@ export function IconButton({
   className = '',
   variant = 'quiet',
   ...rest
-}: ButtonProps & { label: string; side?: 'top' | 'bottom' | 'left' | 'right' }) {
+}: ButtonProps & { label: string; side?: 'top' | 'bottom' | 'left' | 'right' | undefined }) {
   return (
     <Tooltip label={label} side={side}>
       <Button

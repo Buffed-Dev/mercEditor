@@ -49,7 +49,7 @@ type VfxDoc = {
 
 /** The parts of an effect the panel lays out, and where each finds its rows. */
 const SECTIONS: Record<
-  string,
+  VfxSection,
   {
     title: string;
     fields: Record<string, unknown>;
@@ -62,15 +62,12 @@ const SECTIONS: Record<
     fields: EMITTER_FIELDS,
     /** An emitter's shape decides which of its geometry rows are worth showing. */
     keysFor: (emitter) => {
-      const shapes = EMITTER_SHAPES as Record<string, { fields: readonly string[]; hint: string }>;
-      const shape = shapes[String(emitter.shape)] ?? shapes.cone;
+      const shape = emitterShape(emitter);
+      // The first key is the shape itself, and the shape's own rows follow it.
       const [first, ...rest] = EMITTER_KEYS as readonly string[];
-      return [first, ...shape.fields, ...rest];
+      return [...(first ? [first] : []), ...shape.fields, ...rest];
     },
-    hintFor: (emitter) => {
-      const shapes = EMITTER_SHAPES as Record<string, { hint: string }>;
-      return (shapes[String(emitter.shape)] ?? shapes.cone).hint;
-    },
+    hintFor: (emitter) => emitterShape(emitter).hint,
   },
   particle: {
     title: 'Particle',
@@ -83,10 +80,16 @@ const SECTIONS: Record<
     fields: SHEET_FIELDS,
     keysFor: (sheet) => sheetKeys(sheet) as string[],
     hintFor: (sheet) => {
-      const shapes = SHEET_SHAPES as Record<string, { hint: string }>;
-      return (shapes[String(sheet.shape)] ?? shapes.plane).hint;
+      const shapes = SHEET_SHAPES as Record<string, { hint: string } | undefined>;
+      return (shapes[String(sheet.shape)] ?? SHEET_SHAPES.plane).hint;
     },
   },
+};
+
+/** An emitter's shape, or the cone every emitter falls back to. */
+const emitterShape = (emitter: Record_): { fields: readonly string[]; hint: string } => {
+  const shapes = EMITTER_SHAPES as Record<string, { fields: readonly string[]; hint: string } | undefined>;
+  return shapes[String(emitter.shape)] ?? EMITTER_SHAPES.cone;
 };
 
 const field = (spec: { key: string; kind: string; label: string } & Record<string, unknown>) =>
@@ -108,7 +111,7 @@ export function VfxDetail({
   /** Start the stage again, because a change you cannot see is not a change. */
   onReplay: () => void;
   /** The project's files, for the sheet's picture. */
-  files?: Files;
+  files?: Files | undefined;
 }) {
   const def = normalizeVfx(record) as Record_;
 
@@ -175,18 +178,19 @@ export function VfxDetail({
         return (
           <Section key={part} id={`vfx:${part}`} title={spec.title}>
             {hint && <p className={styles.hint}>{hint}</p>}
-            {spec.keysFor(values).map((key) =>
-              table[key] ? (
+            {spec.keysFor(values).map((key) => {
+              const row = table[key];
+              return row ? (
                 <Field
                   key={key}
-                  field={field({ key, ...(table[key] as { kind: string; label: string }) })}
+                  field={field({ key, ...(row as { kind: string; label: string }) })}
                   value={values[key] as FieldValue}
                   onInput={(value) => patch(part, { [key]: value }, false)}
                   onChange={(value) => patch(part, { [key]: value })}
                   files={files}
                 />
-              ) : null,
-            )}
+              ) : null;
+            })}
             <Modifiers part={part} values={values} onPatch={patch} />
           </Section>
         );

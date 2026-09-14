@@ -17,7 +17,7 @@ import { create } from 'zustand';
  * both.
  */
 
-export type Selection = { list: string; index?: number; key?: string } | null;
+export type Selection = { list: string; index?: number | undefined; key?: string | undefined } | null;
 
 /** How a row is addressed in `picked` — a list and a position within it. */
 export const rowId = (selection: NonNullable<Selection>) =>

@@ -51,7 +51,7 @@ export function fromHsv({ h, s, v }: Hsv): number {
       [x, 0, c],
       [c, 0, x],
     ] as const
-  )[sextant];
+  )[sextant]!;
   const byte = (channel: number) => Math.round((channel + m) * 255);
   return (byte(r) << 16) | (byte(g) << 8) | byte(b);
 }

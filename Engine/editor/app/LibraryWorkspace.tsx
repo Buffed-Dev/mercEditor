@@ -250,6 +250,7 @@ export function LibraryWorkspace() {
     if (at < 0) return;
 
     const record = (doc.list(list) as Record<string, unknown>[])[at];
+    if (!record) return;
     if (here < 0) doc.update(list, at, { label: stemOf(name), path: folder });
 
     const slot = libraryFields(list).find(
@@ -335,7 +336,7 @@ export function LibraryWorkspace() {
       for (const kind of LIBRARY_KINDS) {
         const held = doc.list(kind.id) as Record<string, unknown>[];
         for (let at = held.length - 1; at >= 0; at -= 1) {
-          if (String(held[at].path ?? '').startsWith(`${row.path}/`)) doc.drop(kind.id, at);
+          if (String(held[at]!.path ?? '').startsWith(`${row.path}/`)) doc.drop(kind.id, at);
         }
       }
     }

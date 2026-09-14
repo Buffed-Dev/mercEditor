@@ -38,7 +38,7 @@ export function FilePicker({
 }: {
   label: string;
   value: string;
-  accept?: string;
+  accept?: string | undefined;
   files: Files;
   onChange: (value: string) => void;
 }) {
@@ -121,11 +121,12 @@ export function RecordPicker({
     thumb: <RecordThumb list={list} index={index} files={files} />,
   });
   const at = records.findIndex((one) => one.id === value);
+  const chosen = at >= 0 ? records[at] : undefined;
   return (
     <Picker
       label={label}
       // A value the list no longer offers is still what the record says.
-      current={at >= 0 ? option(records[at], at) : value ? { id: value, label: value } : null}
+      current={chosen ? option(chosen, at) : value ? { id: value, label: value } : null}
       options={records.map(option)}
       placeholder={`Search ${list === 'props' ? 'objects' : 'materials'}`}
       onChange={onChange}

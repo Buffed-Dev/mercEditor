@@ -26,7 +26,7 @@ export function ColorField({
   value: number;
   label: string;
   /** Colours already used on this map, offered as a row of chips. */
-  used?: readonly number[];
+  used?: readonly number[] | undefined;
   onInput: (value: number) => void;
   onChange: (value: number) => void;
 }) {

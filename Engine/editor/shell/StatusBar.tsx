@@ -4,7 +4,7 @@ import styles from './StatusBar.module.css';
 export type ViewportContext = {
   hover?: { gx: number; gy: number } | null;
   selection?: number;
-  size?: { cols: number; rows: number };
+  size?: { cols: number; rows: number } | undefined;
   brush?: { label: string; color?: string } | null;
 };
 

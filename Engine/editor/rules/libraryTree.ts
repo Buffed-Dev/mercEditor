@@ -37,7 +37,7 @@ export type LibraryRow = {
   | {
       row: 'folder';
       holds: { list: LibraryKind; index: number } | null;
-      label?: string;
+      label?: string | undefined;
     }
   /** The record file itself: `Grass/grass.material.json`. */
   | {

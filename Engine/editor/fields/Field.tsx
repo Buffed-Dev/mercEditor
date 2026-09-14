@@ -49,11 +49,11 @@ export type FieldProps = {
    * Options for the kinds whose choices come from the rules being edited —
    * `vfx` and `prop`. The panel knows the document; this does not.
    */
-  resolveOptions?: (field: FieldSpec) => readonly (readonly [string, string])[];
+  resolveOptions?: ((field: FieldSpec) => readonly (readonly [string, string])[]) | undefined;
   /** Colours already used on this map, offered by the colour picker. */
-  used?: readonly number[];
+  used?: readonly number[] | undefined;
   /** The project's files, for a `file` field to choose from. See ui/FilePicker.tsx. */
-  files?: Files;
+  files?: Files | undefined;
 };
 
 export function Field({
@@ -113,7 +113,7 @@ export function Field({
     case 'file':
     case 'image':
       // Without the project's files to offer, the name is typed as it always was.
-      if (!files) break;
+      if (!files) return null;
       return (
         <FieldRow label={name}>
           <FilePicker
@@ -129,7 +129,7 @@ export function Field({
     case 'material':
     case 'prop': {
       const list = field.kind === 'prop' ? 'props' : 'materials';
-      if (!files?.[list]) break;
+      if (!files?.[list]) return null;
       return (
         <FieldRow label={name}>
           <RecordPicker
@@ -182,7 +182,7 @@ export function Field({
 
 function optionsFor(
   field: FieldSpec,
-  resolve?: (field: FieldSpec) => readonly (readonly [string, string])[],
+  resolve?: ((field: FieldSpec) => readonly (readonly [string, string])[]) | undefined,
 ): readonly (readonly [string, string])[] {
   // The map registry is something this file can answer for itself; the rules
   // lists are not, because they are the document the panel is editing.
@@ -216,7 +216,7 @@ function Choice({
 }: {
   label: string;
   options: readonly (readonly [string, string])[];
-  groups?: readonly { label: string; options: readonly (readonly [string, string])[] }[];
+  groups?: readonly { label: string; options: readonly (readonly [string, string])[] }[] | undefined;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -310,7 +310,7 @@ function TextInput({
 }: {
   label: string;
   value: string;
-  maxLength?: number;
+  maxLength?: number | undefined;
   onChange: (value: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);

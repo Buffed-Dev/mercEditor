@@ -192,7 +192,8 @@ export type MapList = (typeof MAP_LISTS)[number];
  */
 export type GameMap = {
   id: string;
-  name?: string;
+  /** A map the editor holds carries the key with nothing in it yet. */
+  name?: string | undefined;
   /**
    * The ground, in one of its two spellings.
    *

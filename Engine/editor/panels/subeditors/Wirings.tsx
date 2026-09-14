@@ -32,6 +32,9 @@ import styles from './Wirings.module.css';
  * to parse — and it makes removing a row the same kind of edit as changing one,
  * which is one undo step either way.
  */
+/** What a trigger is called, falling back to its own name for an unknown one. */
+const labelOf = (event: string): string => EVENTS[event]?.label ?? event;
+
 export function Wirings({
   list,
   entry,
@@ -46,7 +49,7 @@ export function Wirings({
   onInput: (patch: Record<string, unknown>) => void;
   /** Commits, which is what makes an undo step. */
   onChange: (patch: Record<string, unknown>) => void;
-  resolveOptions?: (field: FieldSpec) => readonly (readonly [string, string])[];
+  resolveOptions?: ((field: FieldSpec) => readonly (readonly [string, string])[]) | undefined;
 }) {
   /**
    * A trigger counts as on the record once it has been added, empty or not.
@@ -114,7 +117,7 @@ export function Wirings({
                   hint={blocked ?? undefined}
                   onClick={blocked ? undefined : () => onChange({ [event]: [] })}
                 >
-                  {EVENTS[event].label}
+                  {labelOf(event)}
                 </MenuItem>
               );
             })}
@@ -133,7 +136,7 @@ export function Wirings({
         return (
           <div key={event} className={styles.event}>
             <RowList
-              title={EVENTS[event].label}
+              title={labelOf(event)}
               count={actions.length}
               empty="No actions yet."
               addLabel="Add action"
@@ -142,8 +145,8 @@ export function Wirings({
                 <button
                   type="button"
                   className={styles.drop}
-                  aria-label={`Remove ${EVENTS[event].label}`}
-                  title={`Remove ${EVENTS[event].label}`}
+                  aria-label={`Remove ${labelOf(event)}`}
+                  title={`Remove ${labelOf(event)}`}
                   onClick={() => onChange({ [event]: undefined })}
                 >
                   <IconTrash size={12} />

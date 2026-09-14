@@ -99,7 +99,7 @@ export function LibraryTree({
   /** Name this one in place. */
   onRename: (row: LibraryRow) => void;
   /** The row being named in place, by path. See `RenameInput`. */
-  renaming?: string;
+  renaming?: string | undefined;
   /** The name typed, or null if it was called off. */
   onRenamed: (row: LibraryRow, name: string | null) => void;
 }) {
