@@ -7,7 +7,8 @@ import { idx, type TerrainGrid } from '../../src/data/terrain/grid.ts';
  * fewer cells rather than cells that are not there, so no caller has to check.
  */
 
-export type Cell = { gx: number; gy: number };
+/** A cell, and where inside it the pointer was when there was one: world x and z. */
+export type Cell = { gx: number; gy: number; x?: number | undefined; z?: number | undefined };
 
 const clip = (grid: TerrainGrid, gx: number, gy: number, out: number[]) => {
   if (gx < 0 || gy < 0 || gx >= grid.cols || gy >= grid.rows) return;

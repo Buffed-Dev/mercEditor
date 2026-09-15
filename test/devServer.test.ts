@@ -63,7 +63,7 @@ test('an error page that is not JSON is reported, not parsed', async () => {
 test("the server's own explanation wins when it sends one", async () => {
   const failed = await served(
     () => json({ error: 'Materials/Wood is not empty' }, 409),
-    () => post('/__library', 'delete Materials/Wood', {}).then(() => null, (e: unknown) => e),
+    () => post('/__draft/ops', 'delete Materials/Wood', {}).then(() => null, (e: unknown) => e),
   );
 
   assert.equal(message(failed), 'Materials/Wood is not empty');

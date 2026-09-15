@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from 'react-router';
-import { writeRules } from '../save.ts';
+import { useGlobalHistory } from '../state/useGlobalHistory';
 import { Shell } from '../shell/Shell';
 import { DockPanel } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -11,7 +11,6 @@ import { GROUPS, GROUP_OF, LIST_LABELS, type ListId } from '../rules/schema';
 import { useDocument } from '../state/useDocument';
 import { useGame } from '../state/useGame';
 import { useLayout } from '../state/layout';
-import { say } from '../state/status';
 import styles from './RulesWorkspace.module.css';
 
 /**
@@ -41,16 +40,8 @@ export function RulesWorkspace() {
     GROUPS.flatMap((group) => group.lists).map((id) => [id, doc?.list(id).length ?? 0]),
   );
 
-  async function onSave() {
-    if (!doc) return;
-    try {
-      const files = await writeRules(gameId, doc.data);
-      doc.markSaved();
-      say(`Wrote ${files} rule files`, 'good');
-    } catch (error) {
-      say(`Save failed: ${(error as Error).message}. Is the dev server running?`, 'error');
-    }
-  }
+  // Rules save themselves into rules/ as they change; see autosaveRules.
+  const history = useGlobalHistory();
 
   /**
    * What a card shows besides its name.
@@ -82,12 +73,10 @@ export function RulesWorkspace() {
         <TopBar
           game={gameId}
           gameLabel={game?.label ?? gameId}
-          canUndo={Boolean(doc?.canUndo)}
-          canRedo={Boolean(doc?.canRedo)}
-          onUndo={() => doc?.undo()}
-          onRedo={() => doc?.redo()}
-          dirty={Boolean(doc?.dirty)}
-          onSave={() => void onSave()}
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          onUndo={history.undo}
+          onRedo={history.redo}
           onPlaytest={() => window.open('/', '_blank')}
         />
       }

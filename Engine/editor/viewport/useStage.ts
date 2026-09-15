@@ -29,6 +29,7 @@ export type Stage = {
 export function useStage(
   host: React.RefObject<HTMLDivElement | null>,
   content: () => Record<string, unknown>,
+  active = true,
 ): Stage | null {
   const [stage, setStage] = useState<Stage | null>(null);
 
@@ -51,17 +52,6 @@ export function useStage(
       content: () => latest.current(),
     });
 
-    renderer.run(
-      (dt: number) => {
-        editor.update(dt, input.keys);
-        return true;
-      },
-      // A throw used to end the loop outright, leaving the window frozen on its
-      // last picture with nothing on screen to say why. It is a failure, so it
-      // goes where failures go.
-      (error: unknown) => say(String((error as Error)?.message ?? error), 'error'),
-    );
-
     setStage({ renderer, editor, input });
 
     return () => {
@@ -71,6 +61,26 @@ export function useStage(
       renderer.dispose();
     };
   }, [host]);
+
+  // Library/rules navigation hides the map but deliberately keeps its scene,
+  // document, meshes and compiled shaders. Pause its render loop while hidden;
+  // showing it again is then a resize and a frame, not a map reload.
+  useEffect(() => {
+    if (!stage) return;
+    if (!active) {
+      stage.renderer.engine.stopRenderLoop();
+      return;
+    }
+    stage.renderer.run(
+      (dt: number) => {
+        stage.editor.update(dt, stage.input.keys);
+        return true;
+      },
+      (error: unknown) => say(String((error as Error)?.message ?? error), 'error'),
+    );
+    stage.renderer.engine.resize();
+    return () => stage.renderer.engine.stopRenderLoop();
+  }, [stage, active]);
 
   return stage;
 }

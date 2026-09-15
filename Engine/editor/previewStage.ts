@@ -48,6 +48,8 @@ export function createPreviewStage({
   let scene: Scene | null = null;
   let camera: TargetCamera | null = null;
   let watcher: ResizeObserver | null = null;
+  let yaw = Math.atan2(CAMERA_OFFSET.x, CAMERA_OFFSET.z);
+  let pitch = Math.asin(CAMERA_OFFSET.y / CAMERA_OFFSET.length());
 
   /**
    * Square the ortho box to the canvas, so nothing is stretched — and fit
@@ -103,6 +105,24 @@ export function createPreviewStage({
 
       if (loop) engine.runRenderLoop(() => stage.render());
       onMount?.(stage);
+    },
+
+    /**
+     * Turn the camera around the middle of the stage, by a drag's pixels.
+     * Starts from the game's own iso angle.
+     */
+    orbit(dx: number, dy: number): void {
+      if (!camera) return;
+      const radius = CAMERA_OFFSET.length();
+      yaw -= dx * 0.01;
+      pitch = Math.min(1.45, Math.max(0.1, pitch + dy * 0.01));
+      camera.position.set(
+        radius * Math.cos(pitch) * Math.sin(yaw),
+        radius * Math.sin(pitch),
+        radius * Math.cos(pitch) * Math.cos(yaw),
+      );
+      camera.setTarget(Vector3.Zero());
+      if (!loop) scene?.render();
     },
 
     /** Draw one frame, for a stage with no loop of its own. */

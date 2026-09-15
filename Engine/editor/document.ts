@@ -9,8 +9,8 @@ import { beginStroke } from './terrain/stroke.ts';
 import type { ChunkInput } from '../src/data/maps/chunks.ts';
 import type { LightInput } from '../src/data/lights.ts';
 import type { PlacedPrefab, PrefabLookup } from '../src/data/prefabs.ts';
-import type { GameMap, MapEnv, MapObject, MapVfx, Placed } from '../src/data/mapFormat.ts';
-import type { RimRing } from '../src/data/terrain/profile.ts';
+import type { BaseWater, GameMap, MapEnv, MapObject, MapVfx, Placed } from '../src/data/mapFormat.ts';
+import type { FootProfile, RimRing } from '../src/data/terrain/profile.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
 import type { Selection } from './state/selection.ts';
 
@@ -59,7 +59,9 @@ export type MapDoc = {
   chunkCount: number;
   startZ: number;
   terrainRim: readonly RimRing[] | null;
+  terrainFoot: Partial<FootProfile> | null;
   stepHeight: number;
+  water?: Partial<BaseWater>;
   env: MapEnv;
   terrain: TerrainGrid;
   terrainIds: string[];
@@ -200,8 +202,10 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
     // How the platform's exposed edge rolls over into its cliff. Absent on a
     // map that has never been tuned, which reads as the default profile.
     terrainRim: map.terrainRim ?? null,
+    terrainFoot: map.terrainFoot ?? null,
     // The most a step can rise and still be walkable, in levels.
     stepHeight: map.stepHeight ?? 1,
+    ...(map.water ? { water: { ...map.water } } : {}),
     chunks: [...(map.chunks ?? [])],
     prefabs: [...(map.prefabs ?? [])],
     doors: [...(map.doors ?? [])],
@@ -565,13 +569,14 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
         rows: terrain.rows,
         level: terrain.level,
         kind: terrain.kind,
+        edges: terrain.edges,
       };
       checkpoint();
       const next = resizeGrid(terrain, cols, rows);
       Object.assign(terrain, next);
 
       // The grid is not in the snapshot, so resize puts back its own arrays.
-      const after = { cols, rows, level: next.level, kind: next.kind };
+      const after = { cols, rows, level: next.level, kind: next.kind, edges: next.edges };
       history.push({
         label: 'resize',
         undo: () => Object.assign(terrain, before),
@@ -848,6 +853,9 @@ export function createDocument(map: GameMap, prefabOf: PrefabLookup = prefabById
      * @returns a function that stops listening.
      */
     subscribe: (listener: () => void) => history.subscribe(listener),
+
+    /** Hear about each new undo step. See globalHistory.ts. */
+    onStep: (listener: () => void) => history.onStep(listener),
 
     /** How many times this document has changed. See history.ts. */
     get revision() {

@@ -4,12 +4,12 @@ import {
   IconArrowForwardUp,
   IconChevronDown,
   IconDatabase,
-  IconFolders,
   IconMap2,
   IconPlayerPlay,
 } from '@tabler/icons-react';
 import { Button, IconButton } from '../ui/Button';
 import { DropdownMenu, MenuItem, MenuSeparator } from '../ui/Menu';
+import { PublishButton } from '../assets/PublishButton';
 import styles from './TopBar.module.css';
 
 export type MapChoice = { id: string; label: string };
@@ -32,8 +32,6 @@ export function TopBar({
   canRedo,
   onUndo,
   onRedo,
-  dirty,
-  onSave,
   onPlaytest,
 }: {
   game: string;
@@ -46,8 +44,6 @@ export function TopBar({
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
-  dirty: boolean;
-  onSave: () => void;
   onPlaytest: () => void;
 }) {
   const navigate = useNavigate();
@@ -95,10 +91,6 @@ export function TopBar({
           <IconMap2 size={17} />
           Map Design
         </NavLink>
-        <NavLink to={`/${game}/library`} className={styles.tab ?? ''}>
-          <IconFolders size={17} />
-          Asset Library
-        </NavLink>
         <NavLink to={`/${game}/rules`} className={styles.tab ?? ''}>
           <IconDatabase size={17} />
           Game Data
@@ -119,15 +111,7 @@ export function TopBar({
           <IconPlayerPlay size={15} />
           Playtest
         </Button>
-        {dirty && (
-          <span className={styles.dirty}>
-            <span className={styles.dirtyDot} />
-            Unsaved
-          </span>
-        )}
-        <Button variant="primary" onClick={onSave} title="Save (Ctrl+S)">
-          Save
-        </Button>
+        <PublishButton game={game} />
       </div>
     </header>
   );

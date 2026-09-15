@@ -18,6 +18,8 @@ export type PanelLayout = {
   inspectorWidth: number;
   leftCollapsed: boolean;
   inspectorCollapsed: boolean;
+  /** Whether the tile grid is drawn in map and prefab viewports. */
+  gridVisible: boolean;
   /** Which folder the library browser is in, under assets/. */
   folder: string;
 };
@@ -27,6 +29,7 @@ export const DEFAULT_LAYOUT: PanelLayout = {
   inspectorWidth: 288,
   leftCollapsed: false,
   inspectorCollapsed: false,
+  gridVisible: true,
   folder: '',
 };
 
@@ -68,6 +71,7 @@ export function useLayout(game: string) {
     setInspectorWidth: (width: number) => write(game, { inspectorWidth: clamp(width) }),
     toggleLeft: () => write(game, { leftCollapsed: !layout.leftCollapsed }),
     toggleInspector: () => write(game, { inspectorCollapsed: !layout.inspectorCollapsed }),
+    toggleGrid: () => write(game, { gridVisible: !layout.gridVisible }),
     // Kept here rather than in component state because it has to outlive the
     // panel: going to the map and coming back should land where you were.
     setFolder: (folder: string) => write(game, { folder }),

@@ -57,8 +57,8 @@
  */
 
 import { createGrid, idx } from './grid.ts';
-import { buildTerrainGeometry, MeshBuilder, type TerrainMeshData, type Vec3 } from './geometry.ts';
-import { normalizeRim, rimDrop, DEFAULT_RIM, type RimRing } from './profile.ts';
+import { buildTerrainGeometry, emitFootCorners, MeshBuilder, type TerrainMeshData, type Vec3 } from './geometry.ts';
+import { normalizeFoot, normalizeRim, rimDrop, DEFAULT_FOOT, DEFAULT_RIM, type FootProfile, type RimRing } from './profile.ts';
 import { sideAt, cornerAt, type Offset, type PerSide } from './mask.ts';
 
 export type Shape = 'middle' | 'side' | 'corner' | 'corridor' | 'cap' | 'single';
@@ -118,9 +118,9 @@ export const shapeOf = (topology: number): Turned => SHAPE_OF[topology & 0b1111]
 
 export type BlockTemplates = {
   /** The lid and its wall, for a full eight-bit topology. */
-  top(topology: number): TerrainMeshData;
+  top(topology: number, feet?: number): TerrainMeshData;
   /** A stack block's walls, for the four side bits. */
-  sub(sides: number): TerrainMeshData;
+  sub(sides: number, feet?: number): TerrainMeshData;
 };
 
 /**
@@ -152,9 +152,11 @@ const cache = new Map<string, BlockTemplates>();
 export function buildTemplates(
   rim: readonly RimRing[] = DEFAULT_RIM,
   levelH = 0.5,
+  footSource: Partial<FootProfile> | null | undefined = DEFAULT_FOOT,
 ): BlockTemplates {
   const rings = normalizeRim(rim);
-  const key = `${levelH}|${rings.map((r) => `${r.inset},${r.drop}`).join(';')}`;
+  const foot = normalizeFoot(footSource);
+  const key = `${levelH}|${foot.width},${foot.depth}|${rings.map((r) => `${r.inset},${r.drop}`).join(';')}`;
   const hit = cache.get(key);
   if (hit) {
     // Re-inserted, so the one in use is the newest and never the one evicted.
@@ -166,16 +168,16 @@ export function buildTemplates(
   const tops = new Map<number, TerrainMeshData>();
   const subs = new Map<number, TerrainMeshData>();
   const built: BlockTemplates = {
-    top(topology) {
-      const at = topology & 0xff;
+    top(topology, feet = 0) {
+      const at = (topology & 0xff) | ((feet & 0b1111) << 8);
       let mesh = tops.get(at);
-      if (!mesh) tops.set(at, (mesh = bakeTop(at, rings, levelH)));
+      if (!mesh) tops.set(at, (mesh = bakeTop(topology & 0xff, rings, levelH, feet, foot)));
       return mesh;
     },
-    sub(sides) {
-      const at = sides & 0b1111;
+    sub(sides, feet = 0) {
+      const at = (sides & 0b1111) | ((feet & 0b1111) << 4);
       let mesh = subs.get(at);
-      if (!mesh) subs.set(at, (mesh = bakeSub(at, rings, levelH)));
+      if (!mesh) subs.set(at, (mesh = bakeSub(sides & 0b1111, rings, levelH, feet, foot)));
       return mesh;
     },
   };
@@ -211,7 +213,7 @@ const wallBottom = (rim: readonly RimRing[], levelH: number): number =>
  * y = 0, which is what lets an instance be placed with a translation and
  * nothing else.
  */
-function bakeTop(topology: number, rim: RimRing[], levelH: number): TerrainMeshData {
+function bakeTop(topology: number, rim: RimRing[], levelH: number, feet: number, foot: FootProfile): TerrainMeshData {
   const grid = createGrid(3, 3);
   const fill = (gx: number, gy: number) => {
     grid.kind[idx(grid, gx, gy)] = 1;
@@ -242,6 +244,8 @@ function bakeTop(topology: number, rim: RimRing[], levelH: number): TerrainMeshD
     // UV = metres. Instances share geometry, so a per-terrain scale cannot live
     // here; a material's own uScale/vScale is where that decision goes now.
     uvScaleOf: () => 1,
+    footSides: feet,
+    footProfile: foot,
   });
 
   // The middle cell of a 3x3 grid, which `buildTerrainGeometry` always emits.
@@ -322,7 +326,7 @@ const cornerXzAt = (k: number): Offset => CORNER_XZ[((k % 4) + 4) % 4]!;
  * level with it would leave two coplanar quads fighting over the same band of
  * pixels all the way round every column.
  */
-function bakeSub(mask: number, rim: RimRing[], levelH: number): TerrainMeshData {
+function bakeSub(mask: number, rim: RimRing[], levelH: number, feet: number, foot: FootProfile): TerrainMeshData {
   const build = new MeshBuilder();
   const top = -rimDrop(rim);
   const bottom = -wallBottom(rim, levelH);
@@ -340,17 +344,43 @@ function bakeSub(mask: number, rim: RimRing[], levelH: number): TerrainMeshData 
       Math.abs(a[0] - b[0]) > Math.abs(a[1] - b[1]) ? p[0] + 0.5 : p[1] + 0.5;
     const at = (p: Offset, y: number): Vec3 => ({ x: p[0], y, z: p[1] });
 
-    build.quad(
-      'block',
-      [at(a, top), at(b, top), at(b, bottom), at(a, bottom)],
-      [
-        [across(a), -top],
-        [across(b), -top],
-        [across(b), -bottom],
-        [across(a), -bottom],
-      ],
-    );
+    const hasFoot = Boolean(feet & (1 << k));
+    const bevelH = Math.min(levelH * 0.8, foot.depth);
+    const bevelW = foot.width;
+    const footY = -levelH;
+    const wallBottom = hasFoot ? footY + bevelH : bottom;
+    const outward: Offset = k === 0 ? [bevelW, 0] : k === 2 ? [-bevelW, 0]
+      : k === 1 ? [0, -bevelW] : [0, bevelW];
+    build.quad('block', [at(a, top), at(b, top), at(b, wallBottom), at(a, wallBottom)], [
+      [across(a), -top], [across(b), -top],
+      [across(b), -wallBottom], [across(a), -wallBottom],
+    ]);
+    if (hasFoot) {
+      let lastA = at(a, wallBottom);
+      let lastB = at(b, wallBottom);
+      for (let ring = 1; ring <= 4; ring += 1) {
+        const turn = (ring / 4) * (Math.PI / 2);
+        const reach = 1 - Math.cos(turn);
+        const y = footY + bevelH * (1 - Math.sin(turn));
+        const oa: Offset = [a[0] + outward[0] * reach, a[1] + outward[1] * reach];
+        const ob: Offset = [b[0] + outward[0] * reach, b[1] + outward[1] * reach];
+        const nextA = at(oa, y);
+        const nextB = at(ob, y);
+        build.quad('block', [lastA, lastB, nextB, nextA], [
+          [across(a), -lastA.y], [across(b), -lastB.y],
+          [across(b), -y], [across(a), -y],
+        ]);
+        lastA = nextA;
+        lastB = nextB;
+      }
+      build.quad('block', [at(a, footY), at(b, footY), at(b, bottom), at(a, bottom)], [
+        [across(a), -footY], [across(b), -footY],
+        [across(b), -bottom], [across(a), -bottom],
+      ]);
+    }
   }
+
+  emitFootCorners(build, 'block', feet, foot, -levelH, -0.5, -0.5);
 
   return build.finish();
 }

@@ -97,6 +97,18 @@ export type MapEnv = typeof DEFAULT_ENV;
  */
 export type MapEnvInput = Partial<Omit<MapEnv, 'clouds'>> & { clouds?: boolean | number };
 
+/**
+ * A flat sheet under the map, most often an ocean or flooded dungeon floor.
+ * Its level uses the same authored level unit as terrain heights; the renderer
+ * is the one place that turns that into world-space `LEVEL_H` units.
+ */
+export type BaseWater = {
+  enabled: boolean;
+  level: number;
+  /** A material record from the game's Library. */
+  material: string;
+};
+
 /** Anything a map puts at a tile. */
 /**
  * Where a thing stands, in tiles.
@@ -152,7 +164,7 @@ export type MapObject = Placed & {
 
 import type { LightInput } from './lights.ts';
 import type { TerrainGrid } from './terrain/grid.ts';
-import type { RimRing } from './terrain/profile.ts';
+import type { FootProfile, RimRing } from './terrain/profile.ts';
 
 // --- chunks ----------------------------------------------------------------
 //
@@ -190,6 +202,8 @@ export type MapVfx = Placed & { id: string; lift?: number };
 
 /** What assembling a run recorded about itself. See ./maps/generate.ts. */
 export type GeneratedInfo = { seed: number; parts: number; endDepth: number };
+
+/** One manually painted colour multiplier on a terrain cell. */
 
 /**
  * The lists a map keeps of things standing somewhere.
@@ -230,13 +244,18 @@ export type GameMap = {
    */
   terrain?: readonly string[] | TerrainGrid;
   terrainKeys?: Record<string, string>;
+  /** Edges painted to a profile other than their terrain's default. See terrain/codec. */
+  edgeOverrides?: readonly { gx: number; gy: number; side: string; profile: string }[];
   /** Null, not absent, once the editor has been through it. */
   terrainRim?: readonly RimRing[] | null;
+  terrainFoot?: Partial<FootProfile> | null;
+  /** Sparse, shader-driven colour paint. Missing cells use white at zero strength. */
   rows?: readonly string[];
   /** One character per cell: '.' at level 0, '1'-'9' above it. See terrain/codec. */
   height?: readonly string[];
   startZ?: number;
   stepHeight?: number;
+  water?: Partial<BaseWater>;
   spawns?: Record<string, Placed>;
   env?: MapEnvInput;
   vfx?: readonly MapVfx[];

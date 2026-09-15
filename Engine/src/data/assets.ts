@@ -1,4 +1,4 @@
-import { ASSET_URLS as GAME_ASSET_URLS } from '#game';
+import { ASSET_URLS as GAME_ASSET_URLS, FILE_IDS as GAME_FILE_IDS } from '#game';
 
 /**
  * Where the bundler put each file, by its path under `assets/`.
@@ -108,6 +108,25 @@ export function assetFrames(sheet?: SheetLike | null): {
 }
 
 /**
+ * Where each file is, by the id its `.meta` sidecar gives it.
+ *
+ * The published game fills this from its own sidecars; the editor replaces it
+ * with the draft's whenever it reads the draft tree.
+ */
+const FILE_PATHS = new Map<string, string>(
+  Object.entries((GAME_FILE_IDS as Record<string, string> | undefined) ?? {}),
+);
+
+/** Replace the id → path table, for the editor reading a draft. */
+export function registerFiles(byId: ReadonlyMap<string, string>): void {
+  FILE_PATHS.clear();
+  for (const [id, path] of byId) FILE_PATHS.set(id, path);
+}
+
+/** The path a file id stands for, or '' when no file has it. */
+export const pathOfFile = (id: string | undefined): string => (id ? (FILE_PATHS.get(id) ?? '') : '');
+
+/**
  * The file a record names, as a path from `assets/`.
  *
  * A record names its files relative to its own folder, which is what makes
@@ -120,6 +139,10 @@ export function assetFrames(sheet?: SheetLike | null): {
  */
 export function filePath(from: string | undefined, named: string | undefined): string {
   if (!named) return '';
+  // A file is named by the id in its `.meta` sidecar, so it can be moved or
+  // renamed without anything that names it changing.
+  const byId = FILE_PATHS.get(named);
+  if (byId) return byId;
   if (named.startsWith('/')) return named.slice(1);
   return from ? `${from}/${named}` : named;
 }
@@ -184,5 +207,6 @@ export function fileUrl(path: string | undefined, game = ''): string {
   if (built && !game) return built;
   if (!game) return built ?? '';
   const rewritten = rewrites.get(path);
-  return `/Games/${game}/assets/${path}${rewritten ? `?v=${rewritten}` : ''}`;
+  const segments = `assets/${path}`.split('/').map(encodeURIComponent).join('/');
+  return `/__draft/file/${encodeURIComponent(game)}/${segments}${rewritten ? `?v=${rewritten}` : ''}`;
 }

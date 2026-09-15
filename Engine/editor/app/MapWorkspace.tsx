@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useParams } from 'react-router';
 import { redraw } from '../history.ts';
-import { useNavigate, useParams } from 'react-router';
-import { MAPS, START_MAP, mapIds } from '../../src/data/maps/index.ts';
+import { MAPS, START_MAP, mapIds, registerMap } from '../../src/data/maps/index.ts';
 import { blankMap } from '../document.ts';
 import { servedGame } from '../games.ts';
-import { writeMap, writeRules } from '../save.ts';
+import { globalHistory } from '../globalHistory.ts';
+import { terrainCharOf } from '../save.ts';
+import { serializeMap } from '../serialize.ts';
 import { Shell } from '../shell/Shell';
 import { DockPanel, type PanelTab } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -12,6 +14,7 @@ import { ToolRail } from '../shell/ToolRail';
 import { TopBar } from '../shell/TopBar';
 import { useDocument } from '../state/useDocument';
 import { useGame } from '../state/useGame';
+import { useGlobalHistory } from '../state/useGlobalHistory';
 import { useLayout } from '../state/layout';
 import { say } from '../state/status';
 import styles from './MapWorkspace.module.css';
@@ -21,10 +24,9 @@ import { IconButton } from '../ui/Button';
 import { DEBUG_LAYERS, layerById } from '../terrain/debugLayers.ts';
 import { SnapControl } from '../viewport/SnapControl';
 import type { Terrain } from '../../src/data/terrains.ts';
-import type { PrefabRecord, TerrainRecord } from '../panels/AssetShelves';
+import type { ProfileRecord, TerrainRecord } from '../shell/ToolRail';
 import { Viewport, useHoveredTile } from '../viewport/Viewport';
 import { useStage } from '../viewport/useStage';
-import { AssetShelves } from '../panels/AssetShelves';
 import { Inspector } from '../panels/Inspector';
 import { MapList } from '../panels/MapList';
 import { ObjectTree } from '../panels/ObjectTree';
@@ -36,6 +38,10 @@ import { normalizePrefab, type Prefab } from '../../src/data/prefabs.ts';
 import { useVisibility } from '../state/visibility';
 import { useShortcuts } from '../state/useShortcuts';
 import { Shortcuts } from '../ui/Shortcuts';
+import { AssetsPanel, PREFAB_DRAG_TYPE, dragging } from '../assets/AssetsPanel';
+import { AssetInspector, useSelectedAssets } from '../assets/AssetInspector';
+import { PreviewPanel } from '../assets/PreviewPanel';
+import { autosaveMap, useAssetTree } from '../assets/session.ts';
 
 const LEFT_TABS = [
   { id: 'objects', label: 'Objects' },
@@ -46,34 +52,24 @@ const LEFT_TABS = [
 type LeftTab = (typeof LEFT_TABS)[number]['id'];
 
 /**
- * The map screen: one screen for the ground and everything standing on it.
+ * The map screen: one screen for the ground and everything standing on it, and
+ * the game's Assets folder beside it.
  *
- * There is no terrain mode here. The tool in the rail decides which of the two
- * a click means, which is what removed the switch that used to replace the
- * toolbar, the panels and the meaning of a click all at once.
+ * Nothing here is saved by hand. The map and every asset autosave to the
+ * draft, and Publish in the top bar puts the draft into the game.
  */
-export function MapWorkspace() {
-  const { gameId = '' } = useParams();
-  const navigate = useNavigate();
-  const game = useGame(gameId);
-  const layout = useLayout(gameId);
-  const brush = useTools((state) => state.brush);
-  const setBrush = useTools((state) => state.setBrush);
-  const setTool = useTools((state) => state.setTool);
-  const setOption = useTools((state) => state.setOption);
+export function MapWorkspace({ active = true }: { active?: boolean } = {}) {
+  const { gameId, game, layout, brush, setBrush, setTool, setOption } = useWorkspaceBasics();
 
   const hidden = useVisibility((state) => state.hidden);
   const clearHidden = useVisibility((state) => state.clear);
 
-  const [leftTab, setLeftTab] = useState<LeftTab>('objects');
-  const [gridVisible, setGridVisible] = useState(true);
+  const [leftTab, setLeftTab] = useState<LeftTab>('assets');
   const [debugLayer, setDebugLayer] = useState('');
   const [helpOpen, setHelpOpen] = useState(false);
   const host = useRef<HTMLDivElement>(null);
 
-  // Asked for at the moment of a rebuild rather than handed over once: these
-  // are the rules being edited, and a copy taken when the page loaded would be
-  // the rules as they were.
+  // Asked for at the moment of a rebuild: these are the records being edited.
   const content = useCallback(() => {
     const rules = game?.rules;
     return {
@@ -82,22 +78,18 @@ export function MapWorkspace() {
       prefabs: rules?.list('prefabs') ?? [],
       materials: rules?.list('materials') ?? [],
       terrains: rules?.list('terrains') ?? [],
+      profiles: rules?.list('profiles') ?? [],
       game: gameId,
     };
   }, [game, gameId]);
 
-  const stage = useStage(host, content);
+  const stage = useStage(host, content, active);
   const editor = stage?.editor ?? null;
 
-  /**
-   * Open a map by name, whoever asked.
-   *
-   * The one place that decides what opening a map involves: the hidden-object
-   * set belongs to the map that was open, so it goes with it, and a name the
-   * registry does not have opens nothing rather than handing `undefined` to a
-   * document. Every id reaching here comes from `mapIds()` today — this is what
-   * keeps that from being something the caller has to know.
-   */
+  useEffect(() => {
+    if (active) editor?.refreshTerrainMaterials();
+  }, [active, editor]);
+
   const openMap = useCallback(
     (id: string) => {
       const map = MAPS[id];
@@ -108,26 +100,17 @@ export function MapWorkspace() {
     [editor, clearHidden],
   );
 
-  // The map is opened only once the registry is the opened game's, rather than
-  // the one this page happened to be built against.
   useEffect(() => {
     if (!editor || !game) return;
-    // The same fallback as before: the first map the registry was given, not
-    // the first alphabetically -- `mapIds` sorts, and this is not a list.
     openMap(START_MAP in MAPS ? START_MAP : (Object.keys(MAPS)[0] ?? ''));
-    // Framed again on the next frame. `open` frames as it builds, but at that
-    // moment the panels may not have taken their stored widths yet — and the
-    // camera is fitted to the shape of the viewport, so a map framed against
-    // the wrong shape comes up pointing at the middle of nowhere.
     const pending = requestAnimationFrame(() => editor.frameAll());
     return () => cancelAnimationFrame(pending);
   }, [editor, game, openMap]);
 
-  // A handle on the running editor, for the console. The workspace this
-  // replaced published the same one, and it is the only way to ask the scene a
-  // question while it is drawing.
   useEffect(() => {
-    (window as unknown as { merc?: unknown }).merc = stage ? { ...stage, game } : undefined;
+    (window as unknown as { merc?: unknown }).merc = stage
+      ? { ...stage, editor: stage.editor, game, history: globalHistory, assets: useAssetTree }
+      : undefined;
   }, [stage, game]);
 
   const doc = useDocument(editor?.doc ?? null);
@@ -136,29 +119,39 @@ export function MapWorkspace() {
   const selection = useSelection((state) => state.selection);
   const picked = useSelection((state) => state.picked);
   const clearSelection = useSelection((state) => state.clear);
+  const history = useGlobalHistory();
+  const assetsSelected = useSelectedAssets().length > 0;
 
-  // What a click on the map means. The tool decides, which is the whole of the
-  // unified map-and-terrain screen.
   useMapTools(editor, doc);
 
-  /**
-   * Remember what is picked. Says how many, because a copy that looked like it
-   * did nothing is one you press again.
-   */
+  // Every step on the open map goes on the one history, and every change to it
+  // is written to the draft.
+  const map = editor?.doc ?? null;
+  useEffect(() => {
+    if (!map || !editor || !game) return;
+    const detach = globalHistory.attach(map, 'map', (result) => redraw(result as never, editor));
+    // A block that is gone keeps the key the map already gave it, so a map
+    // naming missing blocks is written back unchanged rather than renumbered.
+    const charOf = (id: string) =>
+      terrainCharOf(game.rules.list('terrains') as unknown as Terrain[])(id) ||
+      (Object.entries((map.map as { terrainKeys?: Record<string, string> }).terrainKeys ?? {}).find(
+        ([, named]) => named === id,
+      )?.[0] ??
+        '');
+    const source = () => ({ id: String(map.map.id), source: serializeMap(map.map, charOf) });
+    const stop = autosaveMap(gameId, map, source, () => registerMap(structuredClone(map.map)));
+    return () => {
+      detach();
+      stop();
+    };
+  }, [map, editor, game, gameId]);
+
   function onCopy() {
     if (!doc) return;
     const many = copyObjects(doc, picked, selection);
     say(many ? `Copied ${many} object${many > 1 ? 's' : ''}` : 'Nothing picked to copy', many ? 'good' : 'error');
   }
 
-  /**
-   * Put it down where the pointer is.
-   *
-   * At the tile under the pointer, because that is where you are looking. With
-   * the pointer off the map there is no such tile, so it goes one tile along
-   * from where it was copied -- visible, and next to the original rather than
-   * hidden underneath it.
-   */
   function onPaste() {
     if (!doc) return;
     if (!clipboardSize()) return say('Nothing copied', 'error');
@@ -170,9 +163,6 @@ export function MapWorkspace() {
   }
 
   useShortcuts({
-    // A digit is the nth prefab here, because a prefab is the only thing a map
-    // takes. Silently nothing when there is no prefab in that slot -- a game
-    // with three of them should not have 4 through 0 doing something.
     onSlot: (slot: number) => {
       const prefab = (rules?.list('prefabs') ?? [])[slot] as { id?: string } | undefined;
       if (!prefab?.id) return;
@@ -180,13 +170,14 @@ export function MapWorkspace() {
       setBrush('prefab');
       setTool('place');
     },
-    onSave: () => void onSave(),
+    // Everything autosaves; Ctrl+S has nothing left to do.
+    onSave: () => say('Changes save to the draft by themselves. Publish puts them into the game.'),
     onCopy,
     onPaste,
-    onUndo: () => { if (doc && editor) redraw(doc.undo(), editor); },
-    onRedo: () => { if (doc && editor) redraw(doc.redo(), editor); },
+    onUndo: history.undo,
+    onRedo: history.redo,
     onFrame: () => editor?.frameAll(),
-    onToggleGrid: () => setGridVisible((on) => !on),
+    onToggleGrid: layout.toggleGrid,
     onHelp: () => setHelpOpen(true),
     onEscape: () => setHelpOpen(false),
     onDelete: () => {
@@ -198,58 +189,25 @@ export function MapWorkspace() {
   });
 
   useEffect(() => {
-    editor?.setGridVisible(gridVisible);
-  }, [editor, gridVisible]);
+    editor?.setGridVisible(layout.gridVisible);
+  }, [editor, layout.gridVisible]);
 
-  // Told to the view rather than written to the document: hiding a light to see
-  // what is under it is a fact about this minute of editing, not about the map.
   useEffect(() => {
     editor?.setHiddenObjects(hidden);
   }, [editor, hidden]);
 
-  // A reading of the grid, drawn over it. Recomputed when the terrain changes,
-  // which is what the document's revision says.
   useEffect(() => {
     if (!editor || !doc) return;
     const layer = layerById(debugLayer);
     editor.setCellOverlay('debug', layer ? layer.cells(doc.terrain) : [], doc.terrain);
   }, [editor, doc, debugLayer, doc?.revision]);
 
-  /**
-   * Both documents, when both have been changed.
-   *
-   * The map and the rules are two files on disk and one session's work, so
-   * "which one does Save mean" has no useful answer — it means the ones with
-   * something in them. With nothing changed it still writes the map, because a
-   * Save that is asked for and does nothing reads as a Save that failed.
-   */
-  async function onSave() {
-    if (!doc || !rules) return;
-    try {
-      if (rules.dirty) {
-        const files = await writeRules(gameId, rules.data);
-        rules.markSaved();
-        say(`Wrote ${files} rule files`, 'good');
-      }
-      if (doc.dirty || !rules.dirty) {
-        const file = await writeMap(gameId, doc.map, rules.list('terrains') as Terrain[]);
-        doc.markSaved();
-        say(`Wrote ${file}`, 'good');
-      }
-    } catch (error) {
-      say(`Save failed: ${(error as Error).message}. Is the dev server running?`, 'error');
-    }
-  }
-
   function onPlaytest() {
-    // The game is a separate page and reads the folder it was served with, so a
-    // game this server was not started for cannot be played from here — and
-    // saying which one it was started for is more use than a door that leads to
-    // the wrong game.
     if (gameId !== servedGame) {
       say(`To play ${gameId}, restart the dev server with GAME=${gameId}.`, 'error');
       return;
     }
+    say('Playtest runs the published game. Publish first to try your latest changes.');
     window.open('/', '_blank');
   }
 
@@ -257,21 +215,14 @@ export function MapWorkspace() {
     const name = window.prompt('New map id (a-z, digits, dashes):', 'dungeon-02');
     if (!name) return;
     editor?.open(blankMap(name.trim().toLowerCase()));
-    say(`New map. Save to write it to Games/${gameId}/maps/.`, 'good');
+    say(`New map. It saves to the draft as you edit it.`, 'good');
   }
 
-  /** The prefabs as they are being edited, for unpacking one. */
   const prefabOf = (id: string): Prefab | null => {
     const found = (rules?.list('prefabs') ?? []).find((one) => one.id === id);
     return found ? normalizePrefab(found) : null;
   };
 
-  /**
-   * Promote what is picked into a prefab, and stand one where it was.
-   *
-   * The name is asked for because a prefab is a thing you will go looking for
-   * later, and `prefab7` is not a name you find anything by.
-   */
   function onMakePrefab(picked: ReadonlySet<string>) {
     if (!doc || !rules) return;
     const name = window.prompt(`Make a prefab of ${picked.size} objects. Call it:`, 'Camp');
@@ -280,7 +231,7 @@ export function MapWorkspace() {
     if (typeof made === 'string') return say(made, 'error');
     clearSelection();
     editor?.invalidate();
-    say(`Made "${name.trim()}". Save to write it to the library.`, 'good');
+    say(`Made "${name.trim()}".`, 'good');
   }
 
   function onUnpack(index: number) {
@@ -292,159 +243,187 @@ export function MapWorkspace() {
     say('Unpacked into loose objects', 'good');
   }
 
-  const dirty = Boolean(doc?.dirty || rules?.dirty);
-
-  // Leaving with unsaved work is worth a prompt. The map is written as module
-  // source, which is why the save is deliberate rather than continuous — and
-  // why losing a session of it would matter.
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  /**
+   * A prefab dragged from the Assets panel: while it is over the map it is the
+   * brush in hand, with its ghost on the tile under the pointer; dropped, it is
+   * placed by the same rules a click with that brush places by.
+   */
+  const held = useRef<{ tool: string; brush: string | null } | null>(null);
+  const restore = () => {
+    if (!held.current) return;
+    setTool(held.current.tool as never);
+    setBrush(held.current.brush as never);
+    held.current = null;
+  };
+  const dropHandlers = {
+    onDragOver: (event: DragEvent) => {
+      if (!editor || !dragging.prefabId || !event.dataTransfer.types.includes(PREFAB_DRAG_TYPE)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      if (!held.current) {
+        const tools = useTools.getState();
+        held.current = { tool: tools.tool, brush: tools.brush };
+        setOption('prefab', 'prefabId', dragging.prefabId);
+        setBrush('prefab');
+        setTool('place');
+      }
+      editor.hoverAt(event.clientX, event.clientY);
+    },
+    onDragLeave: (event: DragEvent) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      restore();
+    },
+    onDrop: (event: DragEvent) => {
+      const id = event.dataTransfer.getData(PREFAB_DRAG_TYPE);
+      if (!editor || !id) return;
+      event.preventDefault();
+      setOption('prefab', 'prefabId', id);
+      // The brush was set on dragover; one frame for the tool effect to take it.
+      requestAnimationFrame(() => {
+        editor.paintAt(event.clientX, event.clientY);
+        restore();
+      });
+    },
+  };
 
   return (
     <>
       <Shortcuts open={helpOpen} onClose={() => setHelpOpen(false)} />
       <Shell
-      game={gameId}
-      topBar={
-        <TopBar
-          game={gameId}
-          gameLabel={game?.label ?? gameId}
-          mapId={doc?.map.id}
-          maps={mapIds().map((id: string) => ({ id, label: MAPS[id]?.name ?? id }))}
-          onOpenMap={openMap}
-          onNewMap={onNewMap}
-          canUndo={Boolean(doc?.canUndo)}
-          canRedo={Boolean(doc?.canRedo)}
-          onUndo={() => {
-            if (doc && editor) redraw(doc.undo(), editor);
-          }}
-          onRedo={() => {
-            if (doc && editor) redraw(doc.redo(), editor);
-          }}
-          dirty={dirty}
-          onSave={() => void onSave()}
-          onPlaytest={onPlaytest}
-        />
-      }
-      left={
-        <DockPanel
-          title="Contents"
-          side="left"
-          tabs={LEFT_TABS}
-          active={leftTab}
-          onSelect={setLeftTab}
-          collapsed={layout.leftCollapsed}
-          onToggle={layout.toggleLeft}
-        >
-          {leftTab === 'objects' && (
-            <ObjectTree doc={doc} onChanged={() => editor?.invalidate()} />
-          )}
-          {leftTab === 'assets' && (
-            <AssetShelves
-              prefabs={(rules?.list('prefabs') ?? []) as PrefabRecord[]}
-              onEditPrefab={(id: string) => void navigate(`/${gameId}/prefabs/${id}`)}
-              // A map is built out of prefabs and nothing else. The objects
-              // they are made of are placed one level down, on the prefab
-              // screen, which is the only place a loose one can be put.
-              brushes={false}
-            />
-          )}
-          {leftTab === 'maps' && (
-            <MapList
-              current={doc?.map.id}
-              onOpen={openMap}
-              onNew={onNewMap}
-            />
-          )}
-        </DockPanel>
-      }
-      viewport={
-        <Viewport
-          hostRef={host}
-          scene={stage?.renderer.scene ?? null}
-          overlay={
-            <ToolRail
-              terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
-              onEditTerrain={(id: string) => void navigate(`/${gameId}/library/terrains/${id}`)}
-              actions={
-                /* Always there, disabled until there is something to make one
-                   of. A button that appears when you pick a row would move the
-                   rail under the pointer at the moment you were reaching for
-                   it, and would only be discoverable by accident. */
-                <IconButton
-                  label={
-                    picked.size
-                      ? `Make a prefab of ${picked.size} ${picked.size === 1 ? 'object' : 'objects'}`
-                      : 'Make a prefab — pick some objects first'
-                  }
-                  side="top"
-                  disabled={picked.size === 0}
-                  onClick={() => onMakePrefab(picked)}
-                >
-                  <IconPackage size={21} />
-                </IconButton>
-              }
-            />
-          }
-          gridVisible={gridVisible}
-          onToggleGrid={() => setGridVisible((on) => !on)}
-          onFrameAll={() => editor?.frameAll()}
-        >
-          {/*
-            What the terrain data *is*, as opposed to what it draws as. When a
-            block wears the wrong lid the question is which neighbourhood the
-            grid thinks that cell is in, and there is no way to see that from
-            the outside.
-          */}
-          <SnapControl />
-          <select
-            className={styles.debug}
-            aria-label="Debug layer"
-            title={layerById(debugLayer)?.hint ?? 'Draw a reading of the terrain data over the map'}
-            value={debugLayer}
-            onChange={(event) => setDebugLayer(event.target.value)}
-          >
-            <option value="">No overlay</option>
-            {DEBUG_LAYERS.map((layer) => (
-              <option key={layer.id} value={layer.id}>
-                {layer.label}
-              </option>
-            ))}
-          </select>
-        </Viewport>
-      }
-      inspector={
-        <DockPanel
-          title="Inspector"
-          side="right"
-          collapsed={layout.inspectorCollapsed}
-          onToggle={layout.toggleInspector}
-        >
-          <Inspector
-            doc={doc}
-            editor={editor}
-            rules={rules}
+        game={gameId}
+        topBar={
+          <TopBar
             game={gameId}
-            mapId={String(doc?.map.id ?? '')}
+            gameLabel={game?.label ?? gameId}
+            mapId={doc?.map.id}
+            maps={mapIds().map((id: string) => ({ id, label: MAPS[id]?.name ?? id }))}
+            onOpenMap={openMap}
+            onNewMap={onNewMap}
+            canUndo={history.canUndo}
+            canRedo={history.canRedo}
+            onUndo={history.undo}
+            onRedo={history.redo}
             onPlaytest={onPlaytest}
-            onUnpack={onUnpack}
           />
-        </DockPanel>
-      }
-      statusBar={
-        <StatusBar
-          context={{
-            hover,
-            size: doc ? { cols: doc.cols, rows: doc.rows } : undefined,
-            brush: brush ? { label: brush } : null,
-          }}
-        />
-      }
+        }
+        left={
+          <DockPanel
+            title="Contents"
+            side="left"
+            tabs={LEFT_TABS}
+            active={leftTab}
+            onSelect={setLeftTab}
+            collapsed={layout.leftCollapsed}
+            onToggle={layout.toggleLeft}
+          >
+            {leftTab === 'objects' && <ObjectTree doc={doc} onChanged={() => editor?.invalidate()} />}
+            {leftTab === 'assets' && (
+              <AssetsPanel
+                game={gameId}
+                rules={rules}
+                folder={layout.folder}
+                onFolder={layout.setFolder}
+                mapValue={() => (doc ? { id: String(doc.map.id), value: doc.map } : null)}
+              />
+            )}
+            {leftTab === 'maps' && <MapList current={doc?.map.id} onOpen={openMap} onNew={onNewMap} />}
+          </DockPanel>
+        }
+        viewport={
+          <div className={styles.work}>
+            <div className={styles.stage} {...dropHandlers}>
+              <Viewport
+                hostRef={host}
+                scene={stage?.renderer.scene ?? null}
+                overlay={
+                  <ToolRail
+                    terrains={(rules?.list('terrains') ?? []) as TerrainRecord[]}
+                    profiles={(rules?.list('profiles') ?? []) as ProfileRecord[]}
+                    actions={
+                      <IconButton
+                        label={
+                          picked.size
+                            ? `Make a prefab of ${picked.size} ${picked.size === 1 ? 'object' : 'objects'}`
+                            : 'Make a prefab — pick some objects first'
+                        }
+                        side="top"
+                        disabled={picked.size === 0}
+                        onClick={() => onMakePrefab(picked)}
+                      >
+                        <IconPackage size={21} />
+                      </IconButton>
+                    }
+                  />
+                }
+                gridVisible={layout.gridVisible}
+                onToggleGrid={layout.toggleGrid}
+                onFrameAll={() => editor?.frameAll()}
+              >
+                <SnapControl />
+                <select
+                  className={styles.debug}
+                  aria-label="Debug layer"
+                  title={layerById(debugLayer)?.hint ?? 'Draw a reading of the terrain data over the map'}
+                  value={debugLayer}
+                  onChange={(event) => setDebugLayer(event.target.value)}
+                >
+                  <option value="">No overlay</option>
+                  {DEBUG_LAYERS.map((layer) => (
+                    <option key={layer.id} value={layer.id}>
+                      {layer.label}
+                    </option>
+                  ))}
+                </select>
+              </Viewport>
+            </div>
+            <PreviewPanel game={gameId} rules={rules} />
+          </div>
+        }
+        inspector={
+          <DockPanel
+            title="Inspector"
+            side="right"
+            collapsed={layout.inspectorCollapsed}
+            onToggle={layout.toggleInspector}
+          >
+            {assetsSelected ? (
+              <AssetInspector game={gameId} rules={rules} />
+            ) : (
+              <Inspector
+                doc={doc}
+                editor={editor}
+                rules={rules}
+                game={gameId}
+                mapId={String(doc?.map.id ?? '')}
+                onPlaytest={onPlaytest}
+                onUnpack={onUnpack}
+              />
+            )}
+          </DockPanel>
+        }
+        statusBar={
+          <StatusBar
+            context={{
+              hover,
+              size: doc ? { cols: doc.cols, rows: doc.rows } : undefined,
+              brush: brush ? { label: brush } : null,
+            }}
+          />
+        }
       />
     </>
   );
+}
+
+
+/** What every map-like workspace reads first. */
+function useWorkspaceBasics() {
+  const { gameId = '' } = useParams();
+  const game = useGame(gameId);
+  const layout = useLayout(gameId);
+  const brush = useTools((state) => state.brush);
+  const setBrush = useTools((state) => state.setBrush);
+  const setTool = useTools((state) => state.setTool);
+  const setOption = useTools((state) => state.setOption);
+  return { gameId, game, layout, brush, setBrush, setTool, setOption };
 }

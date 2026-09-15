@@ -9,7 +9,7 @@ import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration.js';
 import { createLights, type Shadows } from './lights.ts';
 import { createDecals } from './decals.ts';
-import { colorOf, unlit } from './materials.ts';
+import { applyMaterial, colorOf, materialFrom, materialKey, surface, unlit } from './materials.ts';
 import { LEVEL_H } from '../data/dimensions.ts';
 import { normalizeEnv } from '../data/mapFormat.ts';
 import { tagPick } from './pick.ts';
@@ -24,6 +24,9 @@ import type { VfxInput } from '../data/vfx.ts';
 import type { VfxHandle } from './vfx.ts';
 import type { Placement } from './props.ts';
 import type { TerrainLayer } from './terrainLayer.ts';
+import { materialById } from '../data/materials.ts';
+import { fileUrl } from '../data/assets.ts';
+import { keep as keepInScene } from './sceneCache.ts';
 
 /**
  * The rule tables a map is drawn against.
@@ -45,6 +48,8 @@ export type MapContent = {
    */
   prefabs?: readonly unknown[];
   terrains?: readonly Terrain[];
+  /** The edge profiles blocks and edge overrides name. */
+  profiles?: readonly EdgeProfile[];
   materials?: readonly MaterialInput[];
   game?: string;
 };
@@ -53,6 +58,7 @@ import { applyFog } from './fog.ts';
 import { createVfxRuntime } from './vfx.ts';
 import { createPropRuntime } from './props.ts';
 import { createTerrainLayer } from './terrainLayer.ts';
+import type { EdgeProfile } from '../data/profiles.ts';
 import { skyEnvironment } from './environment.ts';
 import { VFX } from '../data/vfx.ts';
 
@@ -108,6 +114,7 @@ export function buildMapView(
     vfx: vfxDefs,
     props: propDefs,
     terrains: terrainDefs,
+    profiles: profileDefs,
     materials: materialDefs,
     game,
   } = content;
@@ -161,9 +168,49 @@ export function buildMapView(
       speed: env.cloudSpeed,
       angle: env.cloudAngle,
     });
-    decals.use();
+    decals.use(scene);
   }
   applyEnvironment();
+
+  // --- base water -------------------------------------------------------
+  // One deliberately simple sheet below the terrain. It is larger than the
+  // authored grid so an island never reveals a hard rectangular edge at the
+  // map boundary. It is not pickable: in the editor a ray must reach terrain
+  // and objects through transparent water rather than selecting the ocean.
+  const water = map.water;
+  if (water?.enabled) {
+    const margin = 12;
+    const plane = MeshBuilder.CreateGround(
+      'base-water',
+      { width: world.cols + margin * 2, height: world.rows + margin * 2 },
+      scene,
+    );
+    plane.position.set(world.cols / 2, (water.level ?? -1) * LEVEL_H, world.rows / 2);
+    plane.parent = root;
+    plane.isPickable = false;
+    plane.receiveShadows = true;
+
+    const named = materialDefs
+      ? materialDefs.find((material) => material.id === water.material)
+      : materialById(water.material ?? '');
+    if (named) {
+      const urlOf = (path: string) => fileUrl(path, game ?? '');
+      const material = keepInScene(scene, materialKey(named), () => materialFrom(named, scene, urlOf));
+      plane.material = applyMaterial(named, material, scene, urlOf);
+    } else {
+      // Visible enough to explain a missing choice instead of making the
+      // enabled switch appear broken. Owned because this fallback is not in
+      // the scene cache and belongs to this map view alone.
+      const fallback = surface('base-water:missing-material', scene, {
+        color: 0x176b87,
+        roughness: 0.18,
+        metallic: 0.05,
+      });
+      fallback.alpha = 0.72;
+      plane.material = fallback;
+      owned.push(fallback);
+    }
+  }
 
   // --- lighting ----------------------------------------------------------
   // Ambient is the map's flat base level: direction-free, casts no shadow, and
@@ -219,7 +266,7 @@ export function buildMapView(
   const against = {
     world,
     env,
-    content: { terrains: terrainDefs, materials: materialDefs, game },
+    content: { terrains: terrainDefs, profiles: profileDefs, materials: materialDefs, game },
     shadows,
     decals,
   };

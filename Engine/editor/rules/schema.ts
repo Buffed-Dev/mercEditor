@@ -182,6 +182,7 @@ export type OptionSource = {
   archetypeOptions: () => [string, string][];
   materialOptions: () => [string, string][];
   surfaceOptions: () => [string, string][];
+  profileOptions: () => [string, string][];
   /** Narrowed by asset kind: a colour map offers pictures, not models. */
 };
 
@@ -197,6 +198,7 @@ const SOURCES: Record<string, keyof OptionSource> = {
   prop: 'propOptions',
   prefab: 'prefabOptions',
   archetype: 'archetypeOptions',
+  profile: 'profileOptions',
   /**
    * A field of kind `material` names a *surface* — what a block or a prop is
    * drawn with. Not `materialOptions`, which is a different thing under a

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assetFrames, filePath, fileUrl, kindOfFile } from '../Engine/src/data/assets.ts';
+import { assetFrames, filePath, fileUrl, kindOfFile, registerFiles } from '../Engine/src/data/assets.ts';
 import {
   blockedTiles,
   defaultProp,
@@ -9,7 +9,7 @@ import {
 } from '../Engine/src/data/props.ts';
 import type { PropInput } from '../Engine/src/data/props.ts';
 import { normalizeMaterial } from '../Engine/src/data/materials.ts';
-import { safeFileName } from '../Engine/editor/uploadAsset.ts';
+import { badName, fileTypeOf } from '../Engine/editor/assets/model.ts';
 import { serializeMap } from '../Engine/editor/serialize.ts';
 import { mapDoc } from './helpers/terrainFixtures.ts';
 
@@ -43,14 +43,22 @@ test('a file is named relative to the folder of the record naming it', () => {
   assert.equal(filePath(undefined, 'wood.png'), 'wood.png');
 });
 
-test('a file url keeps the whole path, not just the name', () => {
+test('the editor fetches a file through the draft, by its whole path', () => {
   // Two folders may each hold a base_color.png and they are not the same
-  // picture -- which is the reason the manifest is keyed by path now.
+  // picture; and the editor sees the draft, not the published file.
   assert.equal(
     fileUrl('Materials/Grass/Grass_base_color.png', 'Merc'),
-    '/Games/Merc/assets/Materials/Grass/Grass_base_color.png',
+    '/__draft/file/Merc/assets/Materials/Grass/Grass_base_color.png',
   );
   assert.equal(fileUrl('', 'Merc'), '');
+});
+
+test('a file named by its id resolves to wherever the file is now', () => {
+  registerFiles(new Map([['fgrass', 'Terrain/Grass/top.png']]));
+  assert.equal(filePath('Anywhere/Else', 'fgrass'), 'Terrain/Grass/top.png');
+  registerFiles(new Map([['fgrass', 'Moved/top.png']]));
+  assert.equal(filePath('Anywhere/Else', 'fgrass'), 'Moved/top.png');
+  registerFiles(new Map());
 });
 
 test('the kind of a file follows from its extension', () => {
@@ -60,16 +68,15 @@ test('the kind of a file follows from its extension', () => {
   assert.equal(kindOfFile('no-extension'), 'texture');
 });
 
-test('a filename is cleaned up rather than refused', () => {
-  assert.equal(safeFileName('rock.glb'), 'rock.glb');
-  // What a modelling tool actually writes: spaces and brackets are fine, a
-  // slash is not — that one would be a path rather than a name.
-  assert.equal(safeFileName('rock (final)(2).glb'), 'rock _final__2_.glb');
-  assert.equal(safeFileName('../../etc/passwd.png'), 'asset ______etc_passwd.png');
-  // A kind of file nothing can read is refused outright: there is no sensible
-  // name to give it, because it is not an asset.
-  assert.equal(safeFileName('notes.txt'), '');
-  assert.equal(safeFileName('model.blend'), '');
+test('a file is imported by its extension, and a name has to be one segment', () => {
+  assert.equal(fileTypeOf('rock.glb'), 'model');
+  assert.equal(fileTypeOf('bark.PNG'), 'texture');
+  // A kind of file nothing can read is refused outright.
+  assert.equal(fileTypeOf('notes.txt'), null);
+  assert.equal(fileTypeOf('model.blend'), null);
+  assert.equal(badName('rock (final) 2'), null);
+  assert.ok(badName('../etc'));
+  assert.ok(badName(''));
 });
 
 test('a sprite sheet clip stays inside its own grid', () => {

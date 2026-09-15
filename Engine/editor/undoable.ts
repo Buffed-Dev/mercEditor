@@ -22,12 +22,19 @@ export function createUndoable<T>(initial: T) {
   const listeners = new Set<() => void>();
   /** How many times this document has changed. See history.ts. */
   let revision = 0;
+  const steps = new Set<() => void>();
   const notify = () => {
     revision++;
     for (const listener of listeners) listener();
   };
 
   return {
+    /** Hear about each new undo step, for the editor-wide history. */
+    onStep(listener: () => void): () => void {
+      steps.add(listener);
+      return () => steps.delete(listener);
+    },
+
     get revision() {
       return revision;
     },
@@ -59,6 +66,7 @@ export function createUndoable<T>(initial: T) {
       dirty = true;
       notify();
       if (!checkpointed) return;
+      for (const listener of steps) listener();
       undoStack.push(clone(state));
       if (undoStack.length > UNDO_LIMIT) undoStack.shift();
       redoStack.length = 0;

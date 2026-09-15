@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { TOOLS as TERRAIN_TOOLS } from '../terrain/tools.ts';
 import type { Snap } from '../gizmos.ts';
 
@@ -29,7 +30,8 @@ export type ToolId =
   | 'terrain.height'
   | 'terrain.paint'
   | 'terrain.erase'
-  | 'terrain.select';
+  | 'terrain.select'
+  | 'terrain.edge';
 
 export type ToolDef = {
   id: ToolId;
@@ -45,7 +47,7 @@ export type ToolDef = {
    * collide with an object tool's name — which is exactly why the ids here are
    * qualified and the mapping is written down rather than assumed.
    */
-  terrainTool?: 'select' | 'height' | 'paint' | 'erase';
+  terrainTool?: 'select' | 'height' | 'paint' | 'erase' | 'edge';
 };
 
 /**
@@ -71,6 +73,7 @@ export const TOOLS: readonly [ToolDef, ...ToolDef[]] = [
   { id: 'terrain.height', label: 'Sculpt', hint: 'Raise and lower the ground', group: 'terrain', shortcut: 'h', terrainTool: 'height' },
   { id: 'terrain.paint', label: 'Paint ground', hint: 'Lay a terrain down', group: 'terrain', shortcut: 't', terrainTool: 'paint' },
   { id: 'terrain.erase', label: 'Cut ground', hint: 'Take the ground away', group: 'terrain', shortcut: 'c', terrainTool: 'erase' },
+  { id: 'terrain.edge', label: 'Edge profile', hint: 'Paint which profile an exposed edge wears', group: 'terrain', shortcut: 'j', terrainTool: 'edge' },
   { id: 'terrain.select', label: 'Region', hint: 'Select a rectangle of ground', group: 'terrain', shortcut: 'k', terrainTool: 'select' },
 ] as const;
 
@@ -110,9 +113,15 @@ type ToolStore = {
   terrainId: string;
   setTerrainId: (id: string) => void;
 
-  /** Per terrain tool — a brush width means nothing to the rectangle tool. */
-  terrainOptions: Record<string, BrushOptions>;
-  setTerrainOption: (tool: string, key: string, value: string | number) => void;
+  /**
+   * Brush size and level, shared by every terrain tool.
+   *
+   * One flat bag rather than one per tool: size 2 on Paint and size 2 on
+   * Sculpt are the same fact ("how wide a brush"), not two settings that just
+   * happen to share a name, so switching tools must not reset them.
+   */
+  terrainOptions: BrushOptions;
+  setTerrainOption: (key: string, value: string | number) => void;
 
   /**
    * What the handles land on. See `Snap` in gizmos.ts.
@@ -129,7 +138,7 @@ type ToolStore = {
   setPlaceTurn: (deg: number) => void;
 };
 
-export const useTools = create<ToolStore>((set) => ({
+export const useTools = create<ToolStore>()(persist((set) => ({
   tool: 'select',
   setTool: (tool) => set({ tool }),
 
@@ -152,11 +161,13 @@ export const useTools = create<ToolStore>((set) => ({
   setPlaceTurn: (placeTurn) => set({ placeTurn: ((placeTurn % 360) + 360) % 360 }),
 
   terrainOptions: {},
-  setTerrainOption: (tool, key, value) =>
+  setTerrainOption: (key, value) =>
     set((state) => ({
-      terrainOptions: {
-        ...state.terrainOptions,
-        [tool]: { ...state.terrainOptions[tool], [key]: value },
-      },
+      terrainOptions: { ...state.terrainOptions, [key]: value },
     })),
+}), {
+  name: 'merc.editor.tools',
+  // Snap is a workspace preference. Brushes and active tools are momentary
+  // choices and should still start predictably on a fresh page.
+  partialize: (state) => ({ snap: state.snap }) as ToolStore,
 }));

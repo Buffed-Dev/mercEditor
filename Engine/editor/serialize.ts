@@ -10,7 +10,7 @@ import { literal, quote } from './literal.ts';
 import { DEFAULT_ENV, normalizeEnv } from '../src/data/mapFormat.ts';
 import type { GameMap } from '../src/data/mapFormat.ts';
 import type { TerrainGrid } from '../src/data/terrain/grid.ts';
-import { DEFAULT_RIM, normalizeRim, type RimRing } from '../src/data/terrain/profile.ts';
+import { DEFAULT_FOOT, DEFAULT_RIM, normalizeFoot, normalizeRim, type RimRing } from '../src/data/terrain/profile.ts';
 import { finite } from '../src/util/numbers.ts';
 
 /**
@@ -65,6 +65,21 @@ function rimLine(rim: readonly RimRing[] | null | undefined): string | null {
   if (same) return null;
   const body = rings.map((ring) => `{ inset: ${round(ring.inset)}, drop: ${round(ring.drop)} }`);
   return `  terrainRim: [\n${body.map((one) => `    ${one},`).join('\n')}\n  ],`;
+}
+
+function footLine(foot: GameMap['terrainFoot']): string | null {
+  if (!foot) return null;
+  const value = normalizeFoot(foot);
+  if (value.width === DEFAULT_FOOT.width && value.depth === DEFAULT_FOOT.depth) return null;
+  return `  terrainFoot: { width: ${+value.width.toFixed(3)}, depth: ${+value.depth.toFixed(3)} },`;
+}
+
+function waterLine(water: GameMap['water']): string | null {
+  if (!water) return null;
+  const enabled = Boolean(water.enabled);
+  const level = +num(water.level, -1).toFixed(3);
+  const material = quote(water.material ?? '');
+  return `  water: { enabled: ${enabled}, level: ${level}, material: ${material} },`;
 }
 
 /** A map's lists, reached by name. See schema.ts for the same shape. */
@@ -151,6 +166,12 @@ export function serializeMap(
   const grid = encodeTerrain(map.terrain, (lists.terrainIds as string[] | undefined) ?? [], charOf);
   const height = grid.height.map((row) => `    '${row}',`).join('\n');
   const terrain = grid.terrain.map((row) => `    '${row}',`).join('\n');
+  // Only the edges painted off their terrain's default; every other edge is auto.
+  const edgeOverrides = grid.edgeOverrides?.length
+    ? `\n  edgeOverrides: [\n${grid.edgeOverrides
+        .map((one) => `    { gx: ${one.gx}, gy: ${one.gy}, side: ${quote(one.side)}, profile: ${quote(one.profile)} },`)
+        .join('\n')}\n  ],\n`
+    : '';
   const keys = Object.entries(grid.terrainKeys)
     .map(([key, id]) => `${quote(key)}: ${quote(id)}`)
     .join(', ');
@@ -180,6 +201,8 @@ export function serializeMap(
       ? `  stepHeight: ${+num(map.stepHeight).toFixed(3)},`
       : null,
     rimLine(map.terrainRim),
+    footLine(map.terrainFoot),
+    waterLine(map.water),
     map.generated ? '  generated: true,' : null,
     map.chunkCount ? `  chunkCount: ${Math.round(num(map.chunkCount))},` : null,
   ]
@@ -265,7 +288,8 @@ export function serializeMap(
 // '1'-'9' above it. \`terrain\` is two characters per cell, keyed by
 // \`terrainKeys\`, and '..' where there is no cell at all. Which edges are
 // cliffs, which corners are bevelled and where one surface blends into another
-// are all worked out from these two grids — none of it is stored here.
+// are all worked out from these two grids — none of it is stored here, except
+// \`edgeOverrides\`: edges painted to a profile other than their terrain's default.
 // Coordinates in the lists below are integer tile indices.
 
 export const ${constName(map.id)} = {
@@ -281,7 +305,7 @@ ${height}
   terrain: [
 ${terrain}
   ],
-
+${edgeOverrides}
 
 ${spawns}
 

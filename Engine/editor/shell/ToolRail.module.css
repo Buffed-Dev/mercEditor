@@ -30,6 +30,17 @@
   background: var(--e-line-2);
 }
 
+/* Brush and level, shared by every terrain tool -- see the comment on
+   ToolRail's brushFields. A shorter label column than the rest of the editor:
+   "Brush" and "Level" are short words with a lot of icons for company, and
+   the wide gutter every panel uses would crowd them off the rail. */
+.brushFields {
+  --e-label: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 /* What Place would put down, kept visible while the left panel is showing
    something other than the asset shelves. Without this the brush is invisible
    the moment you switch to the Objects tab, and you paint the wrong thing. */

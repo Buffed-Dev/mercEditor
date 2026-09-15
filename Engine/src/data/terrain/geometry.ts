@@ -35,8 +35,8 @@
  * a future incremental rebuild a slice rewrite. Do not weld them.
  */
 
-import { cellMask, SIDES, type CellMask } from './mask.ts';
-import { normalizeRim, DEFAULT_RIM, type RimRing } from './profile.ts';
+import { cellMask, CORNER_FXY, SIDES, type CellMask } from './mask.ts';
+import { normalizeFoot, normalizeRim, DEFAULT_FOOT, DEFAULT_RIM, type FootProfile, type RimRing } from './profile.ts';
 import { levelAt, kindAt, EMPTY, type TerrainGrid } from './grid.ts';
 
 /** Side indices, named. Clockwise from +x: east, north, west, south. */
@@ -91,6 +91,9 @@ export type GeometryOptions = {
    * range for every cell, and the ones not emitted are empty.
    */
   only?: { gx: number; gy: number } | undefined;
+  /** Sides whose cliff ends against lower terrain and gets a softened foot. */
+  footSides?: number | undefined;
+  footProfile?: Partial<FootProfile> | null | undefined;
 };
 
 /**
@@ -287,6 +290,8 @@ export function buildTerrainGeometry(
   const baseY = options.baseY ?? -levelH;
   const uvScaleOf = options.uvScaleOf ?? (() => 1);
   const only = options.only;
+  const footSides = options.footSides ?? 0;
+  const foot = normalizeFoot(options.footProfile ?? DEFAULT_FOOT);
 
   const build = new MeshBuilder();
   const cellStart = new Int32Array(grid.cols * grid.rows * 2);
@@ -300,7 +305,7 @@ export function buildTerrainGeometry(
       if (kind !== EMPTY) {
         const mask = cellMask(grid, gx, gy);
         if (mask) {
-          emitCell(build, grid, gx, gy, kind, mask, rim, levelH, baseY, uvScaleOf(kind));
+          emitCell(build, grid, gx, gy, kind, mask, rim, levelH, baseY, uvScaleOf(kind), footSides, foot);
         }
       }
 
@@ -322,6 +327,8 @@ function emitCell(
   levelH: number,
   baseY: number,
   uvScale: number,
+  footSides: number,
+  foot: FootProfile,
 ): void {
   const surface = `surface:${kind}`;
   const cliff = `cliff:${kind}`;
@@ -377,21 +384,88 @@ function emitCell(
       const alongA = (side === EAST || side === WEST ? pa.z : pa.x) / scale;
       const alongB = (side === EAST || side === WEST ? pb.z : pb.x) / scale;
 
-      build.quad(
-        cliff,
-        [
-          { x: pa.x, y: pa.y, z: pa.z },
-          { x: pb.x, y: pb.y, z: pb.z },
-          { x: pb.x, y: bottom, z: pb.z },
-          { x: pa.x, y: bottom, z: pa.z },
-        ],
-        [
-          [alongA, -pa.y / scale],
-          [alongB, -pb.y / scale],
-          [alongB, -bottom / scale],
-          [alongA, -bottom / scale],
-        ],
-      );
+      const hasFoot = Boolean(footSides & (1 << side));
+      const bevelH = Math.min(levelH * 0.8, foot.depth);
+      const bevelW = foot.width;
+      // The template hangs below the neighbouring surface to prevent cracks;
+      // its actual bottom is buried. Shape the foot where that surface meets
+      // the cliff (one level down), then continue a hidden wall behind it.
+      const footY = -levelH;
+      const wallBottom = hasFoot ? footY + bevelH : bottom;
+      const outward: readonly [number, number] = side === EAST ? [bevelW, 0]
+        : side === WEST ? [-bevelW, 0] : side === NORTH ? [0, -bevelW] : [0, bevelW];
+
+      build.quad(cliff, [pa, pb, { ...pb, y: wallBottom }, { ...pa, y: wallBottom }], [
+        [alongA, -pa.y / scale], [alongB, -pb.y / scale],
+        [alongB, -wallBottom / scale], [alongA, -wallBottom / scale],
+      ]);
+      if (hasFoot) {
+        let lastA = { ...pa, y: wallBottom };
+        let lastB = { ...pb, y: wallBottom };
+        for (let ring = 1; ring <= 4; ring += 1) {
+          const turn = (ring / 4) * (Math.PI / 2);
+          const reach = 1 - Math.cos(turn);
+          const y = footY + bevelH * (1 - Math.sin(turn));
+          const nextA = { x: pa.x + outward[0] * reach, y, z: pa.z + outward[1] * reach };
+          const nextB = { x: pb.x + outward[0] * reach, y, z: pb.z + outward[1] * reach };
+          build.quad(cliff, [lastA, lastB, nextB, nextA], [
+            [alongA, -lastA.y / scale], [alongB, -lastB.y / scale],
+            [alongB, -y / scale], [alongA, -y / scale],
+          ]);
+          lastA = nextA;
+          lastB = nextB;
+        }
+        // Keep the buried wall behind the visible roll to seal the join.
+        build.quad(cliff, [{ ...pa, y: footY }, { ...pb, y: footY }, { ...pb, y: bottom }, { ...pa, y: bottom }], [
+          [alongA, -footY / scale], [alongB, -footY / scale],
+          [alongB, -bottom / scale], [alongA, -bottom / scale],
+        ]);
+      }
+    }
+  }
+  emitFootCorners(build, cliff, footSides, foot, top - levelH, gx, gy, scale);
+}
+
+const FOOT_DIRECTIONS: readonly (readonly [number, number])[] = [[1, 0], [0, -1], [-1, 0], [0, 1]];
+
+/** Join two neighbouring foot rolls with a rounded quarter-corner. */
+export function emitFootCorners(
+  build: MeshBuilder,
+  material: string,
+  feet: number,
+  foot: FootProfile,
+  footY: number,
+  minX: number,
+  minZ: number,
+  uvScale = 1,
+): void {
+  const depth = foot.depth;
+  for (let corner = 0; corner < 4; corner += 1) {
+    if (!(feet & (1 << corner)) || !(feet & (1 << ((corner + 1) % 4)))) continue;
+    const [fx, fz] = CORNER_FXY[corner]!;
+    const centreX = minX + fx;
+    const centreZ = minZ + fz;
+    const from = FOOT_DIRECTIONS[corner]!;
+    const to = FOOT_DIRECTIONS[(corner + 1) % 4]!;
+    const point = (ring: number, step: number): Vec3 => {
+      const turn = (ring / 4) * (Math.PI / 2);
+      const angle = (step / 4) * (Math.PI / 2);
+      const radius = foot.width * (1 - Math.cos(turn));
+      return {
+        x: centreX + radius * (from[0] * Math.cos(angle) + to[0] * Math.sin(angle)),
+        y: footY + depth * (1 - Math.sin(turn)),
+        z: centreZ + radius * (from[1] * Math.cos(angle) + to[1] * Math.sin(angle)),
+      };
+    };
+    for (let ring = 1; ring <= 4; ring += 1) {
+      for (let step = 0; step < 4; step += 1) {
+        const a = point(ring - 1, step);
+        const b = point(ring, step);
+        const c = point(ring, step + 1);
+        const d = point(ring - 1, step + 1);
+        const uv = (p: Vec3): UV => [p.x / uvScale, p.z / uvScale];
+        build.quad(material, [a, b, c, d], [uv(a), uv(b), uv(c), uv(d)]);
+      }
     }
   }
 }

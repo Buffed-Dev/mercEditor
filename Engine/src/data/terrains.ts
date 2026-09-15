@@ -3,11 +3,12 @@ import { TERRAINS as GAME_TERRAINS } from '#game';
 /**
  * A terrain type: what a patch of ground is made of.
  *
- * Deliberately small, and deliberately says nothing about shape. Which of the
- * six block meshes a tile gets, and how far it is turned, is worked out from
- * the tiles around it in terrain/mask.ts and terrain/templates.ts. Nothing here
- * can influence it, which is what keeps adding Snow to a data edit instead of a
- * code change.
+ * Deliberately small, and deliberately says nothing about shape *by default*.
+ * Which of the six block meshes a tile gets, and how far it is turned, is
+ * worked out from the tiles around it in terrain/mask.ts and
+ * terrain/templates.ts — that stays true for every shape a terrain leaves
+ * empty below. What a terrain *can* say is which authored mesh to use
+ * instead of the generated one, per shape; see "Authored block meshes".
  *
  * ## Two materials, and six overrides
  *
@@ -24,6 +25,15 @@ import { TERRAINS as GAME_TERRAINS } from '#game';
  * hanging it on the turned slot is the fix. A slot left empty falls back to the
  * unturned one, which is all a seamless texture ever needs.
  *
+ * ## Edge profiles
+ *
+ * What an exposed edge is *shaped* like is not the terrain's business: a
+ * terrain names a `defaultSideProfile` (see profiles.ts) and every exposed
+ * edge of it wears that profile, unless the map overrides that one edge. The
+ * profile's models are painted with this terrain's `sub` (side) material, so
+ * grass and sand can share a Soft Slope and still look like grass and sand.
+ * With no profile, edges draw the generated rim exactly as before.
+ *
  * There are no gameplay fields. Walkability comes from height, step height and
  * prop blockers exactly as it did; a terrain is what the ground looks like.
  */
@@ -37,7 +47,9 @@ export const TERRAIN_FIELDS = {
   char: { kind: 'text', label: 'Grid letter', maxLength: 2 },
 
   top: { kind: 'material', label: 'Top block' },
-  sub: { kind: 'material', label: 'Under block' },
+  sub: { kind: 'material', label: 'Side material' },
+
+  defaultSideProfile: { kind: 'profile', label: 'Default side profile' },
 
   top90: { kind: 'material', label: 'Top ¼ turn' },
   top180: { kind: 'material', label: 'Top ½ turn' },
@@ -47,6 +59,11 @@ export const TERRAIN_FIELDS = {
   sub270: { kind: 'material', label: 'Under ¾ turn' },
 
   tint: { kind: 'color', label: 'Tint', default: 0xffffff },
+  blendable: { kind: 'bool', label: 'Blendable', default: false },
+  blendGroup: { kind: 'text', label: 'Blend group' },
+  blendWidth: { kind: 'range', label: 'Transition width', min: 0.05, max: 0.45, step: 0.01, default: 0.22 },
+  blendNoiseScale: { kind: 'range', label: 'Noise scale', min: 0.25, max: 8, step: 0.25, default: 1 },
+  blendNoiseStrength: { kind: 'range', label: 'Noise strength', min: 0, max: 1, step: 0.05, default: 0.65 },
 } as const;
 
 /** The slots a rotation can override, in the order the panel shows them. */
@@ -76,6 +93,13 @@ export type Terrain = {
   sub180: string;
   sub270: string;
   tint: number;
+  blendable: boolean;
+  blendGroup: string;
+  blendWidth: number;
+  blendNoiseScale: number;
+  blendNoiseStrength: number;
+  /** The edge profile every exposed edge wears unless the map overrides it. '' for the generated rim. */
+  defaultSideProfile: string;
 };
 
 /**
@@ -109,6 +133,12 @@ export function defaultTerrain(id = 'terrain'): Terrain {
     sub180: '',
     sub270: '',
     tint: TERRAIN_FIELDS.tint.default,
+    blendable: TERRAIN_FIELDS.blendable.default,
+    blendGroup: '',
+    blendWidth: TERRAIN_FIELDS.blendWidth.default,
+    blendNoiseScale: TERRAIN_FIELDS.blendNoiseScale.default,
+    blendNoiseStrength: TERRAIN_FIELDS.blendNoiseStrength.default,
+    defaultSideProfile: '',
   };
 }
 
@@ -130,6 +160,12 @@ export function normalizeTerrain(terrain: Partial<Terrain> = {}): Terrain {
   // cell has no terrain, so a key containing whitespace could not be told apart
   // from a hole.
   full.char = String(full.char ?? '').replace(/\s/g, '').slice(0, 2) || 'te';
+  full.blendable = Boolean(full.blendable);
+  full.blendGroup = String(full.blendGroup ?? '').trim();
+  full.blendWidth = Math.min(0.45, Math.max(0.05, Number(full.blendWidth) || 0.22));
+  full.blendNoiseScale = Math.min(8, Math.max(0.25, Number(full.blendNoiseScale) || 1));
+  full.blendNoiseStrength = Math.min(1, Math.max(0, Number(full.blendNoiseStrength) || 0));
+  full.defaultSideProfile = typeof full.defaultSideProfile === 'string' ? full.defaultSideProfile : '';
   return full;
 }
 
@@ -138,6 +174,10 @@ export const TERRAINS: Terrain[] = ((GAME_TERRAINS as Partial<Terrain>[]) ?? [])
 const BY_ID = new Map(TERRAINS.map((terrain) => [terrain.id, terrain]));
 
 export const terrainById = (id: string): Terrain | null => BY_ID.get(id) ?? null;
+
+/** Whether two top surfaces may share an automatic transition. */
+export const canBlend = (a: Terrain | null | undefined, b: Terrain | null | undefined): boolean =>
+  Boolean(a?.blendable && b?.blendable && (!a.blendGroup || !b.blendGroup || a.blendGroup === b.blendGroup));
 
 /**
  * A lookup from terrain id to record, over whichever definitions are handed in.

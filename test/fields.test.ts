@@ -88,6 +88,18 @@ test('a value snaps to its grain and stays inside its ends', () => {
   assert.equal(quantise(spec, 99), 10);
 });
 
+test('a value snaps to its grain measured from min, not from zero', () => {
+  // A brush field of min 1, step 2 means odd sizes only — a brush has to have
+  // a middle. Snapping to bare multiples of the step (0, 2, 4…) would let a
+  // drag land on 2, which brushCells would then silently round up to 3 —
+  // showing one number while painting another.
+  const spec = resolveRange(range({ min: 1, max: 9, step: 2 }), 1);
+  assert.equal(quantise(spec, 2), 3);
+  assert.equal(quantise(spec, 4), 5);
+  assert.equal(quantise(spec, 1), 1);
+  assert.equal(quantise(spec, 9), 9);
+});
+
 test('a grain that does not divide cleanly still yields a writable number', () => {
   // 0.05 multiplied out lands on 0.15000000000000002, and that is the number
   // that would be written into the map file.

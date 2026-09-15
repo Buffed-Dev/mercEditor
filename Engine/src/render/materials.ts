@@ -155,7 +155,7 @@ export function pictureKey(
  * Kept per scene like the material. One texture object per material per file:
  * see `pictureKey` for why that rather than per tiling.
  */
-function pictureFor(
+export function pictureFor(
   def: MaterialInput,
   named: string | undefined,
   scene: Scene,

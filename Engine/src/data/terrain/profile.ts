@@ -14,6 +14,18 @@
 
 export type RimRing = { inset: number; drop: number };
 
+export type FootProfile = { width: number; depth: number };
+
+/** The visible roll where a cliff meets lower occupied terrain. */
+export const DEFAULT_FOOT: Readonly<FootProfile> = { width: 0.11, depth: 0.12 };
+
+export function normalizeFoot(foot: Partial<FootProfile> | null | undefined): FootProfile {
+  return {
+    width: clamp(Number(foot?.width) || DEFAULT_FOOT.width, 0.01, 0.3),
+    depth: clamp(Number(foot?.depth) || DEFAULT_FOOT.depth, 0.01, 0.3),
+  };
+}
+
 /**
  * How many rings a rim built from a width and a depth gets.
  *

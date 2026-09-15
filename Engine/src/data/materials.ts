@@ -28,8 +28,23 @@ import { MATERIALS as GAME_MATERIALS } from '#game';
 export const MATERIAL_FIELDS = {
   label: { kind: 'text', label: 'Name' },
 
-  texture: { kind: 'file', accept: 'texture', label: 'Colour map' },
+  texture: { kind: 'file', accept: 'texture', label: 'Colour' },
   color: { kind: 'color', label: 'Tint', default: 0xffffff },
+  variationEnabled: { kind: 'bool', label: 'Enabled', default: false },
+  variationColor: { kind: 'color', label: 'Colour', default: 0xb6a956, when: (values: Record<string, unknown>) => Boolean(values.variationEnabled) },
+  variationStrength: { kind: 'range', label: 'Strength', min: 0, max: 1, step: 0.01, default: 0.15, when: (values: Record<string, unknown>) => Boolean(values.variationEnabled) },
+  variationNoiseType: {
+    kind: 'select', label: 'Noise type', default: 'soft',
+    options: [
+      ['soft', 'Soft patches'],
+      ['clumps', 'Clumps'],
+      ['mottled', 'Mottled'],
+      ['streaks', 'Streaks'],
+    ],
+    when: (values: Record<string, unknown>) => Boolean(values.variationEnabled),
+  },
+  variationNoiseScale: { kind: 'range', label: 'Noise scale', min: 0.05, max: 4, step: 0.05, default: 0.35, when: (values: Record<string, unknown>) => Boolean(values.variationEnabled) },
+  variationNoiseStrength: { kind: 'range', label: 'Noise amount', min: 0, max: 1, step: 0.05, default: 0.7, when: (values: Record<string, unknown>) => Boolean(values.variationEnabled) },
   // A tiling factor is a multiplier, and the useful ones are between a half and
   // about eight — a straight scale to 32 puts all of them in a fifth of it.
   uScale: { kind: 'range', label: 'Tile across', min: 0.1, max: 32, step: 0.1, default: 1, curve: 'exp' },
@@ -42,27 +57,27 @@ export const MATERIAL_FIELDS = {
   // glTF packs occlusion, roughness and metalness into one picture's red, green
   // and blue. Given one, the two dials above stop being the answer and start
   // being a multiplier over it, which is what glTF means by them.
-  orm: { kind: 'file', accept: 'texture', label: 'Rough/metal map' },
+  orm: { kind: 'file', accept: 'texture', label: 'ORM map' },
 
-  bump: { kind: 'file', accept: 'texture', label: 'Normal map' },
-  bumpStrength: { kind: 'range', label: 'Normal strength', min: 0, max: 4, step: 0.05, default: 1 },
+  bump: { kind: 'file', accept: 'texture', label: 'Map' },
+  bumpStrength: { kind: 'range', label: 'Strength', min: 0, max: 4, step: 0.05, default: 1 },
 
   // Shadow in the creases, painted rather than computed. It only darkens what
   // the *environment* lights, which is why it was worth nothing until now.
-  ambient: { kind: 'file', accept: 'texture', label: 'Occlusion map' },
-  ambientStrength: { kind: 'range', label: 'Occlusion', min: 0, max: 1, step: 0.01, default: 1 },
+  ambient: { kind: 'file', accept: 'texture', label: 'Map' },
+  ambientStrength: { kind: 'range', label: 'Strength', min: 0, max: 1, step: 0.01, default: 1 },
 
-  emissive: { kind: 'color', label: 'Glow colour', default: 0x000000 },
-  emissiveMap: { kind: 'file', accept: 'texture', label: 'Glow map' },
-  emissiveStrength: { kind: 'range', label: 'Glow', min: 0, max: 4, step: 0.05, default: 0 },
+  emissive: { kind: 'color', label: 'Colour', default: 0x000000 },
+  emissiveMap: { kind: 'file', accept: 'texture', label: 'Map' },
+  emissiveStrength: { kind: 'range', label: 'Strength', min: 0, max: 4, step: 0.05, default: 0 },
 
   alpha: { kind: 'range', label: 'Opacity', min: 0, max: 1, step: 0.01, default: 1 },
   // A picture of what is solid, for a fence or a leaf whose colour map has no
   // alpha of its own. With one, `transparent` below has nothing left to decide.
-  opacityMap: { kind: 'file', accept: 'texture', label: 'Opacity map' },
-  transparent: { kind: 'bool', label: 'Use texture alpha', default: false },
-  backFaces: { kind: 'bool', label: 'Draw back faces', default: false },
-  unlit: { kind: 'bool', label: 'Ignore lighting', default: false },
+  opacityMap: { kind: 'file', accept: 'texture', label: 'Alpha map' },
+  transparent: { kind: 'bool', label: 'Texture alpha', default: false },
+  backFaces: { kind: 'bool', label: 'Back faces', default: false },
+  unlit: { kind: 'bool', label: 'Unlit', default: false },
 
   // A material whose pictures are sprite sheets, played in step.
   //
@@ -73,10 +88,10 @@ export const MATERIAL_FIELDS = {
   //
   // One column by one row is the whole picture, which is how a material that is
   // not a sheet says so without a switch to forget to set.
-  sheetColumns: { kind: 'range', label: 'Sheet columns', min: 1, max: 32, step: 1, default: 1 },
-  sheetRows: { kind: 'range', label: 'Sheet rows', min: 1, max: 32, step: 1, default: 1 },
-  sheetFrames: { kind: 'range', label: 'Sheet frames', min: 0, max: 1024, step: 1, default: 0 },
-  sheetFps: { kind: 'range', label: 'Sheet fps', min: 0.5, max: 60, step: 0.5, default: 12 },
+  sheetColumns: { kind: 'range', label: 'Columns', min: 1, max: 32, step: 1, default: 1 },
+  sheetRows: { kind: 'range', label: 'Rows', min: 1, max: 32, step: 1, default: 1 },
+  sheetFrames: { kind: 'range', label: 'Frames', min: 0, max: 1024, step: 1, default: 0 },
+  sheetFps: { kind: 'range', label: 'FPS', min: 0.5, max: 60, step: 0.5, default: 12 },
 } as const;
 
 /** A surface, as the renderer and the editor both understand it. */
@@ -101,6 +116,12 @@ export type Material = {
   emissiveMap: string;
   opacityMap: string;
   color: number;
+  variationEnabled: boolean;
+  variationColor: number;
+  variationStrength: number;
+  variationNoiseType: string;
+  variationNoiseScale: number;
+  variationNoiseStrength: number;
   uScale: number;
   vScale: number;
   uOffset: number;
@@ -173,6 +194,15 @@ export function normalizeMaterial(material: MaterialInput = {}): Material {
     if (given[key] !== undefined) (full as Record<string, unknown>)[key] = given[key];
   }
   full.label = material.label ?? full.id;
+  full.variationEnabled = Boolean(full.variationEnabled);
+  full.variationColor = Number(full.variationColor) || MATERIAL_FIELDS.variationColor.default;
+  full.variationStrength = Math.min(1, Math.max(0, Number(full.variationStrength) || 0));
+  const noiseTypes = new Set<string>(MATERIAL_FIELDS.variationNoiseType.options.map(([id]) => id));
+  if (!noiseTypes.has(full.variationNoiseType)) {
+    full.variationNoiseType = MATERIAL_FIELDS.variationNoiseType.default;
+  }
+  full.variationNoiseScale = Math.min(4, Math.max(0.05, Number(full.variationNoiseScale) || 0.35));
+  full.variationNoiseStrength = Math.min(1, Math.max(0, Number(full.variationNoiseStrength) || 0));
   return full;
 }
 

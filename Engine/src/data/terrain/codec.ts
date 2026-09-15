@@ -22,7 +22,13 @@
  * a map means the same thing forever, and it means you can read the file.
  */
 
-import { createGrid, idx, EMPTY, type TerrainGrid } from './grid.ts';
+import { createGrid, edgeValueOf, idx, EMPTY, AUTO, type TerrainGrid } from './grid.ts';
+
+/** Side names in the grid's side order, as a map file writes them. */
+const SIDE_NAMES = ['east', 'north', 'west', 'south'] as const;
+
+/** One overridden edge, as a map file writes it. Absent edges are auto. */
+export type EdgeOverride = { gx: number; gy: number; side: (typeof SIDE_NAMES)[number]; profile: string };
 
 /** Level 0 is '.' rather than '0': it is what a hand-written map already uses. */
 export const EMPTY_KEY = '..';
@@ -37,6 +43,8 @@ export type TerrainRows = {
   terrainKeys: Record<string, string>;
   /** Ramps, from map files written before they were removed. Read and dropped. */
   tops?: unknown[];
+  /** Edges painted to a profile other than their terrain's default. Sparse. */
+  edgeOverrides?: EdgeOverride[];
 };
 
 export type DecodeResult = {
@@ -112,7 +120,21 @@ export function encodeTerrain(
     terrain.push(terrainRow);
   }
 
-  return { height, terrain, terrainKeys: keys };
+  const edgeOverrides: EdgeOverride[] = [];
+  if (grid.edges && grid.edgeIds?.length) {
+    for (let i = 0; i < grid.kind.length; i += 1) {
+      if (grid.kind[i] === EMPTY) continue;
+      for (let side = 0; side < 4; side += 1) {
+        const value = grid.edges[i * 4 + side]!;
+        const profile = value === AUTO ? '' : grid.edgeIds[value - 1];
+        if (profile) {
+          edgeOverrides.push({ gx: i % grid.cols, gy: Math.floor(i / grid.cols), side: SIDE_NAMES[side]!, profile });
+        }
+      }
+    }
+  }
+
+  return { height, terrain, terrainKeys: keys, ...(edgeOverrides.length ? { edgeOverrides } : {}) };
 }
 
 /**
@@ -193,6 +215,22 @@ export function decodeTerrain(
       const i = idx(grid, gx, gy);
       grid.kind[i] = kind;
       grid.level[i] = levelFromChar(heightRow[gx] ?? GROUND_CHAR);
+    }
+  }
+
+  // Edge overrides, read last so a cell they name has been decoded. A map from
+  // before overrides has none, and every edge stays on auto.
+  const overrides = (rows as TerrainRows)?.edgeOverrides;
+  if (Array.isArray(overrides)) {
+    for (const one of overrides) {
+      const side = SIDE_NAMES.indexOf(one?.side as (typeof SIDE_NAMES)[number]);
+      const { gx, gy, profile } = one ?? ({} as EdgeOverride);
+      if (side < 0 || typeof profile !== 'string' || !profile || !Number.isInteger(gx) || !Number.isInteger(gy)) {
+        problems.push(`an edge override is malformed: ${JSON.stringify(one)}`);
+        continue;
+      }
+      if (gx < 0 || gy < 0 || gx >= cols || gy >= rowCount) continue;
+      grid.edges![idx(grid, gx, gy) * 4 + side] = edgeValueOf(grid, profile);
     }
   }
 

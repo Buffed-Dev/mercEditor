@@ -44,6 +44,20 @@ test('a map keeps the edge it was given, and says nothing about the one it was n
   assert.ok(!serializeMap(mapDoc(['..', '..']), () => 'gr').includes('terrainRim'));
 });
 
+test('a map keeps a tuned bottom edge and omits the default', () => {
+  const tuned = serializeMap(
+    mapDoc(['..', '..'], { terrainFoot: { width: 0.2, depth: 0.18 } }),
+    () => 'gr',
+  );
+  assert.match(tuned, /terrainFoot: \{ width: 0\.2, depth: 0\.18 \},/);
+
+  const plain = serializeMap(
+    mapDoc(['..', '..'], { terrainFoot: { width: 0.11, depth: 0.12 } }),
+    () => 'gr',
+  );
+  assert.ok(!plain.includes('terrainFoot'));
+});
+
 
 test('a map writes its terrain and its heights', () => {
   const grid = gridOf(['00', '01']);
@@ -63,6 +77,19 @@ test('a map writes its terrain and its heights', () => {
   assert.ok(!plain.includes('stepHeight'));
   // Ramps are gone, so nothing writes a slope list any more.
   assert.ok(!plain.includes('tops'));
+});
+
+test('a map keeps its base water level and material', () => {
+  const source = serializeMap(
+    mapDoc(['..', '..'], {
+      water: { enabled: true, level: -1.5, material: 'dark-water' },
+    }),
+    () => 'gr',
+  );
+  assert.match(source, /water: \{ enabled: true, level: -1\.5, material: 'dark-water' \},/);
+
+  const dry = serializeMap(mapDoc(['..', '..']), () => 'gr');
+  assert.ok(!dry.includes('water:'));
 });
 
 /**

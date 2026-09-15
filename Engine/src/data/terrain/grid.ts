@@ -28,7 +28,20 @@ export type TerrainGrid = {
   rows: number;
   level: Uint8Array;
   kind: Uint8Array;
+  /**
+   * Per-edge profile overrides, four per cell in side order (E, N, W, S): 0 is
+   * "auto" — use the terrain's default profile — and n is `edgeIds[n - 1]`.
+   *
+   * Optional, so a grid built by hand (or by a map written before overrides
+   * existed) simply has every edge on auto.
+   */
+  edges?: Uint8Array;
+  /** Profile ids by edge value - 1. Append-only, like a map's terrain ids. */
+  edgeIds?: string[];
 };
+
+/** "auto": an edge that wears its terrain's default profile. */
+export const AUTO = 0;
 
 export function createGrid(cols: number, rows: number): TerrainGrid {
   const n = Math.max(0, cols * rows);
@@ -37,7 +50,30 @@ export function createGrid(cols: number, rows: number): TerrainGrid {
     rows,
     level: new Uint8Array(n),
     kind: new Uint8Array(n),
+    edges: new Uint8Array(n * 4),
+    edgeIds: [],
   };
+}
+
+/** The profile id an edge is overridden to, or '' for auto. */
+export function edgeOverride(grid: TerrainGrid, gx: number, gy: number, side: number): string {
+  if (!grid.edges || !inBounds(grid, gx, gy)) return '';
+  const value = grid.edges[idx(grid, gx, gy) * 4 + (((side % 4) + 4) % 4)] ?? AUTO;
+  return value === AUTO ? '' : (grid.edgeIds?.[value - 1] ?? '');
+}
+
+/**
+ * The grid value for a profile id, adding it to the table if new. '' is auto.
+ * Makes the edge plane on a grid that has none yet.
+ */
+export function edgeValueOf(grid: TerrainGrid, id: string): number {
+  if (!grid.edges) grid.edges = new Uint8Array(grid.cols * grid.rows * 4);
+  if (!grid.edgeIds) grid.edgeIds = [];
+  if (!id) return AUTO;
+  const at = grid.edgeIds.indexOf(id);
+  if (at >= 0) return at + 1;
+  grid.edgeIds.push(id);
+  return grid.edgeIds.length;
 }
 
 export const idx = (grid: TerrainGrid, gx: number, gy: number): number => gy * grid.cols + gx;
@@ -72,7 +108,9 @@ export function resizeGrid(grid: TerrainGrid, cols: number, rows: number): Terra
     const to = gy * cols;
     next.level.set(grid.level.subarray(from, from + w), to);
     next.kind.set(grid.kind.subarray(from, from + w), to);
+    if (grid.edges) next.edges!.set(grid.edges.subarray(from * 4, (from + w) * 4), to * 4);
   }
+  next.edgeIds = [...(grid.edgeIds ?? [])];
   return next;
 }
 
@@ -82,6 +120,8 @@ export const cloneGrid = (grid: TerrainGrid): TerrainGrid => ({
   rows: grid.rows,
   level: grid.level.slice(),
   kind: grid.kind.slice(),
+  ...(grid.edges ? { edges: grid.edges.slice() } : {}),
+  ...(grid.edgeIds ? { edgeIds: [...grid.edgeIds] } : {}),
 });
 
 /** True when no cell anywhere has terrain. A map like this draws nothing. */

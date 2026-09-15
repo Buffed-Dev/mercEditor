@@ -1,4 +1,5 @@
-import { idx, EMPTY, type TerrainGrid } from '../../src/data/terrain/grid.ts';
+import { edgeValueOf, idx, EMPTY, type TerrainGrid } from '../../src/data/terrain/grid.ts';
+import { topologyOf } from '../../src/data/terrain/mask.ts';
 import { brushCells, rectCells, type Cell } from './shapes.ts';
 import type { Rect } from '../history.ts';
 import type { Stroke } from './stroke.ts';
@@ -99,9 +100,16 @@ export const paint: Tool = {
   fields: [SIZE],
   preview: (ctx, cell) => brushCells(ctx.grid, cell, size(ctx)),
   onDown(ctx, cell) {
+    // `kind` is EMPTY both for "no terrain chosen" and for the palette's own
+    // Empty entry — and a paint stroke must never read the first of those as
+    // the second. Erase already exists for taking ground away on purpose; a
+    // Paint with nothing picked has nothing to say and should say nothing,
+    // not quietly become Erase.
+    if (ctx.kind === EMPTY) return ctx.say('Pick a terrain to paint first', 'error');
     this.onMove!(ctx, cell);
   },
   onMove(ctx, cell) {
+    if (ctx.kind === EMPTY) return;
     for (const i of brushCells(ctx.grid, cell, size(ctx))) {
       // Painting into empty space creates ground at level 0. Painting over
       // ground keeps its height: you are saying what it is made of, not how
@@ -128,9 +136,59 @@ export const erase: Tool = {
     // what makes holes and island edges possible at all.
     for (const i of brushCells(ctx.grid, cell, size(ctx))) {
       write(ctx, i, { level: 0, kind: EMPTY });
+      // A cell that stops existing takes its edge overrides with it, so ground
+      // painted there again starts on its terrain's defaults.
+      for (let side = 0; side < 4; side += 1) ctx.stroke.setEdge(i, side, 0);
     }
   },
 };
+
+// --- edge profiles -----------------------------------------------------------
+
+/**
+ * Paint which profile individual exposed edges wear.
+ *
+ * The chosen profile id is `opts.edgeProfile`; '' is Auto, which clears the
+ * override so the edge wears its terrain's default again. Only exposed edges
+ * take paint — an edge nobody can see has nothing to be shaped like.
+ *
+ * With a one-cell brush it is the exposed edge nearest the pointer, so a
+ * corner tile's two edges can be painted apart; a wider brush paints every
+ * exposed edge it covers.
+ */
+export const edge: Tool = {
+  id: 'edge',
+  icon: 'stairs',
+  label: 'Edge profile',
+  continuous: true,
+  fields: [SIZE],
+  preview: (ctx, cell) => brushCells(ctx.grid, cell, size(ctx)),
+  onDown(ctx, cell) {
+    this.onMove!(ctx, cell);
+  },
+  onMove(ctx, cell) {
+    const value = edgeValueOf(ctx.grid, String(ctx.opts.edgeProfile ?? ''));
+    const single = size(ctx) <= 1;
+    for (const i of brushCells(ctx.grid, cell, size(ctx))) {
+      const gx = i % ctx.grid.cols;
+      const gy = Math.floor(i / ctx.grid.cols);
+      const sides = (topologyOf(ctx.grid, gx, gy) ?? 0) & 0b1111;
+      if (!sides) continue;
+      const exposed = [0, 1, 2, 3].filter((side) => sides & (1 << side));
+      const chosen = single ? [nearestSide(cell, exposed)] : exposed;
+      for (const side of chosen) ctx.stroke.setEdge(i, side, value);
+    }
+  },
+};
+
+/** Which of the offered sides the pointer is closest to. E=0, N=1, W=2, S=3. */
+export function nearestSide(cell: Cell, sides: readonly number[]): number {
+  if (cell.x === undefined || cell.z === undefined) return sides[0]!;
+  const fx = cell.x - cell.gx;
+  const fz = cell.z - cell.gy;
+  const distance = [1 - fx, fz, fx, 1 - fz];
+  return sides.reduce((best, side) => (distance[side]! < distance[best]! ? side : best), sides[0]!);
+}
 
 // --- height ----------------------------------------------------------------
 
@@ -228,7 +286,7 @@ export function stampRegion(ctx: ToolContext, region: Region, gx: number, gy: nu
 }
 
 /** Non-empty on purpose: an unknown id falls back to the first. */
-export const TOOLS: [Tool, ...Tool[]] = [select, height, paint, erase];
+export const TOOLS: [Tool, ...Tool[]] = [select, height, paint, erase, edge];
 
 export const toolById = (id: string): Tool => TOOLS.find((tool) => tool.id === id) ?? TOOLS[0];
 

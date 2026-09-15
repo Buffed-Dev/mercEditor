@@ -385,7 +385,12 @@ blend.y
      * the editor, say — has to point it at this registry again, or the ground
      * would still be painting the shapes of a map that is no longer on screen.
      */
-    use(): void {
+    use(scene?: Scene): void {
+      // The editor keeps terrain materials while rebuilding the map view. In
+      // that case this fresh registry never gets asked to create a material,
+      // so `slot` would stay null and changed cloud settings would keep feeding
+      // the previous registry forever. Claim the scene's existing slot here.
+      if (!slot && scene) slot = shared.get(scene) ?? ensureShared('ground:shared', scene);
       if (slot) slot.source = packed;
     },
 

@@ -47,15 +47,21 @@ Inside, the folder picker in the top bar moves between games without going back
 copying the game that is open, because a blank folder would have no attributes
 and no maps, which is not something the editor can open.
 
-It has three workspaces. **Map** edits the terrain, lights and objects of one
-map; **Rules** edits the attributes, effects, abilities, archetypes and items
-that govern actors, and never touches a map; **Library** holds the files a game
-brings with it and the things built out of them — materials, objects, terrains
-and effects — each shown on a little stage while you tune it. Fifteen sliders
-describe a puff of smoke and none of them tell you what it looks like, which is
-why that one has a viewport. Library and Rules are two views of one document, so
-an effect is saved and undone with the rules beside it. All three share one
-shell — the switch in the top bar moves between them.
+It has two workspaces. **Map Design** edits the terrain, lights and objects of
+one map, and its **Assets** tab is the game's `assets/` folder as a drive:
+folders you organise yourself, holding textures (`png jpg webp`), models
+(`glb gltf`) and json assets named `name.type.json` — `material`, `block`,
+`prefab`, `effect`. Clicking one opens it in the inspector, and the eye button
+there opens a live preview beside it; prefabs are dragged from the Assets tab
+onto the map. Every texture and model has a `.meta` sidecar holding its id, and
+everything refers to files and assets by id, so moving or renaming never breaks
+a reference. **Game Data** edits the rules and never touches a map.
+
+Nothing is saved by hand. Map and asset changes autosave to a draft in
+`Games/<game>/.draft/` (git-ignored), which the game never reads; **Publish** in
+the top bar checks that nothing names a missing asset, copies the draft into the
+game and removes it. Rules save straight into `rules/`. One undo history covers
+the whole session.
 
 An effect is named rather than copied: a map places one on a tile (a fire, a
 shine on a chest) and an ability names the one it throws when it lands, and both
@@ -98,10 +104,11 @@ Engine/             everything that is not a particular game
     dataDocument.ts every rules list, with one undo stack over all of them
     games.ts        the shelf: what games there are, opening and starting one
     save.ts         writing a map or the rules back, through the dev server
-    app/            one component per workspace: Map, Rules, Library, Home
+    app/            one component per workspace: Map, Rules, Prefab, Home
+    assets/         the Assets tab: tree, file operations, drafts, inspector, preview
     panels/ fields/ shell/ ui/    the interface the workspaces are built from
     state/          the stores: selection, tools, layout, status
-    preview/        the little stages the Library draws one record on
+    preview/        the little stages an asset is drawn on
     viewport/       Babylon mounted into React, and what a click on it means
 Games/
   Merc/             a game: everything about it that is not code

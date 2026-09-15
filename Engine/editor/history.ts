@@ -54,6 +54,7 @@ export function createHistory(limit = LIMIT) {
    * value that is guaranteed to differ after an edit.
    */
   let revision = 0;
+  const steps = new Set<() => void>();
   const notify = () => {
     revision++;
     for (const listener of listeners) listener();
@@ -94,7 +95,14 @@ export function createHistory(limit = LIMIT) {
       notify();
     },
 
+    /** Hear about each new undo step, for the editor-wide history. */
+    onStep(listener: () => void) {
+      steps.add(listener);
+      return () => steps.delete(listener);
+    },
+
     push(entry: HistoryEntry) {
+      for (const listener of steps) listener();
       undoStack.push(entry);
       if (undoStack.length > limit) undoStack.shift();
       // Anything you could have redone is a branch you have now left.

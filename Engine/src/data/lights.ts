@@ -70,7 +70,7 @@ export const LIGHT_TYPES = {
   },
   directional: {
     label: 'Sun',
-    hint: 'Parallel light across the whole map. Its tile only sets what the shadow camera looks at.',
+    hint: 'Parallel light across the whole map. Compass and height angle set its direction; position is ignored.',
     fields: ['color', 'intensity', 'azimuth', 'elevation', 'castShadow', 'shadowDarkness', 'shadowSoftness'],
   },
   hemisphere: {

@@ -1,0 +1,19 @@
+{
+  "id": "terrain2",
+  "char": "sa",
+  "top": "material2",
+  "sub": "material2",
+  "top90": "material2",
+  "top180": "material2",
+  "top270": "material2",
+  "sub90": "material2",
+  "sub180": "material2",
+  "sub270": "material2",
+  "tint": 16777215,
+  "blendable": false,
+  "blendGroup": "",
+  "blendWidth": 0.22,
+  "blendNoiseScale": 1,
+  "blendNoiseStrength": 0.65,
+  "defaultSideProfile": "profile"
+}

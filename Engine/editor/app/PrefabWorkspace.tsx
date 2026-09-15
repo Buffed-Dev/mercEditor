@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { redraw } from '../history.ts';
-import { useNavigate, useParams } from 'react-router';
-import { writeRules } from '../save.ts';
+import { useParams } from 'react-router';
+import { globalHistory } from '../globalHistory.ts';
+import { useGlobalHistory } from '../state/useGlobalHistory';
 import { Shell } from '../shell/Shell';
 import { DockPanel, type PanelTab } from '../shell/DockPanel';
 import { StatusBar } from '../shell/StatusBar';
@@ -50,13 +51,11 @@ type LeftTab = (typeof LEFT_TABS)[number]['id'];
  */
 export function PrefabWorkspace() {
   const { gameId = '', prefabId = '' } = useParams();
-  const navigate = useNavigate();
   const game = useGame(gameId);
   const layout = useLayout(gameId);
   const brush = useTools((state) => state.brush);
   const setTool = useTools((state) => state.setTool);
   const host = useRef<HTMLDivElement>(null);
-  const [gridVisible, setGridVisible] = useState(true);
   const [leftTab, setLeftTab] = useState<LeftTab>('assets');
 
   const rules = useDocument(game?.rules ?? null);
@@ -71,6 +70,7 @@ export function PrefabWorkspace() {
       prefabs: held?.list('prefabs') ?? [],
       materials: held?.list('materials') ?? [],
       terrains: held?.list('terrains') ?? [],
+      profiles: held?.list('profiles') ?? [],
       game: gameId,
     };
   }, [game, gameId]);
@@ -87,6 +87,7 @@ export function PrefabWorkspace() {
   }, [stage, game]);
 
   useMapTools(editor, doc);
+  const history = useGlobalHistory();
 
   /** The record being edited, out of the rules document. */
   const index = (rules?.list('prefabs') ?? []).findIndex((one) => one.id === prefabId);
@@ -112,15 +113,15 @@ export function PrefabWorkspace() {
   }, [editor, rules, prefabId, setTool]);
 
   useEffect(() => {
-    editor?.setGridVisible(gridVisible);
-  }, [editor, gridVisible]);
+    editor?.setGridVisible(layout.gridVisible);
+  }, [editor, layout.gridVisible]);
 
   useShortcuts({
-    onSave: () => void onSave(),
-    onUndo: () => { if (doc && editor) redraw(doc.undo(), editor); },
-    onRedo: () => { if (doc && editor) redraw(doc.redo(), editor); },
+    onSave: () => say('Changes save to the draft by themselves. Publish puts them into the game.'),
+    onUndo: history.undo,
+    onRedo: history.redo,
     onFrame: () => editor?.frameAll(),
-    onToggleGrid: () => setGridVisible((on) => !on),
+    onToggleGrid: layout.toggleGrid,
     onHelp: () => {},
     onEscape: () => {},
     onDelete: () => {
@@ -132,33 +133,28 @@ export function PrefabWorkspace() {
   });
 
   /**
-   * Write what was built back onto the record, and save the library with it.
-   *
-   * The prefab is a record in the rules document rather than a file of its own
-   * to post, so saving it is saving that — which is also what makes a prefab
-   * and the objects it names travel together.
+   * What is built on the stage is written back onto the prefab record as it
+   * changes, outside the asset history (the stage's own steps undo it), and the
+   * library autosave takes it to the draft from there.
    */
-  async function onSave() {
-    if (!doc || !rules || index < 0 || !record) return;
-    try {
-      rules.update('prefabs', index, mapToPrefab(doc.map, record as unknown as Prefab));
-      const files = await writeRules(gameId, rules.data);
-      rules.markSaved();
-      doc.markSaved();
-      say(`Wrote ${files} files`, 'good');
-    } catch (error) {
-      say(`Save failed: ${(error as Error).message}. Is the dev server running?`, 'error');
-    }
-  }
-
-  const dirty = Boolean(doc?.dirty || rules?.dirty);
-
+  const stageDoc = editor?.doc ?? null;
   useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+    if (!stageDoc || !editor || !rules) return;
+    const detach = globalHistory.attach(stageDoc, 'prefab', (result) => redraw(result as never, editor));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = stageDoc.subscribe(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const found = (rules.list('prefabs') ?? []).find((one) => one.id === prefabId);
+        if (found) rules.rewriteRecord('prefabs', prefabId, mapToPrefab(stageDoc.map, found as unknown as Prefab) as never);
+      }, 300);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+      detach();
+    };
+  }, [stageDoc, editor, rules, prefabId]);
 
   return (
     <Shell
@@ -167,17 +163,11 @@ export function PrefabWorkspace() {
         <TopBar
           game={gameId}
           gameLabel={game?.label ?? gameId}
-          canUndo={Boolean(doc?.canUndo)}
-          canRedo={Boolean(doc?.canRedo)}
-          onUndo={() => {
-            if (doc && editor) redraw(doc.undo(), editor);
-          }}
-          onRedo={() => {
-            if (doc && editor) redraw(doc.redo(), editor);
-          }}
-          dirty={dirty}
-          onSave={() => void onSave()}
-          onPlaytest={() => void navigate(`/${gameId}/library/prefabs/${prefabId}`)}
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          onUndo={history.undo}
+          onRedo={history.redo}
+          onPlaytest={() => window.open('/', '_blank')}
         />
       }
       left={
@@ -212,8 +202,8 @@ export function PrefabWorkspace() {
           // thrown away on the way out, so painting it would be work that
           // silently went nowhere.
           overlay={<ToolRail only={['select', 'move', 'rotate', 'scale', 'place', 'erase']} />}
-          gridVisible={gridVisible}
-          onToggleGrid={() => setGridVisible((on) => !on)}
+          gridVisible={layout.gridVisible}
+          onToggleGrid={layout.toggleGrid}
           onFrameAll={() => editor?.frameAll()}
         >
           <SnapControl />
@@ -232,7 +222,7 @@ export function PrefabWorkspace() {
             rules={rules}
             game={gameId}
             mapId={String(doc?.map.id ?? '')}
-            onPlaytest={() => void navigate(`/${gameId}/library/prefabs/${prefabId}`)}
+            onPlaytest={() => window.open('/', '_blank')}
             showMap={false}
           />
         </DockPanel>

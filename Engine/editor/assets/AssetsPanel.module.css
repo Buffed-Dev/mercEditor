@@ -1,0 +1,262 @@
+/* The Assets folder as a drive: where you are across the top, then the folder's
+   contents as a grid of cards that scrolls on its own. */
+
+.panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px 6px 8px;
+  border-bottom: 1px solid var(--e-line);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--e-fs-2);
+}
+
+.crumbWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.crumb {
+  max-width: 140px;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--e-fg-2);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb:hover:not(:disabled) {
+  background: var(--e-work);
+  color: var(--e-fg);
+}
+
+/* The folder you are in is not a link to itself. */
+.crumb:disabled {
+  color: var(--e-fg);
+  cursor: default;
+}
+
+.slash {
+  color: var(--e-fg-3);
+}
+
+.newButton {
+  flex: none;
+  gap: 4px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+  padding: 8px 6px;
+  align-content: start;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  outline: none;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 4px;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg-2);
+  font-size: var(--e-fs-5);
+  text-align: center;
+  cursor: default;
+  user-select: none;
+}
+
+.card:hover {
+  background: var(--e-work);
+  color: var(--e-fg);
+}
+
+.on,
+.on:hover {
+  background: var(--e-raised);
+  color: var(--e-fg);
+  box-shadow: inset 0 0 0 1px var(--e-accent);
+}
+
+/* A folder under a drag, and a crumb. */
+.over {
+  outline: 1px solid var(--e-accent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--e-accent) 14%, transparent);
+}
+
+.face {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--e-raised);
+  color: var(--e-fg-3);
+  overflow: hidden;
+}
+
+.faceFolder {
+  background: transparent;
+  color: var(--e-fg-2);
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.corner {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  color: var(--e-fg);
+  filter: drop-shadow(0 0 2px rgb(0 0 0 / 0.9));
+}
+
+/* Changed since the last publish. */
+.draftDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--e-accent);
+}
+
+.name {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rename {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 1px 3px;
+  font: inherit;
+  color: var(--e-fg);
+  background: var(--e-input);
+  border: 1px solid var(--e-accent);
+  border-radius: var(--e-r);
+  outline: none;
+  text-align: center;
+}
+
+.badge {
+  max-width: 100%;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: var(--e-fs-5);
+  line-height: 15px;
+}
+
+.bad {
+  background: color-mix(in srgb, var(--e-danger) 22%, transparent);
+  color: var(--e-danger);
+}
+
+.empty {
+  grid-column: 1 / -1;
+  padding: 12px 4px;
+  margin: 0;
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}
+
+.menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--e-panel);
+  border: 1px solid var(--e-line-2);
+  border-radius: var(--e-r-md);
+  box-shadow: var(--e-shadow);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: var(--e-row);
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--e-r);
+  background: transparent;
+  color: var(--e-fg);
+  font: inherit;
+  font-size: var(--e-fs-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover:not(:disabled),
+.menuItem:focus-visible {
+  background: var(--e-raised);
+  outline: none;
+}
+
+.menuItem:disabled {
+  color: var(--e-fg-3);
+  cursor: default;
+}
+
+.menuDanger {
+  color: var(--e-danger);
+}
+
+.menuDanger:hover:not(:disabled) {
+  background: var(--e-danger);
+  color: var(--e-on-accent);
+}
+
+.menuHint {
+  color: var(--e-fg-3);
+  font-size: var(--e-fs-5);
+}

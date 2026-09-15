@@ -47,7 +47,7 @@ export function FieldList({
 }) {
   return (
     <>
-      {groupFields(fields).map((row) =>
+      {groupFields(fields.filter((field) => !field.when || field.when(values))).map((row) =>
         row.kind === 'vector' ? (
           <VectorRow
             key={row.parts.map((part) => part.key).join('-')}

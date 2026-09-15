@@ -1,9 +1,9 @@
-import { HashRouter, Navigate, Route, Routes } from 'react-router';
+import { useEffect, useState } from 'react';
+import { HashRouter, Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router';
 import { Toasts } from '../ui/Toast';
 import { TooltipProvider } from '../ui/Tooltip';
 import { Home } from './Home';
 import { MapWorkspace } from './MapWorkspace';
-import { LibraryWorkspace } from './LibraryWorkspace';
 import { PrefabWorkspace } from './PrefabWorkspace';
 import { RulesWorkspace } from './RulesWorkspace';
 
@@ -20,30 +20,48 @@ import { RulesWorkspace } from './RulesWorkspace';
  * answer for every URL under it; a hash needs nothing, and still gives every
  * screen a link, a back button and a reload that returns you where you were.
  */
+/** Keep the expensive map/WebGL workspace alive while browsing the same game. */
+function GameWorkspace() {
+  const { gameId = '' } = useParams();
+  const location = useLocation();
+  const onMap = location.pathname === `/${gameId}/map`;
+  const [mapMounted, setMapMounted] = useState(onMap);
+  useEffect(() => {
+    if (onMap) setMapMounted(true);
+  }, [onMap]);
+
+  return (
+    <>
+      {mapMounted && (
+        <div style={{ display: onMap ? 'contents' : 'none' }}>
+          <MapWorkspace active={onMap} />
+        </div>
+      )}
+      {!onMap && <Outlet />}
+    </>
+  );
+}
+
 export function App() {
   return (
     <TooltipProvider>
       <HashRouter>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/:gameId/map" element={<MapWorkspace />} />
-        <Route path="/:gameId/rules" element={<RulesWorkspace />} />
+        <Route path="/:gameId" element={<GameWorkspace />}>
+        <Route path="map" element={null} />
+        <Route path="rules" element={<RulesWorkspace />} />
         {/* Which list and which record are in the URL, so a reference link is
             real navigation and the back button walks back out of the graph. */}
-        <Route path="/:gameId/rules/:list" element={<RulesWorkspace />} />
-        <Route path="/:gameId/rules/:list/:recordId" element={<RulesWorkspace />} />
-        {/* The records a map is drawn with, as opposed to the rules it is
-            played by. Reached from the asset browser, and linkable like the
-            rest. */}
+        <Route path="rules/:list" element={<RulesWorkspace />} />
+        <Route path="rules/:list/:recordId" element={<RulesWorkspace />} />
         {/* A prefab is built on a stage of its own: it is objects without a
             map, so there is no map for it to be a mode of. */}
-        <Route path="/:gameId/prefabs/:prefabId" element={<PrefabWorkspace />} />
-        <Route path="/:gameId/library" element={<LibraryWorkspace />} />
-        <Route path="/:gameId/library/:kind" element={<LibraryWorkspace />} />
-        <Route path="/:gameId/library/:kind/:recordId" element={<LibraryWorkspace />} />
+        <Route path="prefabs/:prefabId" element={<PrefabWorkspace />} />
         {/* A game with no workspace named is the map: it is the document, and
             the rules are a thing you go and look at about it. */}
-        <Route path="/:gameId" element={<Navigate to="map" replace />} />
+        <Route index element={<Navigate to="map" replace />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
         <Toasts />

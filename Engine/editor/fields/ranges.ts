@@ -101,12 +101,18 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 /**
  * Snap to the grain and hold inside the ends.
  *
+ * Grid-aligned to `min` rather than to zero: a brush field of min 1, step 2
+ * means odd sizes (1, 3, 5…) because a brush has to have a middle, and
+ * snapping to bare multiples of the step (0, 2, 4…) would let a drag land on
+ * 2 and then clip it into something the field never actually offered.
+ *
  * The rounding is to four decimals beyond the grain rather than to the grain
  * itself, because a grain of 0.05 multiplied out lands on 0.15000000000000002
  * — which is the number that would then be written into the map file.
  */
 export function quantise(range: Range, value: number, grain = range.step): number {
-  const snapped = Math.round(value / grain) * grain;
+  const base = range.clamps ? range.min : 0;
+  const snapped = base + Math.round((value - base) / grain) * grain;
   const held = range.clamps ? Math.min(range.max, Math.max(range.min, snapped)) : snapped;
   const decimals = (String(grain).split('.')[1] ?? '').length;
   return Number(held.toFixed(Math.max(decimals, 4)));

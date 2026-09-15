@@ -32,7 +32,13 @@
 import { EditorError } from '../src/util/errors.ts';
 
 /** The routes the plugin serves. Anything else is a typo, not a route. */
-export type Route = '/__maps' | '/__data' | '/__library' | '/__games' | '/__assets';
+export type Route =
+  | '/__maps'
+  | '/__data'
+  | '/__games'
+  | '/__draft/tree'
+  | '/__draft/ops'
+  | '/__publish';
 
 /** A JSON object. The only response shape any of these routes returns. */
 export type Body = Record<string, unknown>;

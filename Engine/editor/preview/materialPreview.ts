@@ -3,14 +3,15 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
 import { Color3 } from '@babylonjs/core/Maths/math.color.js';
-import { Vector3 } from '@babylonjs/core/Maths/math.vector.js';
-import { BILLBOARD } from '../../src/render/isoCamera.ts';
+import { Vector3, Vector4 } from '@babylonjs/core/Maths/math.vector.js';
 import { normalizeMaterial } from '../../src/data/materials.ts';
 import { applyMaterial, materialFrom, materialKey } from '../../src/render/materials.ts';
 import type { Surface, UrlOf } from '../../src/render/materials.ts';
 import type { MaterialInput } from '../../src/data/materials.ts';
 import type { Light } from '@babylonjs/core/Lights/light.js';
 import type { Scene } from '@babylonjs/core/scene.js';
+import { PBRCustomMaterial } from '@babylonjs/materials/custom/pbrCustomMaterial.js';
+import { createTerrainVariation } from '../../src/render/terrainVariation.ts';
 
 /**
  * A named surface, and the same surface being drawn.
@@ -39,6 +40,9 @@ export function createMaterialPreview() {
   let body: Mesh | null = null;
   let material: Surface | null = null;
   let materialFor = '';
+  let currentDef: MaterialInput | null = null;
+  let variationCoordinateScale = 1;
+  const variation = createTerrainVariation(() => currentDef);
 
   /** Drop the shape. The material outlives it — see `draw`. */
   function clear(): void {
@@ -95,6 +99,10 @@ export function createMaterialPreview() {
       if (!stage || !record) return clear();
       clear();
       const def = normalizeMaterial(record);
+      currentDef = def;
+      // The plane compresses a six-tile map sample into the preview window.
+      // Sample world-space variation over those same six logical tiles, too.
+      variationCoordinateScale = shape === 'plane' ? 6 / 2.35 : 1;
 
       // One unit across whatever the shape, because a tile is one unit and that
       // is the only scale a tiling factor can be judged against.
@@ -107,17 +115,22 @@ export function createMaterialPreview() {
                 // Two-sided, because which side of a plane faces you is a
                 // question the preview should not be able to get wrong: a
                 // material that culls its back faces would show nothing at all.
-                { size: 1.8, sideOrientation: Mesh.DOUBLESIDE },
+                {
+                  size: 2.35,
+                  sideOrientation: Mesh.DOUBLESIDE,
+                  // Show six repeats in each direction before the material's
+                  // own tiling is applied. This makes seams and repetition
+                  // readable without making the material settings lie.
+                  frontUVs: new Vector4(0, 0, 6, 6),
+                  backUVs: new Vector4(0, 0, 6, 6),
+                },
                 stage,
               )
             : MeshBuilder.CreateBox('matBody', { size: 1.3 }, stage);
 
-      // The plane is turned to face the camera rather than left lying in the
-      // world: a picture is looked at straight on, not at the map's angle. The
-      // game's own billboard orientation, which is the one that is correct for
-      // this camera in a right-handed scene — `lookAt` gets the handedness
-      // right and the facing wrong, and shows you the back of the plane.
-      if (shape === 'plane') body.rotationQuaternion = BILLBOARD.clone();
+      // Lay the plane on XZ exactly like terrain. Variation is world-space, so
+      // a camera-facing XY card loses one axis and can never resemble the map.
+      if (shape === 'plane') body.rotation.x = Math.PI / 2;
       body.isPickable = false;
 
       // Made once and written onto after that. Compiling a shader is what makes
@@ -127,7 +140,14 @@ export function createMaterialPreview() {
       const key = materialKey(def);
       if (key !== materialFor || !material) {
         material?.dispose(true, false);
-        material = materialFrom(def, stage, urlOf);
+        if (def.unlit) {
+          material = materialFrom(def, stage, urlOf);
+        } else {
+          const custom = new PBRCustomMaterial(`${def.id}:preview`, stage);
+          applyMaterial(def, custom, stage, urlOf);
+          variation.configure(custom, def.id, true, () => variationCoordinateScale);
+          material = custom;
+        }
         materialFor = key;
       } else {
         applyMaterial(def, material, stage, urlOf);

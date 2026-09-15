@@ -15,18 +15,33 @@ import type { HistoryEntry } from '../history.ts';
  * replaces the old brushes' `first` flag — a brush could build a tower under a
  * slow-moving cursor, and now the second write to a cell simply overwrites the
  * first rather than adding to it.
+ *
+ * A cell's four edge overrides are part of what is remembered, so painting an
+ * edge profile undoes the same way painting ground does.
  */
 export function beginStroke(grid: TerrainGrid, label = 'terrain') {
-  /** cell index -> the [level, kind] that was there before. */
-  const before = new Map<number, [number, number]>();
+  /** cell index -> [level, kind, edge E, N, W, S] as they were before. */
+  const before = new Map<number, number[]>();
   let x0 = Infinity;
   let y0 = Infinity;
   let x1 = -Infinity;
   let y1 = -Infinity;
 
+  const now = (i: number): number[] => [
+    grid.level[i]!,
+    grid.kind[i]!,
+    ...(grid.edges ? grid.edges.subarray(i * 4, i * 4 + 4) : [0, 0, 0, 0]),
+  ];
+  const put = (i: number, value: readonly number[]) => {
+    grid.level[i] = value[0]!;
+    grid.kind[i] = value[1]!;
+    if (grid.edges) grid.edges.set(value.slice(2, 6), i * 4);
+  };
+  const same = (a: readonly number[], b: readonly number[]) => a.every((value, at) => value === b[at]);
+
   const remember = (i: number, gx: number, gy: number) => {
     if (before.has(i)) return;
-    before.set(i, [grid.level[i]!, grid.kind[i]!]);
+    before.set(i, now(i));
     if (gx < x0) x0 = gx;
     if (gx > x1) x1 = gx;
     if (gy < y0) y0 = gy;
@@ -59,6 +74,16 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
     },
 
     /**
+     * Override one edge of a cell to a grid edge value, 0 being auto. See
+     * `edgeValueOf` in grid.ts for turning a profile id into one.
+     */
+    setEdge(i: number, side: number, value: number): void {
+      if (!grid.edges || !Number.isInteger(i) || i < 0 || i >= grid.level.length) return;
+      remember(i, i % grid.cols, Math.floor(i / grid.cols));
+      grid.edges[i * 4 + (((side % 4) + 4) % 4)] = value;
+    },
+
+    /**
      * The history entry for this gesture, or null if nothing actually changed.
      *
      * Painting grass onto grass touches cells and changes none of them, and an
@@ -67,9 +92,7 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
      */
     commit(): HistoryEntry | null {
       for (const [i, was] of before) {
-        if (was[0] === grid.level[i] && was[1] === grid.kind[i]) {
-          before.delete(i);
-        }
+        if (same(was, now(i))) before.delete(i);
       }
       if (!before.size) return null;
 
@@ -78,9 +101,8 @@ export function beginStroke(grid: TerrainGrid, label = 'terrain') {
       // is exactly self-inverse however many times it is run.
       const swap = () => {
         for (const [i, was] of before) {
-          before.set(i, [grid.level[i]!, grid.kind[i]!]);
-          grid.level[i] = was[0];
-          grid.kind[i] = was[1];
+          before.set(i, now(i));
+          put(i, was);
         }
       };
 

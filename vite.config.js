@@ -51,7 +51,7 @@ export default defineConfig({
      * plugin swallows the update for everything under Games/. This only puts
      * the file back in the watcher's sight so the module cache is dropped.
      */
-    watch: { ignored: ['**/Games/*/assets/**/*.{glb,gltf,png,jpg,jpeg,webp}'] },
+    watch: { ignored: ['**/Games/*/assets/**/*.{glb,gltf,png,jpg,jpeg,webp}', '**/Games/*/.draft/**'] },
   },
   build: {
     target: 'es2022',

@@ -7,14 +7,19 @@
  * second game a second folder rather than a second codebase.
  *
  * `rules/` is what the game is played by; `assets/` is what a map is drawn
- * with. The second used to be four more files in the first, naming files by an
- * id that pointed at a row in a fifth. It is folders now: a material is
- * `assets/Materials/Grass/`, holding `material.json` beside the two pictures it
- * names.
+ * with. `assets/` is organised however its author likes: an asset is found by
+ * its name, never by which folder it is in.
  *
- * Two things read it. The engine resolves `#game` to the folder it was built
- * for, so a published game carries exactly one of these. The editor loads any
- * of them by path at runtime, which is how it switches between games.
+ *   grass.material.json   a material
+ *   grass.block.json      a terrain block
+ *   camp.prefab.json      a prefab
+ *   fire.effect.json      an effect
+ *   softSlope.profile.json  an edge profile: the models an exposed edge is built from
+ *   rock.glb + rock.glb.meta, top.png + top.png.meta
+ *                         a model or a texture, and the sidecar holding its id
+ *
+ * Only what is published is read here. The editor keeps its unpublished work in
+ * `.draft/`, which nothing in this file looks at.
  */
 
 import { ATTRIBUTES } from './rules/attributes.js';
@@ -34,63 +39,84 @@ export const label = 'Merc';
 export const startMap = 'base';
 
 /**
- * The library: the records a map is drawn *with*, found rather than listed.
+ * Every json asset, found by its suffix anywhere under `assets/`.
  *
- * Each one is a folder under `assets/` holding a `<id>.<kind>.json` beside the
- * pictures and models it refers to, so the folder *is* the record — copy the
- * directory and you have copied the material, textures and all. The kind is in
- * the filename so that one glob can find every one of a kind without reading
- * anything; the id is in front of it so a folder opened outside the editor says
- * which material it holds.
- *
- * Found for the same reason the maps below are: the editor makes one of these
- * by writing a folder, so a list here would be a second place to remember. It
- * used to be exactly that — four arrays in `rules/` — and the two had already
- * drifted apart by nineteen files.
- *
- * Five spelled-out lines rather than a loop over five names, because a glob
- * pattern has to be a literal for the bundler to see through it. The try/catch
- * is for everything that is not Vite, where `import.meta.glob` does not exist
- * and an empty library beats a hard crash.
+ * Four spelled-out lines rather than a loop, because a glob pattern has to be a
+ * literal for the bundler to see through it. The try/catch is for everything
+ * that is not Vite, where `import.meta.glob` does not exist.
  */
 let found;
 try {
   found = {
-    materials: import.meta.glob('./assets/Materials/**/*.material.json', { eager: true, import: 'default' }),
-    props: import.meta.glob('./assets/Objects/**/*.object.json', { eager: true, import: 'default' }),
-    terrains: import.meta.glob('./assets/Terrain/**/*.terrain.json', { eager: true, import: 'default' }),
-    vfx: import.meta.glob('./assets/Effects/**/*.effect.json', { eager: true, import: 'default' }),
-    prefabs: import.meta.glob('./assets/Prefabs/**/*.prefab.json', { eager: true, import: 'default' }),
+    materials: import.meta.glob('./assets/**/*.material.json', { eager: true, import: 'default' }),
+    terrains: import.meta.glob('./assets/**/*.block.json', { eager: true, import: 'default' }),
+    vfx: import.meta.glob('./assets/**/*.effect.json', { eager: true, import: 'default' }),
+    prefabs: import.meta.glob('./assets/**/*.prefab.json', { eager: true, import: 'default' }),
+    profiles: import.meta.glob('./assets/**/*.profile.json', { eager: true, import: 'default' }),
   };
 } catch {
   found = {};
 }
 
+/** './assets/Terrain/Grass/grass.block.json' -> 'Terrain/Grass' */
+const folderOf = (key) => key.slice('./assets/'.length, key.lastIndexOf('/'));
+/** './assets/Terrain/Grass/grass.block.json' -> 'grass' */
+const stemOf = (key) => key.slice(key.lastIndexOf('/') + 1).split('.')[0];
+
 /**
- * One kind's records, in a stable order, each told where it lives.
- *
- * `path` is the folder the record was found in, and everything the record
- * names is relative to it. Derived here rather than written into the file: the
- * other way round, renaming a folder would mean rewriting every record inside
- * it to stay true, and the rename would become a thing that could half-fail.
- *
- * Sorted, because a glob hands them back in the filesystem's order and a list
- * that reshuffled between two machines would make every save a diff.
+ * One type's records, in a stable order, each told its folder and its name.
+ * The name is the file's, so a record never carries a second one.
  */
 const library = (modules = {}) =>
   Object.entries(modules)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, record]) => ({
-      ...record,
-      // './assets/Materials/Grass/grass.material.json' -> 'Materials/Grass'
-      path: key.slice('./assets/'.length, key.lastIndexOf('/')),
-    }));
+    .map(([key, record]) => ({ ...record, label: stemOf(key), path: folderOf(key) }));
 
 export const MATERIALS = library(found.materials);
-export const PROPS = library(found.props);
 export const TERRAINS = library(found.terrains);
 export const VFX = library(found.vfx);
 export const PREFABS = library(found.prefabs);
+export const PROFILES = library(found.profiles);
+
+/**
+ * The sidecars: each texture's and model's id, keyed back to the file.
+ */
+let metaModules;
+try {
+  metaModules = import.meta.glob('./assets/**/*.{glb,gltf,png,jpg,jpeg,webp}.meta', {
+    eager: true,
+    query: '?raw',
+    import: 'default',
+  });
+} catch {
+  metaModules = {};
+}
+
+/** File id -> path under `assets/`. */
+export const FILE_IDS = Object.fromEntries(
+  Object.entries(metaModules).flatMap(([key, text]) => {
+    try {
+      const fileId = JSON.parse(text).id;
+      return fileId ? [[fileId, key.slice('./assets/'.length, -'.meta'.length)]] : [];
+    } catch {
+      return [];
+    }
+  }),
+);
+
+/**
+ * A model is an asset on its own, with no json of its own: a prefab places it
+ * by its id. The object record the engine draws is made from the file.
+ */
+export const PROPS = Object.entries(FILE_IDS)
+  .filter(([, path]) => /\.(glb|gltf)$/i.test(path))
+  .sort(([, a], [, b]) => a.localeCompare(b))
+  .map(([fileId, path]) => ({
+    id: fileId,
+    label: path.slice(path.lastIndexOf('/') + 1).replace(/\.(glb|gltf)$/i, ''),
+    path: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '',
+    mesh: fileId,
+  }));
 
 /** Named exactly as the rules editor's lists are, because it hands them over. */
 export const rules = {
@@ -108,24 +134,12 @@ export const rules = {
   terrains: TERRAINS,
   props: PROPS,
   prefabs: PREFABS,
+  profiles: PROFILES,
 };
 
 /**
  * Where each file in `assets/` can actually be fetched from, by its path.
- *
- * A build renames everything it emits, so a model referenced by a string in a
- * record would be a 404 the moment the game was published. Asking the bundler
- * for the URL is the only way to know it; in dev the same call hands back the
- * plain path. Found rather than listed, for the same reason the maps below are.
- *
- * Keyed by path from `assets/` rather than by bare filename, now that the
- * files live in the folder of whatever names them: two materials may each own
- * a `base_color.png` and they are not the same picture.
- *
- * The extensions are spelled out so that the record files sitting beside these
- * are not emitted as assets of their own — they are modules the library glob
- * above already read, and a second copy of each in the build would be a
- * megabyte of nothing.
+ * Asking the bundler is the only way to know once a build has renamed them.
  */
 let assetModules;
 try {
@@ -143,11 +157,7 @@ export const ASSET_URLS = Object.fromEntries(
 );
 
 /**
- * Every map in the folder, found rather than listed: the editor makes a map by
- * writing a file, so a list here would be a second place to remember.
- *
- * The try/catch is for everything that is not Vite — `node --test`, say — where
- * `import.meta.glob` does not exist and an empty folder beats a hard crash.
+ * Every map in the folder, found rather than listed.
  */
 let modules;
 try {
@@ -158,9 +168,6 @@ try {
 
 export const maps = Object.entries(modules)
   .map(([path, module]) => {
-    // A map is the export carrying an id and a terrain grid. Recognised by
-    // shape rather than by name, because the editor writes the constant named
-    // after the map and a list here would be a second place to remember.
     const map = Object.values(module).find((value) => value?.id && value?.terrain);
     if (!map) console.warn(`[${id}] ${path} exports no map object (needs { id, terrain })`);
     return map;

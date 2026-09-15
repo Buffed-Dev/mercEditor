@@ -13,6 +13,7 @@ import { LEVEL_H } from '../../src/data/dimensions.ts';
 import { normalizeProp } from '../../src/data/props.ts';
 import { normalizePrefab } from '../../src/data/prefabs.ts';
 import { normalizeTerrain } from '../../src/data/terrains.ts';
+import { normalizeProfile, type ProfileInput } from '../../src/data/profiles.ts';
 import type { Light } from '@babylonjs/core/Lights/light.js';
 import type { Mesh } from '@babylonjs/core/Meshes/mesh.js';
 import type { Scene } from '@babylonjs/core/scene.js';
@@ -37,6 +38,8 @@ type DrawContext = {
   materials?: readonly MaterialInput[];
   /** The objects a prefab's contents name. Not needed for the other kinds. */
   props?: readonly PropInput[];
+  /** The edge profiles a block or a profile preview is drawn with. */
+  profiles?: readonly ProfileInput[];
   game?: string;
 };
 
@@ -148,10 +151,19 @@ export function createAssetPreview() {
       clear();
       if (!record) return;
 
-      const { kind = 'props', materials = [], props = [], game = '' } = context;
+      const { kind = 'props', materials = [], props = [], profiles = [], game = '' } = context;
 
       if (kind === 'props') return showProp(normalizeProp(record as PropInput));
-      if (kind === 'terrains') return showBlock(normalizeTerrain(record as Partial<Terrain>));
+      if (kind === 'terrains') return showBlock(normalizeTerrain(record as Partial<Terrain>), profiles);
+      // A profile is shown on a plain block wearing it, so its pieces are seen
+      // doing what they are for.
+      if (kind === 'profiles') {
+        const profile = normalizeProfile(record as ProfileInput);
+        return showBlock(normalizeTerrain({ id: 'profilePreview', defaultSideProfile: profile.id }), [
+          profile,
+          ...profiles.filter((one) => one.id !== profile.id),
+        ]);
+      }
       if (kind === 'prefabs') return showPrefab(record);
       return;
 
@@ -203,17 +215,20 @@ export function createAssetPreview() {
        * down each visible edge, and the corner where they meet. So the preview
        * answers "do my pieces line up" rather than only "what is this mesh".
        */
-      function showBlock(terrain: Terrain): void {
+      function showBlock(terrain: Terrain, withProfiles: readonly ProfileInput[]): void {
         // Hoisted above the check in `draw`, so it is made again here.
         if (!world || !root) return;
+        // Three by three with the north-east cell missing: straight edges,
+        // outer corners and — in the notch — an inner corner, all at once.
         const grid = createGrid(3, 3);
         for (let gy = 0; gy < 3; gy += 1) {
-          for (let gx = 0; gx < 3; gx += 1) grid.kind[idx(grid, gx, gy)] = 1;
+          for (let gx = 0; gx < 3; gx += 1) if (!(gx === 2 && gy === 0)) grid.kind[idx(grid, gx, gy)] = 1;
         }
 
         const patch = { terrain: grid, terrainIds: [terrain.id], map: {} };
         blockView = createTerrainLayer(world, patch, DEFAULT_ENV, {
           terrains: [terrain],
+          profiles: withProfiles.map(normalizeProfile),
           materials,
           game,
         });

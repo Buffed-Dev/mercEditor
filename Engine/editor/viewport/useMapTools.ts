@@ -71,6 +71,7 @@ const CURSOR: Record<ToolId, CursorMode> = {
   'terrain.paint': 'terrain',
   'terrain.erase': 'terrain',
   'terrain.select': 'terrain',
+  'terrain.edge': 'terrain',
 };
 
 /**
@@ -227,7 +228,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       }
 
       const spec = terrainToolById(toolById(active).terrainTool ?? 'paint');
-      const ctx = previewContext(current, useTools.getState().terrainOptions[spec.id] ?? {});
+      const ctx = previewContext(current, useTools.getState().terrainOptions);
       const cells = spec.preview?.(ctx as never, tile as never) ?? [];
       editor.setCellOverlay('brush', cells.length > 1 ? cells : [], current.terrain);
     };
@@ -240,9 +241,12 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       gesture.current.anchor = tile;
       gesture.current.last = tile;
       gesture.current.stroke = current.beginStroke(spec.label);
-      const ctx = terrainContext(current, terrainId, terrainOptions[spec.id] ?? {});
+      const ctx = terrainContext(current, terrainId, terrainOptions);
       spec.onDown?.(ctx as never, tile as never);
       marks(current, tile, ctx);
+      // onDown already writes the first tile. Show that write immediately;
+      // waiting for a move made a click look like a white preview until release.
+      editor.invalidateTerrain();
     };
 
     const terrainMove = (current: MapDoc, tile: Tile) => {
@@ -250,7 +254,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       const { terrainId, terrainOptions } = useTools.getState();
       const spec = terrainToolById(toolById(live.current.tool).terrainTool ?? 'paint');
       gesture.current.last = tile ?? gesture.current.last;
-      const ctx = terrainContext(current, terrainId, terrainOptions[spec.id] ?? {});
+      const ctx = terrainContext(current, terrainId, terrainOptions);
       spec.onMove?.(ctx as never, tile as never);
       marks(current, tile, ctx);
       // The stroke has already written the grid -- `set` mutates it on the spot
@@ -268,7 +272,7 @@ export function useMapTools(editor: MapEditor | null, doc: MapDoc | null) {
       if (!gesture.current.stroke) return;
       const { terrainId, terrainOptions } = useTools.getState();
       const spec = terrainToolById(toolById(live.current.tool).terrainTool ?? 'paint');
-      const ctx = terrainContext(current, terrainId, terrainOptions[spec.id] ?? {});
+      const ctx = terrainContext(current, terrainId, terrainOptions);
       spec.onUp?.(ctx as never, (gesture.current.last ?? gesture.current.anchor) as never);
       const stroke = gesture.current.stroke;
       gesture.current.stroke = null;

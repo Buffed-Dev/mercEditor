@@ -77,6 +77,8 @@ export type FieldSpec = {
   groups?: readonly { label: string; options: readonly (readonly [string, string])[] }[];
   maxLength?: number;
   default?: unknown;
+  /** Omit a dependent control until its parent setting enables it. */
+  when?: (values: Record<string, unknown>) => boolean;
 };
 
 /** What a field can hold once read back off its control. */

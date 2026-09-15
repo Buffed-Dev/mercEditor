@@ -34,10 +34,10 @@ import type { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';
 import type { PickTag } from '../src/render/pick.ts';
 import type { MapContent } from '../src/render/mapView.ts';
 import type { PlacedPrefab, Prefab } from '../src/data/prefabs.ts';
-import type { RimRing } from '../src/data/terrain/profile.ts';
+import type { FootProfile, RimRing } from '../src/data/terrain/profile.ts';
 import type { TerrainLayer } from '../src/render/terrainLayer.ts';
-import type { TerrainGrid } from '../src/data/terrain/grid.ts';
-import type { GameMap, MapObject, Placed } from '../src/data/mapFormat.ts';
+import { EMPTY, type TerrainGrid } from '../src/data/terrain/grid.ts';
+import { normalizeEnv, type GameMap, type MapObject, type Placed } from '../src/data/mapFormat.ts';
 import type { MapDoc, MapDocument } from './document.ts';
 import type { Selection } from './state/selection.ts';
 
@@ -47,7 +47,7 @@ import type { Selection } from './state/selection.ts';
  * is one. The tile is what terrain is painted on; the point is where a thing
  * is put down, since only terrain is tiles.
  */
-type Cell = { gx: number; gy: number; x?: number; z?: number };
+type Cell = { gx: number; gy: number; x?: number | undefined; z?: number | undefined };
 
 /** The rectangle the view is cut down to. */
 type Rect = { gx: number; gy: number; w: number; h: number };
@@ -847,13 +847,47 @@ export function createEditor({
     return group;
   }
 
-  /** Tile lines for the whole grid, so empty floor still reads as a grid. */
-  function buildGrid(cols: number, rows: number): LinesMesh {
+  /**
+   * Tile lines laid over each cell's actual top face.
+   *
+   * Empty cells stay on the editor floor. Raised terrain carries its square
+   * with it, so the grid remains a useful reading of the shape being sculpted
+   * instead of a flat reference hidden underneath it.
+   */
+  function gridLines(gridTerrain: TerrainGrid): Vector3[][] {
     const lines: Vector3[][] = [];
-    for (let x = 0; x <= cols; x++) lines.push([new Vector3(x, 0, 0), new Vector3(x, 0, rows)]);
-    for (let y = 0; y <= rows; y++) lines.push([new Vector3(0, 0, y), new Vector3(cols, 0, y)]);
+    const top = (gx: number, gy: number): number => {
+      if (gx < 0 || gy < 0 || gx >= gridTerrain.cols || gy >= gridTerrain.rows) return 0;
+      const at = gy * gridTerrain.cols + gx;
+      const surface = gridTerrain.kind[at] === EMPTY ? 0 : gridTerrain.level[at]! * LEVEL_H;
+      return surface + (gridTerrain.kind[at] === EMPTY ? 0 : (terrain?.visualOffsetAt(gx, gy) ?? 0));
+    };
 
-    const mesh = MeshBuilder.CreateLineSystem('grid', { lines }, scene);
+    for (let gy = 0; gy < gridTerrain.rows; gy += 1) {
+      for (let gx = 0; gx < gridTerrain.cols; gx += 1) {
+        const y = top(gx, gy);
+        // Top and left own the shared edge. A step gets the neighbour's edge
+        // too, at its own elevation, so both squares remain legible.
+        lines.push([new Vector3(gx, y, gy), new Vector3(gx + 1, y, gy)]);
+        lines.push([new Vector3(gx, y, gy), new Vector3(gx, y, gy + 1)]);
+        if (gy === gridTerrain.rows - 1 || top(gx, gy + 1) !== y) {
+          lines.push([new Vector3(gx, y, gy + 1), new Vector3(gx + 1, y, gy + 1)]);
+        } else {
+          // Keep a fixed line count so Babylon can update this mesh in place.
+          lines.push([new Vector3(gx, y, gy + 1), new Vector3(gx, y, gy + 1)]);
+        }
+        if (gx === gridTerrain.cols - 1 || top(gx + 1, gy) !== y) {
+          lines.push([new Vector3(gx + 1, y, gy), new Vector3(gx + 1, y, gy + 1)]);
+        } else {
+          lines.push([new Vector3(gx + 1, y, gy), new Vector3(gx + 1, y, gy)]);
+        }
+      }
+    }
+    return lines;
+  }
+
+  function buildGrid(terrain: TerrainGrid): LinesMesh {
+    const mesh = MeshBuilder.CreateLineSystem('grid', { lines: gridLines(terrain), updatable: true }, scene);
     mesh.color = Color3.Black();
     /*
      * Faint on purpose. The grid is there to be measured against when you go
@@ -954,10 +988,15 @@ export function createEditor({
       const gx = typeof cell === 'number' ? cell % (grid?.cols ?? 1) : cell.gx;
       const gy = typeof cell === 'number' ? Math.floor(cell / (grid?.cols ?? 1)) : cell.gy;
       const level = world?.levelAt(gx, gy) ?? 0;
+      const topOnly = name === 'brush';
       Matrix.Compose(
-        new Vector3(MARK_HUG, LEVEL_H * MARK_HUG, MARK_HUG),
+        new Vector3(MARK_HUG, topOnly ? 0.025 : LEVEL_H * MARK_HUG, MARK_HUG),
         Quaternion.Identity(),
-        new Vector3(gx + 0.5, (level - 0.5) * LEVEL_H, gy + 0.5),
+        new Vector3(
+          gx + 0.5,
+          topOnly ? level * LEVEL_H + 0.0125 : (level - 0.5) * LEVEL_H,
+          gy + 0.5,
+        ),
       ).copyToArray(matrices, n * 16);
     });
     layer.mesh.thinInstanceSetBuffer('matrix', matrices, 16);
@@ -1305,11 +1344,16 @@ export function createEditor({
    * because anything about it had changed. A few hundred line vertices, redrawn
    * every time you nudged a crate.
    */
-  function syncGrid(): void {
+  function syncGrid(force = false): void {
     if (!doc) return;
-    if (grid && gridSize.cols === doc.cols && gridSize.rows === doc.rows) return;
+    const sameSize = grid && gridSize.cols === doc.cols && gridSize.rows === doc.rows;
+    if (!force && sameSize) return;
+    if (sameSize && grid) {
+      MeshBuilder.CreateLineSystem('grid', { lines: gridLines(doc.terrain), instance: grid });
+      return;
+    }
     grid?.dispose(false, true);
-    grid = buildGrid(doc.cols, doc.rows);
+    grid = buildGrid(doc.terrain);
     grid.setEnabled(gridShown);
     gridSize = { cols: doc.cols, rows: doc.rows };
   }
@@ -1383,6 +1427,7 @@ export function createEditor({
 
     if (dirty.has('terrain')) {
       mapView?.blocks.refresh();
+      syncGrid(true);
       // Not `markers`: the set of them has not changed, only the ground they
       // are standing on. That distinction is the difference between moving
       // three heights and building forty meshes, on every pointer move.
@@ -1450,7 +1495,7 @@ export function createEditor({
       if (map) map.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
     }
 
-    syncGrid();
+    syncGrid(true);
     markers = buildMarkers(doc.map);
     // Built on the next drag rather than now: most rebuilds are not the start
     // of one, and walking the map to answer a question nobody asked is the
@@ -1650,6 +1695,30 @@ export function createEditor({
   }
 
   return {
+    /**
+     * Hover the tile under a point on the page, for something dragged in from
+     * outside the canvas (a prefab from the Assets panel), where no
+     * pointermove reaches the map.
+     */
+    hoverAt(clientX: number, clientY: number): Cell | null {
+      const event = { clientX, clientY } as PointerEvent;
+      const ray = pickingRay(event);
+      hover = tileUnderPointer(event, ray, castAt(ray));
+      listeners.hover?.(hover);
+      return hover;
+    },
+
+    /** Click the tile under a point on the page with the current tool: a drop. */
+    paintAt(clientX: number, clientY: number): boolean {
+      const event = { clientX, clientY } as PointerEvent;
+      const ray = pickingRay(event);
+      hover = tileUnderPointer(event, ray, castAt(ray));
+      if (!hover) return false;
+      listeners.paint?.(hover, true);
+      listeners.release?.();
+      return true;
+    },
+
     get doc() {
       return doc;
     },
@@ -1693,13 +1762,41 @@ export function createEditor({
       dirty.add('terrain');
     },
 
+    /** Re-apply edited terrain/material records without rebuilding the map. */
+    refreshTerrainMaterials() {
+      if (!world || !mapView) return;
+      mapView.blocks.retarget({
+        world,
+        env: mapView.env,
+        content: content?.() ?? {},
+        shadows: mapView.shadows,
+        decals: mapView.decals,
+      });
+    },
+
+    /** Push cloud sliders straight into the retained ground shader. */
+    previewClouds() {
+      if (!doc || !mapView) return;
+      const env = normalizeEnv(doc.map.env);
+      mapView.decals.setClouds({
+        strength: env.clouds ? env.cloudShade : 0,
+        scale: env.cloudScale,
+        speed: env.cloudSpeed,
+        angle: env.cloudAngle,
+      });
+      mapView.decals.use(scene);
+    },
+
     /**
      * A new edge profile. Rebakes the block shapes and swaps the geometry under
      * every bucket, keeping the materials — so this is what the rim sliders
      * call while they are being dragged.
      */
-    reprofile(rim: readonly RimRing[] | null | undefined) {
-      mapView?.blocks.setRim(rim);
+    reprofile(
+      rim: readonly RimRing[] | null | undefined,
+      foot?: Partial<FootProfile> | null,
+    ) {
+      mapView?.blocks.setRim(rim, foot ?? doc?.map.terrainFoot);
     },
 
     get selection() {
@@ -1991,6 +2088,9 @@ export function createEditor({
       // rebuild has already drawn the markers, and a terrain edit moves them
       // because they stand on the ground it just changed.
       if (dirty.size) sync();
+      // The terrain pop is visual only; let the grid ride the same offset so
+      // it still hugs the tile while the simulation already sees final data.
+      if (terrain?.animating) syncGrid(true);
 
       let forward = 0;
       let right = 0;

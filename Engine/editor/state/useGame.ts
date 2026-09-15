@@ -1,42 +1,76 @@
 import { useEffect, useState } from 'react';
 import { resetMaps } from '../../src/data/maps/index.ts';
+import type { GameMap } from '../../src/data/mapFormat.ts';
 import { createDataDocument } from '../dataDocument.ts';
 import { loadGame } from '../games.ts';
+import { globalHistory } from '../globalHistory.ts';
+import {
+  autosaveLibrary,
+  autosaveRules,
+  fetchTree,
+  listsFromTree,
+  refreshTree,
+  takeTree,
+  type DraftTree,
+} from '../assets/session.ts';
 import { say } from './status';
 
 export type LoadedGame = {
   id: string;
   label: string;
-  /** Every rules list, as one document — they cross-reference, so one history. */
+  /** Every rules list and the asset records, as one document. */
   rules: ReturnType<typeof createDataDocument>;
 };
 
 /**
  * The games opened this session, by id.
  *
- * A game is opened once and kept, because its rules document is a document:
- * it holds your unsaved work and its own undo history. Built fresh on every
- * mount -- which is what this did -- crossing between the map, the library and
- * a prefab threw both away without a word. Renaming a material and walking
- * next door to look at the terrain wearing it lost the rename.
- *
- * Kept in a module rather than in state because the point is to outlive the
- * component: every workspace mounts its own `useGame`, and they must be
- * handed the same document or "unsaved" means a different thing in each.
+ * Opened once and kept, because the document holds work and its history, and
+ * every workspace must be handed the same one.
  */
-const opened = new Map<string, { game: LoadedGame; maps: Parameters<typeof resetMaps>[0] }>();
+const opened = new Map<string, { game: LoadedGame; maps: readonly GameMap[] }>();
+
+/** A map module's text, run as a module, and the map it exports. */
+async function mapFromSource(text: string): Promise<GameMap | null> {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
+  try {
+    const module = (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
+    return (Object.values(module).find((value) => (value as GameMap)?.id && (value as GameMap)?.terrain) ??
+      null) as GameMap | null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 /**
- * Open a game folder: its manifest, its map registry and its rules document.
- *
- * Loading a game *replaces* the map registry rather than adding to it. The
- * registry was filled from whichever game this page was built against, so
- * without that the map list, the portal destinations and everything else that
- * reads MAPS would be a mixture of two games. Which is why the registry is
- * reset even for a game already open: another one may have been opened since.
- *
- * Every workspace uses this, which is what keeps "which game am I in" from
- * being answered several slightly different ways.
+ * The maps as the draft has them: a drafted map file is read from the draft,
+ * a published one is taken from the game module, and one the draft deleted is
+ * left out.
+ */
+async function draftMaps(game: string, tree: DraftTree, published: readonly GameMap[]): Promise<GameMap[]> {
+  const byId = new Map(published.map((map) => [map.id, map]));
+  const out: GameMap[] = [];
+  for (const entry of tree.entries) {
+    if (entry.dir || !entry.path.startsWith('maps/') || !entry.path.endsWith('.js')) continue;
+    const id = entry.path.slice('maps/'.length, -'.js'.length);
+    if (!entry.draft && byId.has(id)) {
+      out.push(byId.get(id)!);
+      continue;
+    }
+    try {
+      const response = await fetch(`/__draft/file?game=${encodeURIComponent(game)}&path=${encodeURIComponent(entry.path)}`);
+      const map = response.ok ? await mapFromSource(await response.text()) : null;
+      if (map) out.push(map);
+    } catch (error) {
+      say(`Could not read the draft of ${id}: ${(error as Error).message}`, 'error');
+    }
+  }
+  return out;
+}
+
+/**
+ * Open a game folder: its manifest, its maps and its document, all as the
+ * draft has them, with autosave running from then on.
  */
 export function useGame(id: string): LoadedGame | null {
   const [game, setGame] = useState<LoadedGame | null>(() => opened.get(id)?.game ?? null);
@@ -46,30 +80,44 @@ export function useGame(id: string): LoadedGame | null {
 
     const already = opened.get(id);
     if (already) {
-      resetMaps(already.maps);
+      // The registry already holds this game's maps, drafts written since
+      // included; resetting it to the list read at opening would lose those.
       setGame(already.game);
       return;
     }
 
     setGame(null);
-    void loadGame(id)
-      .then((module: { label?: string; rules?: object; maps?: Parameters<typeof resetMaps>[0] }) => {
-        if (!live) return;
-        const maps = module.maps ?? [];
-        resetMaps(maps);
-        // Checked again rather than assumed: two workspaces mounting at once
-        // would otherwise each build a document and the second would win.
-        const made = opened.get(id)?.game ?? {
-          id,
-          label: module.label ?? id,
-          rules: createDataDocument(module.rules ?? {}),
-        };
-        opened.set(id, { game: made, maps });
-        setGame(made);
-      })
-      .catch((error: unknown) => {
-        if (live) say(`Could not open ${id}: ${(error as Error).message}`, 'error');
-      });
+    void (async () => {
+      const module = (await loadGame(id)) as { label?: string; rules?: Record<string, unknown>; maps?: GameMap[] };
+      let tree: DraftTree | null = null;
+      try {
+        tree = await fetchTree(id);
+      } catch (error) {
+        say(`Could not read the draft, showing what is published: ${(error as Error).message}`, 'error');
+      }
+      const maps = tree ? await draftMaps(id, tree, module.maps ?? []) : (module.maps ?? []);
+      if (!live) return;
+      resetMaps(maps);
+      if (tree) takeTree(tree);
+
+      const made = opened.get(id)?.game ?? {
+        id,
+        label: module.label ?? id,
+        rules: createDataDocument({
+          ...(module.rules as object),
+          ...(tree ? listsFromTree(tree) : {}),
+        } as Parameters<typeof createDataDocument>[0]),
+      };
+      if (!opened.has(id)) {
+        globalHistory.attach(made.rules, 'asset');
+        autosaveLibrary(id, made.rules, () => void refreshTree(id));
+        autosaveRules(id, made.rules);
+      }
+      opened.set(id, { game: made, maps });
+      setGame(made);
+    })().catch((error: unknown) => {
+      if (live) say(`Could not open ${id}: ${(error as Error).message}`, 'error');
+    });
 
     return () => {
       live = false;

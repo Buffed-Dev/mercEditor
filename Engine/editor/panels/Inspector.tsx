@@ -1,8 +1,9 @@
-import { normalizeRim, rimOf } from '../../src/data/terrain/profile.ts';
+import { normalizeFoot, normalizeRim, rimOf } from '../../src/data/terrain/profile.ts';
 import { OBJECT_LISTS, fieldsFor } from '../schema.ts';
 import { ENV_GROUPS } from '../envGroups.ts';
 import { Field } from '../fields/Field';
 import { FieldList } from '../fields/FieldList';
+import { Stepped } from '../fields/Stepped';
 import { Wirings } from './subeditors/Wirings';
 import { EVENTS, eventApplies } from '../../src/game/events/index.ts';
 import { palette } from '../fields/color';
@@ -16,7 +17,7 @@ import styles from './Inspector.module.css';
 import type { DataDocument } from '../dataDocument.ts';
 import type { MapDocument } from '../document.ts';
 import type { MapEditor } from '../editor.ts';
-import type { TerrainRecord } from './AssetShelves';
+import type { TerrainRecord } from '../shell/ToolRail';
 
 /**
  * What the inspector is about is whatever is selected — and with nothing
@@ -187,6 +188,12 @@ export function Inspector({
   // width (the outermost inset) and a depth (the innermost drop).
   const edgeWidth = rim[0]!.inset;
   const edgeDepth = rim[rim.length - 1]!.drop;
+  const foot = normalizeFoot(doc.map.terrainFoot);
+  const water = {
+    enabled: Boolean(doc.map.water?.enabled),
+    level: Number(doc.map.water?.level ?? -1),
+    material: String(doc.map.water?.material ?? ''),
+  };
 
   return (
     <div className={styles.inspector}>
@@ -203,6 +210,56 @@ export function Inspector({
           onInput={(value) => edit.preview(() => doc.setMeta('stepHeight', value, false))}
           onChange={(value) => edit.commit(() => doc.setMeta('stepHeight', value, false))}
         />
+        {/*
+          Anchored top-left, and anything standing outside the new bounds is
+          dropped — see `resize` in document.ts. One undo step per click, the
+          same as every other stepper, so a shrink that ate something is one
+          Ctrl+Z away.
+        */}
+        <Stepped
+          field={{ key: 'cols', kind: 'range', label: 'Columns', min: 4, max: 128, step: 1 }}
+          value={doc.cols}
+          onChange={(value) => edit.commit(() => doc.resize(Math.round(value), doc.rows))}
+        />
+        <Stepped
+          field={{ key: 'rows', kind: 'range', label: 'Rows', min: 4, max: 128, step: 1 }}
+          value={doc.rows}
+          onChange={(value) => edit.commit(() => doc.resize(doc.cols, Math.round(value)))}
+        />
+      </Section>
+
+      <Section id="inspector:water" title="Base water">
+        <Field
+          field={{ key: 'waterEnabled', kind: 'bool', label: 'Enabled' }}
+          value={water.enabled}
+          onInput={() => {}}
+          onChange={(value) =>
+            edit.commit(() => doc.setMeta('water', { ...water, enabled: Boolean(value) }, false))
+          }
+        />
+        {water.enabled && (
+          <>
+            <Field
+              field={{ key: 'waterLevel', kind: 'range', label: 'Level', min: -12, max: 12, step: 0.1 }}
+              value={water.level}
+              onInput={(value) =>
+                edit.preview(() => doc.setMeta('water', { ...water, level: Number(value) }, false))
+              }
+              onChange={(value) =>
+                edit.commit(() => doc.setMeta('water', { ...water, level: Number(value) }, false))
+              }
+            />
+            <Field
+              field={{ key: 'waterMaterial', kind: 'material', label: 'Material' }}
+              value={water.material}
+              files={files}
+              onInput={() => {}}
+              onChange={(value) =>
+                edit.commit(() => doc.setMeta('water', { ...water, material: String(value ?? '') }, false))
+              }
+            />
+          </>
+        )}
       </Section>
 
       <Section id="inspector:rim" title="Terrain edge">
@@ -240,6 +297,32 @@ export function Inspector({
             edit.commit(() => doc.setMeta('terrainRim', rimOf(edgeWidth, Number(value)), false))
           }
         />
+        <Field
+          field={{ key: 'bottomWidth', kind: 'range', label: 'Bottom edge width', min: 0.01, max: 0.3, step: 0.01 }}
+          value={foot.width}
+          onInput={(value) =>
+            edit.preview(
+              () => doc.setMeta('terrainFoot', { ...foot, width: Number(value) }, false),
+              () => editor?.reprofile?.(doc.map.terrainRim, doc.map.terrainFoot),
+            )
+          }
+          onChange={(value) =>
+            edit.commit(() => doc.setMeta('terrainFoot', { ...foot, width: Number(value) }, false))
+          }
+        />
+        <Field
+          field={{ key: 'bottomDepth', kind: 'range', label: 'Bottom edge depth', min: 0.01, max: 0.3, step: 0.01 }}
+          value={foot.depth}
+          onInput={(value) =>
+            edit.preview(
+              () => doc.setMeta('terrainFoot', { ...foot, depth: Number(value) }, false),
+              () => editor?.reprofile?.(doc.map.terrainRim, doc.map.terrainFoot),
+            )
+          }
+          onChange={(value) =>
+            edit.commit(() => doc.setMeta('terrainFoot', { ...foot, depth: Number(value) }, false))
+          }
+        />
       </Section>
 
       {ENV_GROUPS.map((group) => {
@@ -249,7 +332,12 @@ export function Inspector({
             fields={group.fields}
             values={env}
             used={used}
-            onInput={(key, value) => edit.preview(() => doc.setEnv(key, value, false))}
+            onInput={(key, value) =>
+              edit.preview(
+                () => doc.setEnv(key, value, false),
+                group.key === 'clouds' ? () => editor?.previewClouds() : undefined,
+              )
+            }
             onChange={(key, value) => edit.commit(() => doc.setEnv(key, value, false))}
           />
         );

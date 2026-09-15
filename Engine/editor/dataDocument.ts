@@ -18,7 +18,8 @@ import {
 } from '../src/data/materials.ts';
 import { PROPS, PROP_FIELDS, defaultProp, normalizeProp } from '../src/data/props.ts';
 import { PREFABS, defaultPrefab, normalizePrefab } from '../src/data/prefabs.ts';
-import { ID_PATTERN, idFromLabel, LIBRARY_FILE_ONLY, LIBRARY_FOLDERS } from './serializeData.ts';
+import { PROFILES, defaultProfile, normalizeProfile } from '../src/data/profiles.ts';
+import { ID_PATTERN, idFromLabel } from './serializeData.ts';
 
 // Where a name becomes an id lives beside where it becomes a filename, so
 // the two cannot drift. Re-exported because this is where callers look.
@@ -83,6 +84,7 @@ const LISTS = [
   'terrains',
   'props',
   'prefabs',
+  'profiles',
 ];
 
 
@@ -115,6 +117,7 @@ const cleaners: Record<string, ((entry: RuleRecord) => unknown) | undefined> = {
   terrains: normalizeTerrain,
   props: normalizeProp,
   prefabs: normalizePrefab,
+  profiles: normalizeProfile,
 };
 
 const makers: Record<string, ((id: string) => unknown) | undefined> = {
@@ -132,41 +135,8 @@ const makers: Record<string, ((id: string) => unknown) | undefined> = {
   terrains: defaultTerrain,
   props: defaultProp,
   prefabs: defaultPrefab,
+  profiles: defaultProfile,
 };
-
-/**
- * `Stone Wall` → `StoneWall`: a label as the folder its record will live in.
- *
- * Only the first name it gets. Renaming the record afterwards does not move
- * the folder — the two are separate on purpose, so that filing something under
- * a name you later change does not rewrite paths under it.
- *
- * A file-only kind gets no folder of its own: it is written straight into
- * `into`, which is wherever you were standing. See `LIBRARY_FILE_ONLY`.
- */
-function folderFor(
-  list: string,
-  entries: readonly RuleRecord[],
-  label: string,
-  into = '',
-): string {
-  const top = LIBRARY_FOLDERS[list];
-  if (!top) return '';
-  // Where you are, if that is somewhere this kind lives; otherwise the top.
-  const base = into === top || into.startsWith(`${top}/`) ? into : top;
-  if (LIBRARY_FILE_ONLY.has(list)) return base;
-  const stem =
-    String(label)
-      .split(/[^A-Za-z0-9]+/)
-      .filter(Boolean)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('') || 'Record';
-  const taken = new Set(entries.map((entry) => String(entry.path ?? '').toLowerCase()));
-  for (let n = 1; ; n += 1) {
-    const path = `${base}/${stem}${n > 1 ? n : ''}`;
-    if (!taken.has(path.toLowerCase())) return path;
-  }
-}
 
 /** `attribute`, `attribute2`, `attribute3`… — the first id not already taken. */
 function freshId(entries: readonly RuleRecord[], stem: string): string {
@@ -214,6 +184,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
     terrains: (rules.terrains ?? TERRAINS).map(normalizeTerrain),
     props: (rules.props ?? PROPS).map(normalizeProp),
     prefabs: (rules.prefabs ?? PREFABS).map(normalizePrefab),
+    profiles: (rules.profiles ?? PROFILES).map(normalizeProfile),
   });
 
   const data = (): RulesData => history.state as RulesData;
@@ -348,6 +319,11 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       ]);
     },
 
+    /** Edge profile ids, for a terrain's default side profile and an edge override. */
+    profileOptions(): [string, string][] {
+      return listOf('profiles').map((one): [string, string] => [text(one.id), text(one.label) || text(one.id)]);
+    },
+
     /** Archetype ids, for the picker that makes a prefab an actor. */
     archetypeOptions(): [string, string][] {
       return listOf('archetypes').map((one): [string, string] => [text(one.id), text(one.label) || text(one.id)]);
@@ -398,6 +374,7 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
         terrains: 'terrain',
         props: 'prop',
         prefabs: 'prefab',
+        profiles: 'profile',
       };
       const make = makers[list];
       if (!make) return null;
@@ -407,8 +384,8 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       // A library record is a folder, so it gets one now rather than at save:
       // a record with nowhere to live is one a save would have to skip, and a
       // save that quietly skips something is the worst kind.
-      const path = folderFor(list, listOf(list), id, into);
-      if (path) entry.path = path;
+      // An asset is made in the folder you are looking at.
+      if (['materials', 'terrains', 'vfx', 'prefabs', 'profiles'].includes(list)) entry.path = into;
       const entries = rows(list);
       entries.push(entry);
       return { list, index: entries.length - 1 };
@@ -1024,6 +1001,45 @@ export function createDataDocument(rules: Partial<RulesData> = {}) {
       });
       return null;
     },
+
+    /**
+     * Put a whole record in, as one undo step: a duplicate, or an asset made
+     * with its name and folder already decided.
+     */
+    insert(list: string, record: RuleRecord): number {
+      history.checkpoint();
+      const clean = cleaners[list];
+      const entry = clean ? ({ ...record, ...(clean(record) as RuleRecord) } as RuleRecord) : record;
+      const entries = rows(list);
+      entries.push(entry);
+      return entries.length - 1;
+    },
+
+    /**
+     * Replace a list outside undo, in the present and every snapshot — for a
+     * list that is not edited here but read off the files (the models), or a
+     * record changed on disk behind the document's back.
+     */
+    replaceList(list: string, next: RuleRecord[]): void {
+      history.rewrite((state) => {
+        (state as RulesData)[list] = structuredClone(next);
+      });
+    },
+
+    /**
+     * Write one record's fields in the present and every snapshot, outside
+     * undo: for contents edited in a document of their own (a prefab on its
+     * stage), whose steps that document already undoes.
+     */
+    rewriteRecord(list: string, id: string, patch: RuleRecord): void {
+      history.rewrite((state) => {
+        const record = ((state as RulesData)[list] ?? []).find((one) => one.id === id);
+        if (record) Object.assign(record, structuredClone(patch));
+      });
+    },
+
+    /** Hear about each new undo step. See globalHistory.ts. */
+    onStep: (listener: () => void) => history.onStep(listener),
 
     undo: () => history.undo(),
     redo: () => history.redo(),

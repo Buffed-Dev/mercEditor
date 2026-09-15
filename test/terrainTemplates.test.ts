@@ -231,6 +231,32 @@ test('a stack block starts where the block above it stops', () => {
   );
 });
 
+test('only a cliff foot requested against lower terrain gets the bottom bevel', () => {
+  const templates = buildTemplates(RIM, LEVEL_H);
+  const plain = templates.sub(0b0001);
+  const softened = templates.sub(0b0001, 0b0001);
+
+  assert.ok(softened.indices.length > plain.indices.length, 'the foot adds its rounded strips');
+  assert.ok(
+    Math.max(...points(softened).map(([x]) => x)) > 0.5,
+    'the east foot rolls visibly out over the lower neighbour',
+  );
+  assert.equal(
+    templates.sub(0b0001, 0),
+    plain,
+    'a wall with no lower terrain at its foot keeps the original square ending',
+  );
+});
+
+test('two bottom bevels meeting at a corner grow a rounded corner patch', () => {
+  const templates = buildTemplates(RIM, LEVEL_H);
+  const joined = points(templates.sub(0b0011, 0b0011));
+  assert.ok(
+    joined.some(([x, , z]) => x > 0.5 && z < -0.5),
+    'the north-east gap is filled between the east and north rolls',
+  );
+});
+
 test('the same profile is baked once and kept', () => {
   assert.equal(buildTemplates(RIM, LEVEL_H), buildTemplates(RIM, LEVEL_H));
   // A different profile is a different set, or the rim sliders would do nothing.

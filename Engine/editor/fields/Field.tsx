@@ -30,7 +30,7 @@ export function FieldRow({
     <div className={styles.row}>
       {/* The gutter is a fixed width, so a long name ellipsises, and that is
           all it does — nothing pops up over the panel to tell you the rest. */}
-      <label className={styles.label} htmlFor={htmlFor}>
+      <label className={styles.label} htmlFor={htmlFor} title={label}>
         {label}
       </label>
       <div className={styles.control}>{children}</div>

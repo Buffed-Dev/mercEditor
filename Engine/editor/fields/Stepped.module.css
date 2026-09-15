@@ -1,0 +1,7 @@
+/* The field and its two buttons read as one control, so they sit flush
+   against it rather than at the row's usual gap. */
+.stepped {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}

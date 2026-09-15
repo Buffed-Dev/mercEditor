@@ -1,4 +1,9 @@
 import { Engine } from '@babylonjs/core/Engines/engine.js';
+// Babylon's modular build declares dynamic-texture methods in the engine type,
+// but installs their runtime implementation through this side-effect module.
+// The fullscreen GUI is a DynamicTexture and is created before trails or VFX
+// get a chance to register it themselves, so Play must install it up front.
+import '@babylonjs/core/Engines/Extensions/engine.dynamicTexture.js';
 import { Scene } from '@babylonjs/core/scene.js';
 import { Camera } from '@babylonjs/core/Cameras/camera.js';
 import { TargetCamera } from '@babylonjs/core/Cameras/targetCamera.js';

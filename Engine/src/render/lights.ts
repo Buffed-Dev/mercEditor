@@ -86,7 +86,7 @@ const TUNED_SUN_MAP = 2048;
  * torch's covers a few tiles, so the same fraction is a very different distance.
  */
 const SOFTNESS_TO_UV = 0.006;
-const SUN_SOFTNESS_TO_UV = 0.0015;
+const SUN_SOFTNESS_TO_UV = 0.1;
 
 /**
  * How far a receiver is pushed along its own normal before its depth is
@@ -203,6 +203,10 @@ function apply(
 
   if (generator) {
     generator.useContactHardeningShadow = true;
+    generator.usePercentageCloserFiltering = true;
+    generator.filteringQuality = ShadowGenerator.QUALITY_HIGH;
+    generator.bias = 0.0005;
+    generator.normalBias = 0.02;
     // The floor is on the authored softness; the scale turns it into the texels
     // of the map this generator actually draws to.
     generator.contactHardeningLightSizeUVRatio = Math.max(
